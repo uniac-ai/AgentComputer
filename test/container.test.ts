@@ -135,6 +135,10 @@ test(
     assert.equal((await sh("printenv AGENTCOMPUTER_INNER_TOKEN")).exitCode, 1);
     assert.match((await sh("grep CapEff /proc/self/status")).output, /CapEff:\s+0{16}/);
     assert.equal((await sh("id -u")).output.trim(), String(process.getuid?.()));
+    assert.equal(
+      (await sh("touch ~/.npm-can-write && mkdir -p ~/.npm && touch ~/.npm/x")).exitCode,
+      0,
+    );
 
     await sh("echo made > made.txt");
     assert.equal(readFileSync(join(workspace, "made.txt"), "utf8"), "made\n");

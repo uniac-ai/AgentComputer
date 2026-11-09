@@ -146,6 +146,7 @@ export class ContainerRuntime implements Runtime {
       ["logs", "--follow", "--since", inspected.State.StartedAt, name],
       { stdio: ["ignore", "pipe", "pipe"] },
     );
+    follower.on("error", (error) => events.log(`Its logs can't be followed: ${String(error)}`));
     for (const stream of [follower.stdout, follower.stderr])
       createInterface({ input: stream }).on("line", events.log);
     follower.once("close", () => {
