@@ -73,6 +73,22 @@ These take the control token, kept in the data folder. A computer's own endpoint
 
 `POST /v1/computers` is the only place an `accessToken` is shown. Failures are `{ "code": 404, "message": "..." }`.
 
+## SDK
+
+```ts
+import { Computer } from "@agentorg/computer";
+
+const computer = await Computer.create({ access: "terminal", browser: true, timeoutMs: 600_000 });
+const { exitCode, output } = await computer.commands.run("ls -la");
+await computer.files.write("notes.txt", "hello\n");
+const notes = await computer.files.read("notes.txt");
+await computer.kill();
+```
+
+It reads the control token from `AGENTCOMPUTER_API_KEY` and the address from `AGENTCOMPUTER_API_URL`, or takes `apiKey` and `apiUrl` as options. `computer.getMcpUrl("browser")` and `computer.getMcpToken()` give an MCP client what it needs, and `Computer.connect(id, { accessToken })` picks up a computer made earlier.
+
+`files.write` makes a new file or fills an empty one; `files.edit` changes one that has content. `files.read` returns the whole text, or fails if a line is longer than the tool can return.
+
 ## Known limits
 
 - Each browser's Playwright MCP listens on a loopback port with no token of its own, so another user on the same machine could reach it directly. Don't run this on a machine you share.
@@ -80,7 +96,7 @@ These take the control token, kept in the data folder. A computer's own endpoint
 
 ## Tests
 
-`npm test` runs the built service through the official MCP client, with a stand-in for Playwright. After changing `openapi.yaml`, `npm run generate` writes what comes from it; CI fails if that changes anything. Set `AGENTCOMPUTER_BROWSER_PATH` to a browser program to run the real one too.
+`npm test` runs the built service through the official MCP client, with a stand-in for Playwright, and one scenario through HTTP, MCP, the SDK and the CLI that fails if any operation in the schema isn't reached by each. After changing `openapi.yaml`, `npm run generate` writes what comes from it; CI fails if that changes anything. Set `AGENTCOMPUTER_BROWSER_PATH` to a browser program to run the real one too.
 
 ## Licence
 

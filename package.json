@@ -37,6 +37,7 @@
     "@modelcontextprotocol/node": "2.1.2",
     "@modelcontextprotocol/server": "2.4.0",
     "@types/node": "^22.20.5",
+    "ajv": "8.20.0",
     "esbuild": "0.28.2",
     "openapi-fetch": "0.17.0",
     "typescript": "^7.0.2",
