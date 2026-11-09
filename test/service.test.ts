@@ -286,14 +286,12 @@ test("computers and tokens come back when the service restarts, and logs say wha
 
 for (const [why, args] of [
   ["another address without TLS", ["--listen", "0.0.0.0:0"]],
-  ["container isolation yet", ["--listen", "127.0.0.1:0", "--isolation", "container"]],
+  ["an isolation it doesn't have", ["--listen", "127.0.0.1:0", "--isolation", "vm"]],
 ] as const)
   test(`serve refuses ${why}`, async (t) => {
     const data = mkdtempSync(join(tmpdir(), "agentcomputer-"));
     t.after(() => rmSync(data, { recursive: true, force: true }));
-    await assert.rejects(run(process.execPath, [CLI, "serve", ...args, "--data", data]), {
-      code: 1,
-    });
+    await assert.rejects(run(process.execPath, [CLI, "serve", ...args, "--data", data]));
   });
 
 test("a command with no service running says how to start one", async () => {

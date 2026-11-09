@@ -21,7 +21,7 @@ export const VERSION = "0.0.2";
 
 export function createHandlers(computers: Computers): Handlers {
   return {
-    getInfo: async () => ({ version: VERSION, isolation: "none" }),
+    getInfo: async () => ({ version: VERSION, isolation: computers.isolation }),
     listComputers: async ({ state }) => computers.list(state),
     createComputer: (input) => computers.create(input),
     getComputer: async ({ computerID }) => computers.get(computerID),

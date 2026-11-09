@@ -25,6 +25,13 @@ const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");
 const STAND_IN = join(here, "..", "..", "test", "fixtures", "playwright.js");
 const run = promisify(execFile);
+const IMAGE = process.env.AGENTCOMPUTER_TEST_IMAGE;
+const ISOLATIONS: [string, string[]][] = [
+  ["none", ["--playwright-cli", STAND_IN]],
+  ...(IMAGE
+    ? ([["container", ["--isolation", "container", "--image", IMAGE]]] as [string, string[]][])
+    : []),
+];
 
 function http(url: string, token: string): Surface {
   return async (operationId, input) => {
@@ -151,12 +158,12 @@ function checked(surface: Surface, reached: Set<string>) {
   };
 }
 
-async function scenario(surface: Surface, workspace: string) {
+async function scenario(surface: Surface, workspace: string, isolation: string) {
   const reached = new Set<string>();
   const call = checked(surface, reached);
 
   const info = (await call("getInfo")).value;
-  assert.equal(info.isolation, "none");
+  assert.equal(info.isolation, isolation);
 
   const made = (
     await call("createComputer", {
@@ -214,16 +221,23 @@ async function scenario(surface: Surface, workspace: string) {
   );
 }
 
-async function service(t: test.TestContext) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "agentcomputer-")));
+async function service(t: test.TestContext, extra: string[] = ["--playwright-cli", STAND_IN]) {
+  const root = realpathSync(
+    mkdtempSync(join(process.env.AGENTCOMPUTER_TEST_ROOT ?? tmpdir(), "agentcomputer-")),
+  );
   const data = join(root, "data");
   const workspace = join(root, "workspace");
   mkdirSync(workspace);
   const child: ChildProcess = spawn(
     process.execPath,
-    [CLI, "serve", "--listen", "127.0.0.1:0", "--data", data, "--playwright-cli", STAND_IN],
+    [CLI, "serve", "--listen", "127.0.0.1:0", "--data", data, ...extra],
     {
-      env: { PATH: process.env.PATH ?? "", HOME: root, SHELL: "/bin/bash" },
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: root,
+        SHELL: "/bin/bash",
+        ...(process.env.DOCKER_HOST ? { DOCKER_HOST: process.env.DOCKER_HOST } : {}),
+      },
       stdio: ["ignore", "pipe", "inherit"],
     },
   );
@@ -246,81 +260,90 @@ async function service(t: test.TestContext) {
 
 const loadSdk = () => import(pathToFileURL(join(dist, "sdk.js")).href) as Promise<Sdk>;
 
-test("the operations are the same through HTTP, MCP, the SDK and the CLI", async (t) => {
-  const { url, data, workspace, token } = await service(t);
-  await t.test("HTTP", () => scenario(http(url, token), workspace));
-  await t.test("MCP", async (inner) => {
-    const client = new Client({ name: "conformance", version: "1" });
-    await client.connect(
-      new StreamableHTTPClientTransport(new URL(`${url}/v1/mcp`), {
-        requestInit: { headers: { Authorization: `Bearer ${token}` } },
-      }),
+for (const [isolation, extra] of ISOLATIONS)
+  test(`with isolation ${isolation}, the operations are the same through HTTP, MCP, the SDK and the CLI`, {
+    timeout: 240_000,
+  }, async (t) => {
+    const { url, data, workspace, token } = await service(t, extra);
+    await t.test("HTTP", () => scenario(http(url, token), workspace, isolation));
+    await t.test("MCP", async (inner) => {
+      const client = new Client({ name: "conformance", version: "1" });
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(`${url}/v1/mcp`), {
+          requestInit: { headers: { Authorization: `Bearer ${token}` } },
+        }),
+      );
+      inner.after(() => client.close());
+      const { tools } = await client.listTools();
+      assert.deepEqual(
+        tools.map((tool) => tool.name).sort(),
+        OPERATIONS.map((one) => one.tool).sort(),
+      );
+      await scenario(mcp(client), workspace, isolation);
+    });
+    await t.test("SDK", async () =>
+      scenario(sdk(await loadSdk(), url, token), workspace, isolation),
     );
-    inner.after(() => client.close());
-    const { tools } = await client.listTools();
-    assert.deepEqual(
-      tools.map((tool) => tool.name).sort(),
-      OPERATIONS.map((one) => one.tool).sort(),
-    );
-    await scenario(mcp(client), workspace);
+    await t.test("CLI", () => scenario(cli(data), workspace, isolation));
   });
-  await t.test("SDK", async () => scenario(sdk(await loadSdk(), url, token), workspace));
-  await t.test("CLI", () => scenario(cli(data), workspace));
-});
 
 test("the service publishes the file it was built from, to anyone", async (t) => {
   const { url } = await service(t);
   assert.deepEqual(await (await fetch(`${url}/openapi.json`)).json(), OPENAPI);
 });
 
-test("a computer's commands and files through the SDK", async (t) => {
-  const { url, workspace, token } = await service(t);
-  const { Computer, ComputerError } = await loadSdk();
-  const opts = { apiUrl: url, apiKey: token };
-  const computer = await Computer.create({ ...opts, access: "terminal", workspace });
-  t.after(() => computer.close());
+for (const [isolation, extra] of ISOLATIONS)
+  test(`with isolation ${isolation}, a computer's commands and files through the SDK`, {
+    timeout: 120_000,
+  }, async (t) => {
+    const { url, workspace, token } = await service(t, extra);
+    const { Computer, ComputerError } = await loadSdk();
+    const opts = { apiUrl: url, apiKey: token };
+    const computer = await Computer.create({ ...opts, access: "terminal", workspace });
+    t.after(() => computer.close());
 
-  const ran = await computer.commands.run("echo out; exit 3");
-  assert.equal(ran.exitCode, 3);
-  assert.equal(ran.output.trim(), "out");
-  const slow = await computer.commands.run("sleep 0.5; echo done");
-  assert.equal(slow.exitCode, 0);
-  assert.equal(slow.output.trim(), "done");
+    const ran = await computer.commands.run("echo out; exit 3");
+    assert.equal(ran.exitCode, 3);
+    assert.equal(ran.output.trim(), "out");
+    const slow = await computer.commands.run("sleep 0.5; echo done");
+    assert.equal(slow.exitCode, 0);
+    assert.equal(slow.output.trim(), "done");
 
-  const started = await computer.commands.run("cat", { background: true });
-  assert.ok("sessionId" in started);
-  assert.match(await computer.commands.sendStdin(started.sessionId, "typed\n"), /typed/);
-  await computer.commands.sendStdin(started.sessionId, "\u0004");
+    const started = await computer.commands.run("cat", { background: true });
+    assert.ok("sessionId" in started);
+    assert.match(await computer.commands.sendStdin(started.sessionId, "typed\n"), /typed/);
+    await computer.commands.sendStdin(started.sessionId, "\u0004");
 
-  await computer.files.write("n.txt", "one\ntwo\n");
-  assert.equal(readFileSync(join(workspace, "n.txt"), "utf8"), "one\ntwo\n");
-  assert.equal(await computer.files.read("n.txt"), "one\ntwo\n");
-  await computer.files.edit("n.txt", "two", "three");
-  assert.equal(await computer.files.read("n.txt"), "one\nthree\n");
-  assert.deepEqual(await computer.files.search("three"), ["n.txt:2:three"]);
-  mkdirSync(join(workspace, "sub"));
-  assert.deepEqual(await computer.files.list(), [
-    { name: "sub", type: "dir" },
-    { name: "n.txt", type: "file", size: 10 },
-  ]);
+    await computer.files.write("n.txt", "one\ntwo\n");
+    assert.equal(readFileSync(join(workspace, "n.txt"), "utf8"), "one\ntwo\n");
+    assert.equal(await computer.files.read("n.txt"), "one\ntwo\n");
+    await computer.files.edit("n.txt", "two", "three");
+    assert.equal(await computer.files.read("n.txt"), "one\nthree\n");
+    assert.deepEqual(await computer.files.search("three"), ["n.txt:2:three"]);
+    mkdirSync(join(workspace, "sub"));
+    assert.deepEqual(await computer.files.list(), [
+      { name: "sub", type: "dir" },
+      { name: "n.txt", type: "file", size: 10 },
+    ]);
 
-  // Whole or not at all, across the pages and past the tool's limit on one answer.
-  const long = Array.from({ length: 1200 }, (_, i) => `${i}${"x".repeat(500)}`).join("\n");
-  writeFileSync(join(workspace, "long.txt"), long);
-  assert.equal(await computer.files.read("long.txt"), long);
-  writeFileSync(join(workspace, "wide.txt"), "y".repeat(3000));
-  await assert.rejects(computer.files.read("wide.txt"), ComputerError);
+    // Whole or not at all, across the pages and past the tool's limit on one answer.
+    const long = Array.from({ length: 1200 }, (_, i) => `${i}${"x".repeat(500)}`).join("\n");
+    writeFileSync(join(workspace, "long.txt"), long);
+    assert.equal(await computer.files.read("long.txt"), long);
+    writeFileSync(join(workspace, "wide.txt"), "y".repeat(3000));
+    await assert.rejects(computer.files.read("wide.txt"), ComputerError);
 
-  const again = await Computer.connect(computer.computerID, {
-    ...opts,
-    accessToken: computer.getMcpToken(),
+    const again = await Computer.connect(computer.computerID, {
+      ...opts,
+      accessToken: computer.getMcpToken(),
+    });
+    t.after(() => again.close());
+    assert.equal((await again.commands.run("echo back")).output.trim(), "back");
+    assert.equal(await again.isRunning(), true);
+    assert.equal(again.getMcpUrl(), computer.getMcpUrl());
+    assert.throws(() => again.getMcpUrl("browser"), ComputerError);
+    await computer.kill();
   });
-  t.after(() => again.close());
-  assert.equal((await again.commands.run("echo back")).output.trim(), "back");
-  assert.equal(await again.isRunning(), true);
-  assert.equal(again.getMcpUrl(), computer.getMcpUrl());
-  assert.throws(() => again.getMcpUrl("browser"), ComputerError);
-});
 
 test("the SDK takes its key and address from the environment, and refuses without one", async (t) => {
   const { url, token } = await service(t);
