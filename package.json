@@ -1,5 +1,5 @@
 {
-  "name": "agentcomputer",
+  "name": "@agentorg/computer",
   "version": "0.0.1",
   "description": "Computers for agents, as a service: a terminal, files and a browser over MCP",
   "license": "Apache-2.0",
@@ -31,12 +31,12 @@
     "@playwright/mcp": "0.0.84"
   },
   "devDependencies": {
+    "@agentorg/exec": "0.0.1",
     "@biomejs/biome": "2.6.5",
     "@modelcontextprotocol/client": "2.4.0",
     "@modelcontextprotocol/node": "2.1.2",
     "@modelcontextprotocol/server": "2.4.0",
     "@types/node": "^22.20.5",
-    "agentexec": "0.0.1",
     "esbuild": "0.28.2",
     "openapi-fetch": "0.17.0",
     "typescript": "^7.0.2",

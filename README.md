@@ -3,7 +3,7 @@
 Computers for agents, as a service. Each computer is a working folder, a terminal and files from [AgentExec](https://github.com/uniac-ai/AgentExec) at a level you choose, and a browser from Playwright MCP if you ask for one. Any MCP client can use them.
 
 ```sh
-npm install -g agentcomputer
+npm install -g @agentorg/computer
 agentcomputer serve
 ```
 

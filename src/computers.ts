@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isAbsolute, join, resolve } from "node:path";
-import { type AgentExec, createAgentExec } from "agentexec";
+import { type AgentExec, createAgentExec } from "@agentorg/exec";
 import { Browser, type BrowserConfig } from "./browser.ts";
 import type { components } from "./generated/schema.js";
 import { digestOf, newToken, privateFolder, sameToken, writePrivate } from "./store.ts";
