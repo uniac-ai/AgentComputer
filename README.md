@@ -53,7 +53,7 @@ The file tools stay inside the workspace. That's a check, not a boundary. Below 
 
 With no `--workspace`, the service makes a folder, which goes when the computer is killed. A folder you name is never deleted. A computer with a `--timeout` stops when it runs out, and its folder stays.
 
-The service listens on loopback. It refuses any other address, because it has no TLS yet.
+The service listens on loopback unless you give it TLS; see [Across a network](#across-a-network).
 
 The data folder is `--data`, else `$AGENTCOMPUTER_DATA`, else `$XDG_DATA_HOME/agentcomputer`, else `~/.local/share/agentcomputer`. It holds `control-token` and `server.json`, which the commands read.
 
@@ -98,6 +98,38 @@ It reads the control token from `AGENTCOMPUTER_API_KEY` and the address from `AG
 
 `files.write` makes a new file or fills an empty one; `files.edit` changes one that has content. `files.read` returns the whole text, or fails if a line is longer than the tool can return.
 
+## Across a network
+
+The service listens on loopback unless you give it TLS:
+
+```sh
+agentcomputer serve --listen 0.0.0.0:7878 \
+  --tls-cert cert.pem --tls-key key.pem --public-url https://computers.example.com:7878
+```
+
+`--tls-proxy` is the other way, when a proxy in front of it terminates TLS. It then listens in the clear, so keep that hop private. `--public-url` is the address clients reach it at, which the endpoints it gives out are built from. It's required with `--tls-proxy` and when listening on a wildcard address. Certificates are read at start, so restart it to renew one.
+
+A client using a private certificate authority trusts it through `NODE_EXTRA_CA_CERTS`.
+
+### The service as a container
+
+`ghcr.io/uniac-ai/agentcomputer/service` holds the service and the Docker client, for container isolation on a server:
+
+```sh
+docker run -d --name agentcomputer --network host \
+  --user "$(id -u):$(id -g)" --group-add "$(stat -c %g /var/run/docker.sock)" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /srv/agentcomputer:/srv/agentcomputer \
+  ghcr.io/uniac-ai/agentcomputer/service:VERSION \
+  serve --isolation container --data /srv/agentcomputer --listen 0.0.0.0:7878 \
+  --tls-cert /srv/agentcomputer/cert.pem --tls-key /srv/agentcomputer/key.pem \
+  --public-url https://computers.example.com:7878
+```
+
+- Its data folder, and any `--workspace`, have to be mounted at the same path inside as outside, because Docker reads those paths on the machine.
+- `--network host` is how it reaches each computer's port on the machine's loopback, so this needs Linux.
+- The socket gives it full control of that machine's Docker. Whoever holds the control token can make computers, but not reach the socket.
+
 ## Known limits
 
 - With no isolation, each browser's Playwright MCP listens on a loopback port with no token of its own, so another user on the same machine could reach it directly. Don't run that on a machine you share.
@@ -107,7 +139,7 @@ It reads the control token from `AGENTCOMPUTER_API_KEY` and the address from `AG
 
 ## Tests
 
-`npm test` runs the built service through the official MCP client, with a stand-in for Playwright, and one scenario through HTTP, MCP, the SDK and the CLI that fails if any operation in the schema isn't reached by each. Set `AGENTCOMPUTER_TEST_IMAGE` to a built image (`npm run build`, then `docker build .`) to run the same suite on containers, with `AGENTCOMPUTER_TEST_ROOT` naming a folder Docker can mount if the temporary one isn't. After changing `openapi.yaml`, `npm run generate` writes what comes from it; CI fails if that changes anything. Set `AGENTCOMPUTER_BROWSER_PATH` to a browser program to run the real one too.
+`npm test` runs the built service through the official MCP client, with a stand-in for Playwright, and one scenario through HTTP, MCP, the SDK and the CLI that fails if any operation in the schema isn't reached by each. Set `AGENTCOMPUTER_TEST_IMAGE` to a built image (`npm run build`, then `docker build .`) to run the same suite on containers, and `AGENTCOMPUTER_TEST_SERVICE_IMAGE` to one from `Dockerfile.service` to run the service itself as a container, with `AGENTCOMPUTER_TEST_ROOT` naming a folder Docker can mount if the temporary one isn't. After changing `openapi.yaml`, `npm run generate` writes what comes from it; CI fails if that changes anything. Set `AGENTCOMPUTER_BROWSER_PATH` to a browser program to run the real one too.
 
 ## Licence
 

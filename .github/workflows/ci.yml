@@ -35,5 +35,7 @@ jobs:
           export AGENTCOMPUTER_BROWSER_PATH="$(ls -d ~/.cache/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell)"
           npm run build
           docker build -t agentcomputer-computer:test .
+          docker build -f Dockerfile.service -t agentcomputer-service:test .
           export AGENTCOMPUTER_TEST_IMAGE=agentcomputer-computer:test
+          export AGENTCOMPUTER_TEST_SERVICE_IMAGE=agentcomputer-service:test
           npm test

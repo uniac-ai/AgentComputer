@@ -14,8 +14,10 @@ import { serve } from "./service.ts";
 const USAGE = `Usage: agentcomputer <command> [--data DIR]
 
   serve [--listen HOST:PORT] [--isolation none|container] [--image IMAGE]
+        [--tls-cert FILE --tls-key FILE | --tls-proxy] [--public-url URL]
         [--browser-name NAME] [--browser-path PATH]
-                                    run the service; 127.0.0.1:7878 by default
+                                    run the service; 127.0.0.1:7878 by default, and
+                                    anywhere else only with TLS
   info                              the service's version and isolation
   create --access none|read|files|terminal [--browser] [--workspace DIR] [--name NAME]
          [--timeout SECONDS] [--metadata KEY=VALUE]...
@@ -67,6 +69,10 @@ async function main() {
       listen: { type: "string" },
       isolation: { type: "string" },
       image: { type: "string" },
+      "tls-cert": { type: "string" },
+      "tls-key": { type: "string" },
+      "tls-proxy": { type: "boolean" },
+      "public-url": { type: "string" },
       browser: { type: "boolean" },
       "browser-name": { type: "string" },
       "browser-path": { type: "string" },
@@ -93,9 +99,15 @@ async function main() {
     const isolation = values.isolation ?? "none";
     if (isolation !== "none" && isolation !== "container")
       throw new UsageError("--isolation is none or container.");
+    const { "tls-cert": cert, "tls-key": key } = values;
+    if (Boolean(cert) !== Boolean(key))
+      throw new UsageError("--tls-cert and --tls-key go together.");
     return serve({
       listen: values.listen ?? "127.0.0.1:7878",
       data,
+      tls: cert && key ? { cert, key } : undefined,
+      tlsProxy: values["tls-proxy"],
+      publicUrl: values["public-url"],
       runtime:
         isolation === "container"
           ? new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`)

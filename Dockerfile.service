@@ -1,0 +1,13 @@
+# The service, for a server: the bundled program and the Docker client, which reaches the Docker on
+# the machine through its socket. Run `npm run build` first; this copies what that made.
+FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
+
+COPY --from=docker:29-cli@sha256:2357639ad1ea7d0194134bf3292622fd4e562483966ed674e5d7c945b5f3b28d /usr/local/bin/docker /usr/local/bin/docker
+COPY LICENSE NOTICE /opt/agentcomputer/
+COPY dist/agentcomputer.js dist/THIRD_PARTY_LICENSES.txt /opt/agentcomputer/dist/
+
+# It runs as whoever `docker run --user` says, and Docker's client wants a home it can write to.
+ENV HOME=/tmp
+USER 1000:1000
+
+ENTRYPOINT ["node", "/opt/agentcomputer/dist/agentcomputer.js"]
