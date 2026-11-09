@@ -1,7 +1,13 @@
 // The service: the HTTP API and the MCP control tools, both driven by the table generated from
 // openapi.yaml and answered by the same handlers, and each computer's endpoints, on one address.
-import { rmSync } from "node:fs";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { readFileSync, rmSync } from "node:fs";
+import {
+  createServer,
+  type IncomingMessage,
+  type RequestListener,
+  type ServerResponse,
+} from "node:http";
+import { createServer as createTlsServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
@@ -13,12 +19,34 @@ import { ApiError, type Runtime } from "./runtime.ts";
 import { controlToken, digestOf, privateFolder, sameToken, writePrivate } from "./store.ts";
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
+const WILDCARD = new Set(["0.0.0.0", "::"]);
 const MAX_BODY = 64 * 1024;
 
 export interface ServeOptions {
   listen: string;
   data: string;
   runtime: Runtime;
+  /** Files holding the certificate and its key, to terminate TLS here. */
+  tls?: { cert: string; key: string } | undefined;
+  /** A proxy in front of the service terminates TLS, so it may listen in the clear. */
+  tlsProxy?: boolean | undefined;
+  /** The address clients reach it at, when that isn't the one it listens on. */
+  publicUrl?: string | undefined;
+}
+
+/** Refuse what would send tokens in the clear or give clients an address they can't use. */
+function checkExposure(host: string, options: ServeOptions) {
+  const { tls, tlsProxy, publicUrl } = options;
+  if (tls && tlsProxy) throw new Error("--tls-cert and --tls-proxy are alternatives.");
+  if (!LOOPBACK.has(host) && !tls && !tlsProxy)
+    throw new Error(
+      "Anywhere but loopback it needs TLS: --tls-cert and --tls-key, or --tls-proxy if a proxy in front of it does that.",
+    );
+  if (!publicUrl && tlsProxy) throw new Error("--tls-proxy needs --public-url.");
+  if (!publicUrl && WILDCARD.has(host))
+    throw new Error(`Listening on ${host} needs --public-url, the address clients reach it at.`);
+  if (publicUrl && !LOOPBACK.has(host) && new URL(publicUrl).protocol !== "https:")
+    throw new Error("--public-url has to be https when it listens beyond loopback.");
 }
 
 /** `host:port`, or `[v6]:port`. */
@@ -56,10 +84,7 @@ const failure = (error: ApiError) => ({ code: error.status, message: error.messa
 
 export async function serve(options: ServeOptions) {
   const { host, port } = parseListen(options.listen);
-  if (!LOOPBACK.has(host))
-    throw new Error(
-      "It listens on loopback only: anywhere else needs TLS, which this version lacks.",
-    );
+  checkExposure(host, options);
   const data = privateFolder(options.data);
   const control = digestOf(controlToken(data));
   let base = "";
@@ -150,20 +175,29 @@ export async function serve(options: ServeOptions) {
     throw pathMatched ? new ApiError(405, "Not allowed.") : new ApiError(404, "Not found.");
   };
 
-  const server = createServer((request, response) => {
+  const listener: RequestListener = (request, response) => {
     route(request, response).catch((error: unknown) => {
       if (response.headersSent) return void response.destroy();
       if (error instanceof ApiError) return send(response, error.status, failure(error));
       process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
       send(response, 500, { code: 500, message: "That didn't work." });
     });
-  });
+  };
+  const server = options.tls
+    ? createTlsServer(
+        { cert: readFileSync(options.tls.cert), key: readFileSync(options.tls.key) },
+        listener,
+      )
+    : createServer(listener);
   await new Promise<void>((done, failed) => {
     server.once("error", failed);
     server.listen(port, host, done);
   });
   const bound = server.address() as AddressInfo;
-  base = `http://${bound.family === "IPv6" ? `[${bound.address}]` : bound.address}:${bound.port}`;
+  const scheme = options.tls ? "https" : "http";
+  base =
+    options.publicUrl?.replace(/\/+$/, "") ??
+    `${scheme}://${bound.family === "IPv6" ? `[${bound.address}]` : bound.address}:${bound.port}`;
   await computers.resume();
   const record = join(data, "server.json");
   writePrivate(
