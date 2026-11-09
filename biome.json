@@ -1,0 +1,14 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.6.5/schema.json",
+  "files": {
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/out",
+      "!**/node_modules",
+      "!package-lock.json",
+      "!src/generated"
+    ]
+  },
+  "formatter": { "indentStyle": "space", "lineWidth": 100 }
+}
