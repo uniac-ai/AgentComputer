@@ -1,0 +1,22 @@
+{
+  "name": "agentcomputer",
+  "version": "0.0.1",
+  "description": "Computers for agents, as a service: a terminal, files and a browser over MCP",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/uniac-ai/AgentComputer.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.15"
+  },
+  "scripts": {
+    "generate": "node scripts/generate.js",
+    "check": "biome check ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.5",
+    "yaml": "2.9.1"
+  }
+}
