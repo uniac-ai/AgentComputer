@@ -1,5 +1,5 @@
 {
-  "name": "agentcomputer",
+  "name": "@agentorg/computer",
   "version": "0.0.1",
   "description": "Computers for agents, as a service: a terminal, files and a browser over MCP",
   "license": "Apache-2.0",
@@ -11,12 +11,42 @@
   "engines": {
     "node": ">=22.15"
   },
+  "bin": {
+    "agentcomputer": "dist/agentcomputer.js"
+  },
+  "files": [
+    "dist/agentcomputer.js",
+    "dist/sdk.js",
+    "dist/types",
+    "dist/THIRD_PARTY_LICENSES.txt",
+    "NOTICE"
+  ],
   "scripts": {
     "generate": "node scripts/generate.js",
-    "check": "biome check ."
+    "build": "tsc -p tsconfig.json && node scripts/bundle.js",
+    "check": "biome check .",
+    "test": "npm run build && node --test --test-timeout=60000 \"out/test/**/*.test.js\""
+  },
+  "dependencies": {
+    "@playwright/mcp": "0.0.84"
   },
   "devDependencies": {
+    "@agentorg/exec": "0.0.1",
     "@biomejs/biome": "2.6.5",
-    "yaml": "2.9.1"
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/node": "2.1.2",
+    "@modelcontextprotocol/server": "2.4.0",
+    "@types/node": "^22.20.5",
+    "esbuild": "0.28.2",
+    "openapi-fetch": "0.17.0",
+    "typescript": "^7.0.2",
+    "yaml": "2.9.1",
+    "zod": "^4.6.7"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/types/sdk.d.ts",
+      "default": "./dist/sdk.js"
+    }
   }
 }
