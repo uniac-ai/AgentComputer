@@ -1,6 +1,6 @@
 {
   "name": "@agentorg/computer",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Computers for agents, as a service: a terminal, files and a browser over MCP",
   "license": "Apache-2.0",
   "repository": {
@@ -31,7 +31,7 @@
     "@playwright/mcp": "0.0.84"
   },
   "devDependencies": {
-    "@agentorg/exec": "0.0.1",
+    "@agentorg/exec": "0.0.2",
     "@biomejs/biome": "2.6.5",
     "@modelcontextprotocol/client": "2.4.0",
     "@modelcontextprotocol/node": "2.1.2",
