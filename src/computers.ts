@@ -263,8 +263,8 @@ export class Computers {
 
   #log(id: string, line: string) {
     if (!this.#stored.has(id)) return;
-    const file = this.#logFile(id);
     try {
+      const file = this.#logFile(id);
       if (existsSync(file) && statSync(file).size > MAX_LOG)
         writePrivate(file, readFileSync(file, "utf8").slice(-MAX_LOG / 2));
       appendFileSync(file, `${new Date().toISOString()} ${line}\n`, { mode: 0o600 });
@@ -329,12 +329,18 @@ export class Computers {
     const wait = Date.parse(stored.endAt) - Date.now();
     if (wait > MAX_TIMER_S * 1000) return;
     live.timer = setTimeout(() => {
-      this.#log(stored.id, "Its time ran out.");
-      stored.state = "stopped";
-      this.#save();
-      void this.#halt(stored.id);
+      this.#expire(stored).catch((error: unknown) =>
+        this.#log(stored.id, `It didn't stop cleanly: ${String(error)}`),
+      );
     }, wait);
     live.timer.unref();
+  }
+
+  async #expire(stored: Stored) {
+    this.#log(stored.id, "Its time ran out.");
+    stored.state = "stopped";
+    this.#save();
+    await this.#halt(stored.id);
   }
 
   async #halt(id: string) {

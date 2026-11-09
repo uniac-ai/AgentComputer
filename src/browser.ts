@@ -102,7 +102,7 @@ export class Browser {
       { cwd, stdio: ["ignore", "pipe", "pipe"] },
     );
     this.#origin = new Promise((done, failed) => {
-      this.#child.once("error", failed);
+      this.#child.on("error", failed);
       this.#child.once("exit", (code) => {
         this.#exited = true;
         failed(new Error(`The browser's server exited with ${code}.`));

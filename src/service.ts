@@ -130,8 +130,7 @@ export async function serve(options: ServeOptions) {
       );
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     response.once("close", () => {
-      void transport.close();
-      void server.close();
+      Promise.all([transport.close(), server.close()]).catch(() => {});
     });
     await server.connect(transport);
     await transport.handleRequest(request, response);
@@ -210,7 +209,9 @@ export async function serve(options: ServeOptions) {
   const stop = async () => {
     if (stopping) return;
     stopping = true;
-    await computers.close();
+    await computers.close().catch((error: unknown) => {
+      process.stderr.write(`${String(error)}\n`);
+    });
     rmSync(record, { force: true });
     process.exit(0);
   };
