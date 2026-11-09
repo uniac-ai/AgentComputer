@@ -15,7 +15,16 @@ agentcomputer create --access terminal --browser --workspace ~/some/folder
 
 That prints the computer's `computerID`, its endpoints and its `accessToken`, once. Give an MCP client the `computer` and `browser` URLs, with the token as `Authorization: Bearer <token>`.
 
-**This version has no isolation.** A computer is processes of whoever started the service. With `--access terminal` it can reach everything that user can. Run it only where that's safe.
+**By default a computer has no isolation.** It's processes of whoever started the service, and with `--access terminal` it can reach everything that user can. Use `--isolation container` wherever that isn't safe.
+
+## Isolation
+
+`agentcomputer serve --isolation container` makes each computer a container of its own, which needs Docker on the same machine. The service follows your `DOCKER_HOST` or current context and never changes them.
+
+- The image holds AgentExec, Playwright MCP and a headless Chromium. It is `ghcr.io/uniac-ai/agentcomputer/computer` at the service's version; `--image` names another.
+- `--workspace` is mounted at `/workspace`, read-only at `--access read`, and nothing else of the machine is visible. Docker has to be able to share that folder. Without `--workspace`, the service makes one.
+- It runs as the user who started the service, with no capabilities.
+- `stop` stops the container and keeps it, so what was installed in it is there at `start`. `kill` removes it. Starting a stopped computer uses the image it was made from.
 
 ## Access
 
@@ -91,12 +100,14 @@ It reads the control token from `AGENTCOMPUTER_API_KEY` and the address from `AG
 
 ## Known limits
 
-- Each browser's Playwright MCP listens on a loopback port with no token of its own, so another user on the same machine could reach it directly. Don't run this on a machine you share.
-- A browser that stops shows the computer as `failed`. Stop it and start it again.
+- With no isolation, each browser's Playwright MCP listens on a loopback port with no token of its own, so another user on the same machine could reach it directly. Don't run that on a machine you share.
+- A container has no CPU or memory limit, and its network is Docker's default, so it reaches the internet and anything else Docker's network does.
+- In a container the browser runs without its own sandbox, which needs privileges a computer doesn't have. The container is the boundary.
+- A browser that stops, or a container that ends by itself, shows the computer as `failed`. Stop it and start it again.
 
 ## Tests
 
-`npm test` runs the built service through the official MCP client, with a stand-in for Playwright, and one scenario through HTTP, MCP, the SDK and the CLI that fails if any operation in the schema isn't reached by each. After changing `openapi.yaml`, `npm run generate` writes what comes from it; CI fails if that changes anything. Set `AGENTCOMPUTER_BROWSER_PATH` to a browser program to run the real one too.
+`npm test` runs the built service through the official MCP client, with a stand-in for Playwright, and one scenario through HTTP, MCP, the SDK and the CLI that fails if any operation in the schema isn't reached by each. Set `AGENTCOMPUTER_TEST_IMAGE` to a built image (`npm run build`, then `docker build .`) to run the same suite on containers, with `AGENTCOMPUTER_TEST_ROOT` naming a folder Docker can mount if the temporary one isn't. After changing `openapi.yaml`, `npm run generate` writes what comes from it; CI fails if that changes anything. Set `AGENTCOMPUTER_BROWSER_PATH` to a browser program to run the real one too.
 
 ## Licence
 

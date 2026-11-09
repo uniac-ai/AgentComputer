@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
-import { Readable } from "node:stream";
+import { pipeline, Readable } from "node:stream";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 
 /** Its own README calls this equivalent to remote code execution. */
@@ -29,6 +29,20 @@ export interface BrowserConfig {
   browser?: string | undefined;
   /** A browser program to use in place of an installed one. */
   path?: string | undefined;
+  /** False where the browser can't have its own sandbox, as in a container without privileges. */
+  sandbox?: boolean | undefined;
+}
+
+/** Give a client what the server answered, however it ends. */
+export function sendAnswer(upstream: Response, response: ServerResponse) {
+  const answer: Record<string, string> = {};
+  for (const name of ["content-type", "mcp-session-id", "cache-control"]) {
+    const value = upstream.headers.get(name);
+    if (value) answer[name] = value;
+  }
+  response.writeHead(upstream.status, answer);
+  if (!upstream.body) return void response.end();
+  pipeline(Readable.fromWeb(upstream.body as never), response, () => {});
 }
 
 const defaultCli = () =>
@@ -78,6 +92,7 @@ export class Browser {
         ...(config.path
           ? ["--browser", config.browser ?? "chromium", "--executable-path", config.path]
           : ["--browser", config.browser ?? "chrome"]),
+        ...(config.sandbox === false ? ["--no-sandbox"] : []),
         "--user-data-dir",
         join(folder, "profile"),
         "--output-dir",
@@ -155,16 +170,11 @@ export class Browser {
       headers,
       ...(body.length > 0 ? { body } : {}),
     });
-    const answer: Record<string, string> = {};
-    for (const name of ["content-type", "mcp-session-id", "cache-control"]) {
-      const value = upstream.headers.get(name);
-      if (value) answer[name] = value;
+    if (message.method === "tools/list" && this.#hidden.size > 0) {
+      const text = withoutHidden(await upstream.text(), this.#hidden);
+      return sendAnswer(new Response(text, upstream), response);
     }
-    response.writeHead(upstream.status, answer);
-    if (message.method === "tools/list" && this.#hidden.size > 0)
-      return void response.end(withoutHidden(await upstream.text(), this.#hidden));
-    if (!upstream.body) return void response.end();
-    Readable.fromWeb(upstream.body as never).pipe(response);
+    sendAnswer(upstream, response);
   }
 
   async stop() {

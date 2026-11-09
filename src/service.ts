@@ -6,10 +6,10 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { fromJsonSchema, McpServer } from "@modelcontextprotocol/server";
-import type { BrowserConfig } from "./browser.ts";
-import { ApiError, Computers } from "./computers.ts";
+import { Computers } from "./computers.ts";
 import { OPENAPI, OPERATIONS, type Operation } from "./generated/operations.ts";
 import { createHandlers, VERSION } from "./handlers.ts";
+import { ApiError, type Runtime } from "./runtime.ts";
 import { controlToken, digestOf, privateFolder, sameToken, writePrivate } from "./store.ts";
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -18,7 +18,7 @@ const MAX_BODY = 64 * 1024;
 export interface ServeOptions {
   listen: string;
   data: string;
-  browser: BrowserConfig;
+  runtime: Runtime;
 }
 
 /** `host:port`, or `[v6]:port`. */
@@ -63,7 +63,8 @@ export async function serve(options: ServeOptions) {
   const data = privateFolder(options.data);
   const control = digestOf(controlToken(data));
   let base = "";
-  const computers = new Computers(data, () => base, options.browser);
+  await options.runtime.prepare();
+  const computers = new Computers(data, () => base, options.runtime);
   const handlers = createHandlers(computers) as unknown as Record<
     string,
     (input: unknown) => Promise<unknown>
@@ -165,7 +166,10 @@ export async function serve(options: ServeOptions) {
   base = `http://${bound.family === "IPv6" ? `[${bound.address}]` : bound.address}:${bound.port}`;
   await computers.resume();
   const record = join(data, "server.json");
-  writePrivate(record, JSON.stringify({ url: base, pid: process.pid, isolation: "none" }));
+  writePrivate(
+    record,
+    JSON.stringify({ url: base, pid: process.pid, isolation: options.runtime.isolation }),
+  );
   process.stdout.write(`AgentComputer on ${base}, data in ${data}\n`);
 
   let stopping = false;

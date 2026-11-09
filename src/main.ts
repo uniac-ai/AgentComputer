@@ -4,12 +4,17 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { isMainThread } from "node:worker_threads";
+import { ContainerRuntime } from "./container.ts";
+import { VERSION } from "./handlers.ts";
+import { serveInside } from "./inside.ts";
+import { ProcessRuntime } from "./runtime.ts";
 import { Computer, type CreateOpts } from "./sdk.ts";
 import { serve } from "./service.ts";
 
 const USAGE = `Usage: agentcomputer <command> [--data DIR]
 
-  serve [--listen HOST:PORT] [--isolation none] [--browser-name NAME] [--browser-path PATH]
+  serve [--listen HOST:PORT] [--isolation none|container] [--image IMAGE]
+        [--browser-name NAME] [--browser-path PATH]
                                     run the service; 127.0.0.1:7878 by default
   info                              the service's version and isolation
   create --access none|read|files|terminal [--browser] [--workspace DIR] [--name NAME]
@@ -27,6 +32,8 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
 The data folder is --data, else $AGENTCOMPUTER_DATA, else $XDG_DATA_HOME/agentcomputer, else
 ~/.local/share/agentcomputer. Commands find the running service there, with its control token.
 `;
+
+const IMAGE = "ghcr.io/uniac-ai/agentcomputer/computer";
 
 class UsageError extends Error {}
 
@@ -59,6 +66,7 @@ async function main() {
       data: { type: "string" },
       listen: { type: "string" },
       isolation: { type: "string" },
+      image: { type: "string" },
       browser: { type: "boolean" },
       "browser-name": { type: "string" },
       "browser-path": { type: "string" },
@@ -82,18 +90,28 @@ async function main() {
   };
   const milliseconds = (seconds: string) => Number(seconds) * 1000;
   if (command === "serve") {
-    if (values.isolation !== undefined && values.isolation !== "none")
-      throw new Error("--isolation is none in this version.");
+    const isolation = values.isolation ?? "none";
+    if (isolation !== "none" && isolation !== "container")
+      throw new UsageError("--isolation is none or container.");
     return serve({
       listen: values.listen ?? "127.0.0.1:7878",
       data,
-      browser: {
-        cli: values["playwright-cli"],
-        browser: values["browser-name"],
-        path: values["browser-path"],
-      },
+      runtime:
+        isolation === "container"
+          ? new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`)
+          : new ProcessRuntime({
+              cli: values["playwright-cli"],
+              browser: values["browser-name"],
+              path: values["browser-path"],
+            }),
     });
   }
+  // The image's command, not for a person to run.
+  if (command === "inside")
+    return serveInside({
+      access: values.access as CreateOpts["access"],
+      browser: values.browser === true,
+    });
   const connection = connectionTo(data);
   switch (command) {
     case "info":

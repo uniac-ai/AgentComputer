@@ -3,9 +3,8 @@ import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isAbsolute, join, resolve } from "node:path";
-import { type AgentExec, createAgentExec } from "@agentorg/exec";
-import { Browser, type BrowserConfig } from "./browser.ts";
 import type { components } from "./generated/schema.js";
+import { ApiError, type Endpoint, type Running, type Runtime } from "./runtime.ts";
 import { digestOf, newToken, privateFolder, sameToken, writePrivate } from "./store.ts";
 
 type Schemas = components["schemas"];
@@ -19,16 +18,6 @@ const TOOLS: Record<Exclude<Access, "none">, string[]> = {
 const MAX_LOG = 256 * 1024;
 /** The longest a timer can wait; past this a computer simply doesn't expire. */
 const MAX_TIMER_S = 2_000_000;
-
-/** A refusal of the request, with the HTTP status that says so. */
-export class ApiError extends Error {
-  readonly status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
 
 interface Stored {
   id: string;
@@ -44,10 +33,9 @@ interface Stored {
   endAt?: string;
 }
 interface Live {
-  exec?: AgentExec;
-  browser?: Browser;
+  running?: Running;
   timer?: NodeJS.Timeout;
-  browserDown?: boolean;
+  failed?: boolean;
 }
 
 const expiry = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
@@ -55,19 +43,23 @@ const expiry = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOS
 export class Computers {
   readonly #data: string;
   readonly #base: () => string;
-  readonly #config: BrowserConfig;
+  readonly #runtime: Runtime;
   readonly #stored = new Map<string, Stored>();
   readonly #live = new Map<string, Live>();
   readonly #file: string;
 
-  constructor(data: string, base: () => string, config: BrowserConfig) {
+  constructor(data: string, base: () => string, runtime: Runtime) {
     this.#data = data;
     this.#base = base;
-    this.#config = config;
+    this.#runtime = runtime;
     this.#file = join(data, "computers.json");
     if (existsSync(this.#file))
       for (const entry of JSON.parse(readFileSync(this.#file, "utf8")) as Stored[])
         this.#stored.set(entry.id, entry);
+  }
+
+  get isolation() {
+    return this.#runtime.isolation;
   }
 
   /** Bring back what was running when the service last stopped. */
@@ -76,6 +68,7 @@ export class Computers {
       if (stored.state !== "running") continue;
       if (stored.endAt && Date.parse(stored.endAt) <= Date.now()) {
         stored.state = "stopped";
+        await this.#runtime.stopLeftover(stored.id);
         continue;
       }
       await this.#start(stored).catch((error: unknown) =>
@@ -127,6 +120,7 @@ export class Computers {
     } catch (error) {
       await this.#halt(id);
       this.#stored.delete(id);
+      await this.#runtime.remove(id);
       rmSync(this.#folder(id), { recursive: true, force: true });
       throw new ApiError(500, error instanceof Error ? error.message : String(error));
     }
@@ -152,7 +146,7 @@ export class Computers {
           : 0,
       tools: {
         computer: stored.access === "none" ? [] : TOOLS[stored.access],
-        browser: live?.browser?.tools ?? [],
+        browser: live?.running?.browserTools ?? [],
       },
     };
   }
@@ -203,6 +197,7 @@ export class Computers {
   async kill(id: string) {
     this.#found(id);
     await this.#halt(id);
+    await this.#runtime.remove(id);
     this.#stored.delete(id);
     this.#save();
     // Its records, logs and browser profile, and the workspace if the service made it there.
@@ -229,7 +224,7 @@ export class Computers {
   /** Answer an MCP request for one of a computer's endpoints, if its token is right. */
   async serve(
     id: string,
-    endpoint: "computer" | "browser",
+    endpoint: Endpoint,
     token: string | undefined,
     request: IncomingMessage,
     response: ServerResponse,
@@ -237,16 +232,14 @@ export class Computers {
     const stored = this.#stored.get(id);
     if (!stored || !token || !sameToken(token, stored.tokenDigest))
       return void response.writeHead(401, { "WWW-Authenticate": "Bearer" }).end();
-    const live = this.#live.get(id);
-    if (!live) throw new ApiError(409, "It has stopped.");
+    if (endpoint === "computer" && stored.access === "none")
+      throw new ApiError(404, "This computer has no files or terminal.");
+    if (endpoint === "browser" && !stored.browser)
+      throw new ApiError(404, "This computer has no browser.");
+    const running = this.#live.get(id)?.running;
+    if (!running) throw new ApiError(409, "It has stopped.");
     this.#log(id, `${request.method} mcp/${endpoint}`);
-    if (endpoint === "computer") {
-      if (!live.exec) throw new ApiError(404, "This computer has no files or terminal.");
-      return live.exec.handle(request, response);
-    }
-    if (!live.browser) throw new ApiError(404, "This computer has no browser.");
-    if (live.browserDown) throw new ApiError(502, "Its browser has stopped.");
-    return live.browser.handle(request, response);
+    return running.handle(endpoint, request, response);
   }
 
   /** Stop every computer, leaving their records to resume at the next start. */
@@ -286,7 +279,7 @@ export class Computers {
 
   #describe(stored: Stored): Schemas["Computer"] {
     const path = `${this.#base()}/v1/computers/${stored.id}/mcp`;
-    const down = this.#live.get(stored.id)?.browserDown === true;
+    const down = this.#live.get(stored.id)?.failed === true;
     return {
       computerID: stored.id,
       name: stored.name,
@@ -308,26 +301,22 @@ export class Computers {
     const live: Live = {};
     this.#live.set(stored.id, live);
     stored.startedAt = new Date().toISOString();
-    if (stored.access !== "none")
-      live.exec = createAgentExec({
-        workspace: stored.workspace as string,
-        level: stored.access,
-      });
-    if (stored.browser) {
-      const folder = privateFolder(join(this.#folder(stored.id), "browser"));
-      live.browser = new Browser(
-        this.#config,
-        folder,
-        stored.workspace ?? folder,
-        stored.access === "terminal",
-        (line) => this.#log(stored.id, line),
-        () => {
-          live.browserDown = true;
-          this.#log(stored.id, "Its browser stopped.");
+    live.running = await this.#runtime.start(
+      {
+        id: stored.id,
+        access: stored.access,
+        browser: stored.browser,
+        workspace: stored.workspace,
+      },
+      this.#folder(stored.id),
+      {
+        log: (line) => this.#log(stored.id, line),
+        failed: (reason) => {
+          live.failed = true;
+          this.#log(stored.id, reason);
         },
-      );
-      await live.browser.ready();
-    }
+      },
+    );
     this.#arm(stored);
   }
 
@@ -353,6 +342,6 @@ export class Computers {
     if (!live) return;
     this.#live.delete(id);
     clearTimeout(live.timer);
-    await Promise.all([live.exec?.close(), live.browser?.stop()]);
+    await live.running?.stop();
   }
 }
