@@ -14,12 +14,13 @@ import type { WebSocket } from "ws";
 import type { BrowserGate } from "./browser.ts";
 import type { components } from "./generated/schema.js";
 import { playwright } from "./playwright.ts";
-import { startScreencast } from "./screencast.ts";
+import { type Frame, startScreencast } from "./screencast.ts";
 
 type Schemas = components["schemas"];
 type ServerMessage = Schemas["ScreencastEvent"];
 type ClientMessage = Schemas["ScreencastInput"];
 type Mode = Schemas["LiveMode"];
+type Tab = Extract<ServerMessage, { type: "tabs" }>["tabs"][number];
 
 /** How often the tabs' titles are read while anyone watches. */
 const TITLE_CHECK_MS = 1_000;
@@ -58,7 +59,7 @@ interface Cast {
   stop: Promise<(() => Promise<void>) | undefined>;
   size: { width: number; height: number };
   /** The last frame, for a socket that joins while the page is still. */
-  last?: Buffer;
+  last?: Buffer | undefined;
 }
 
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
@@ -73,15 +74,20 @@ export class BrowserLive implements BrowserGate {
   readonly #ids = new Map<Page, number>();
   #nextId = 1;
   readonly #casts = new Map<Page, Cast>();
+  /** A page's cast that is still stopping, which its next one waits for. */
+  readonly #stopping = new Map<Page, Promise<void>>();
   readonly #dialogs = new Map<Page, Dialog>();
   readonly #choosers = new Map<Page, FileChooser>();
-  /** The agent's MCP sessions seen so far, and those still to be told a person answered a chooser. */
+  /** The agent's MCP sessions seen so far. */
   readonly #sessions = new Set<string>();
+  /** Those still to be told that a person answered a file chooser. */
   readonly #owed = new Set<string>();
   /** The tabs last sent, to send them again only when something about them changed. */
   #lastTabs = "";
   #titles: NodeJS.Timeout | undefined;
   #checking = false;
+  /** Counts each time everyone has left, so a connection begun before that knows it is stale. */
+  #ended = 0;
 
   constructor(endpoint: Promise<string>) {
     this.#endpoint = endpoint;
@@ -94,14 +100,16 @@ export class BrowserLive implements BrowserGate {
     return this.#owed.delete(session);
   }
 
-  agentAnswered() {
-    // Which page it was on isn't known here, so every socket is told both have closed.
-    this.#dialogs.clear();
+  sessionEnded(session: string) {
+    this.#sessions.delete(session);
+    this.#owed.delete(session);
+  }
+
+  agentAnsweredChooser() {
+    // Which page it was on isn't known here, and nothing says when a chooser closes, so every one
+    // is taken as closed. A person whose own was open presses again.
     this.#choosers.clear();
-    for (const ws of this.#viewers.keys()) {
-      this.#send(ws, { type: "dialog", open: false });
-      this.#send(ws, { type: "file-chooser", open: false });
-    }
+    for (const ws of this.#viewers.keys()) this.#send(ws, { type: "file-chooser", open: false });
   }
 
   // ---- The person's side
@@ -147,36 +155,45 @@ export class BrowserLive implements BrowserGate {
 
   async #begin() {
     this.#client ??= (async () => {
+      const ended = this.#ended;
       const client = await playwright().chromium.connect(await this.#endpoint);
       const context = client.contexts()[0] ?? (await client.newContext());
+      // Everyone left while it connected, and it is being closed.
+      if (ended !== this.#ended) return client;
       this.#context = context;
       for (const page of context.pages()) this.#track(page);
       context.on("page", (page) => {
         this.#track(page);
-        // A new tab is shown to every socket that hasn't chosen one of its own.
-        for (const [ws, viewer] of this.#viewers) if (!viewer.chose) void this.#show(ws, page);
+        // A new tab is shown to every socket that hasn't chosen one of its own, or has none left.
+        for (const [ws, viewer] of this.#viewers)
+          if (!viewer.chose || !viewer.shown) void this.#show(ws, page);
         void this.#tabs();
       });
       if (context.pages().length === 0) await context.newPage();
       // A page can change its title without navigating, and nothing says so but asking.
-      this.#titles = setInterval(() => void this.#checkTabs(), TITLE_CHECK_MS);
+      if (ended === this.#ended)
+        this.#titles = setInterval(() => void this.#checkTabs(), TITLE_CHECK_MS);
       return client;
     })();
     await this.#client;
   }
 
+  /** Everyone has left. All of it is forgotten at once, so a socket that opens next starts anew. */
   async #end() {
     const client = this.#client;
+    const casts = [...this.#casts.values()];
+    this.#ended++;
     this.#client = undefined;
+    this.#context = undefined;
     clearInterval(this.#titles);
     this.#titles = undefined;
     this.#lastTabs = "";
-    const casts = [...this.#casts.values()];
     this.#casts.clear();
-    await Promise.all(casts.map(async (cast) => (await cast.stop)?.()));
+    this.#stopping.clear();
     this.#ids.clear();
     this.#dialogs.clear();
     this.#choosers.clear();
+    await Promise.all(casts.map((cast) => cast.stop.then((stop) => stop?.()).catch(() => {})));
     await (await client?.catch(() => undefined))?.close().catch(() => {});
   }
 
@@ -194,6 +211,11 @@ export class BrowserLive implements BrowserGate {
       this.#dialogs.set(page, dialog);
       for (const ws of this.#shownTo(page)) this.#tellDialog(ws, page);
     });
+    // Whoever answered it, a person here or the agent.
+    page.on("dialogclosed", () => {
+      this.#dialogs.delete(page);
+      for (const ws of this.#shownTo(page)) this.#tellDialog(ws, page);
+    });
     page.on("filechooser", (chooser) => {
       this.#choosers.set(page, chooser);
       for (const ws of this.#shownTo(page)) this.#tellChooser(ws, page);
@@ -206,6 +228,7 @@ export class BrowserLive implements BrowserGate {
       this.#dialogs.delete(page);
       this.#choosers.delete(page);
       this.#casts.delete(page);
+      this.#stopping.delete(page);
       // Whoever was shown it is shown the newest that is left, whether or not they chose it.
       for (const ws of this.#shownTo(page)) void this.#show(ws, this.#newest());
       void this.#tabs();
@@ -240,45 +263,51 @@ export class BrowserLive implements BrowserGate {
 
   /** The cast of a page, started if no socket was shown it yet. */
   #cast(page: Page) {
-    let cast = this.#casts.get(page);
-    if (cast) return cast;
-    const made: Cast = {
-      size: { width: 0, height: 0 },
-      stop: startScreencast(page, (frame) => {
-        const watching = this.#shownTo(page);
-        if (frame.width !== made.size.width || frame.height !== made.size.height) {
-          made.size = { width: frame.width, height: frame.height };
-          for (const ws of watching) this.#send(ws, { type: "viewport", ...made.size });
-        }
-        made.last = frame.data;
-        for (const ws of watching)
-          if (ws.readyState === ws.OPEN && ws.bufferedAmount < MAX_BUFFERED) ws.send(frame.data);
-      }).catch(() => undefined),
+    const running = this.#casts.get(page);
+    if (running) return running;
+    const onFrame = (frame: Frame) => {
+      const watching = this.#shownTo(page);
+      if (frame.width !== cast.size.width || frame.height !== cast.size.height) {
+        cast.size = { width: frame.width, height: frame.height };
+        for (const ws of watching) this.#send(ws, { type: "viewport", ...cast.size });
+      }
+      cast.last = frame.data;
+      for (const ws of watching)
+        if (ws.readyState === ws.OPEN && ws.bufferedAmount < MAX_BUFFERED) ws.send(frame.data);
     };
-    cast = made;
+    const cast: Cast = {
+      size: { width: 0, height: 0 },
+      // A page has one screencast at a time, so this one starts once the last has stopped.
+      stop: (this.#stopping.get(page) ?? Promise.resolve())
+        .then(() => startScreencast(page, onFrame))
+        .catch(() => undefined),
+    };
     this.#casts.set(page, cast);
     return cast;
   }
 
   /** Stop casting a page no socket is shown any more. */
   async #uncast(page: Page) {
-    if (this.#shownTo(page).length > 0) return;
     const cast = this.#casts.get(page);
+    if (!cast || this.#shownTo(page).length > 0) return;
     this.#casts.delete(page);
-    await (await cast?.stop)?.();
+    const stopped = cast.stop.then((stop) => stop?.()).catch(() => {});
+    this.#stopping.set(page, stopped);
+    await stopped;
+    if (this.#stopping.get(page) === stopped) this.#stopping.delete(page);
   }
 
   /** Change the page a socket is shown, and tell it what that page is waiting on. */
   async #show(ws: WebSocket, page: Page | undefined) {
     const viewer = this.#viewers.get(ws);
-    if (!viewer || viewer.shown === page) return;
+    if (!viewer || (page && viewer.shown === page)) return;
     const before = viewer.shown;
     viewer.shown = page;
     viewer.choice = undefined;
     viewer.swallowUp = false;
     if (before) await this.#uncast(before);
-    // It was shown another while that stopped.
-    if (viewer.shown !== page) return;
+    // It left, or was shown another, while that stopped.
+    if (this.#viewers.get(ws) !== viewer || viewer.shown !== page) return;
     if (page) {
       const cast = this.#cast(page);
       if (cast.size.width) this.#send(ws, { type: "viewport", ...cast.size });
@@ -289,7 +318,7 @@ export class BrowserLive implements BrowserGate {
     await this.#tabs(ws);
   }
 
-  async #tabList() {
+  async #tabList(): Promise<Tab[]> {
     return Promise.all(
       [...this.#ids].map(async ([page, id]) => ({
         id,
@@ -300,8 +329,8 @@ export class BrowserLive implements BrowserGate {
   }
 
   /** The tabs, to one socket or to all, each told which one it is shown. */
-  async #tabs(only?: WebSocket) {
-    const tabs = await this.#tabList();
+  async #tabs(only?: WebSocket, listed?: Tab[]) {
+    const tabs = listed ?? (await this.#tabList());
     if (!only) this.#lastTabs = JSON.stringify(tabs);
     for (const [ws, viewer] of this.#viewers)
       if (!only || ws === only)
@@ -317,7 +346,8 @@ export class BrowserLive implements BrowserGate {
     if (this.#checking) return;
     this.#checking = true;
     try {
-      if (JSON.stringify(await this.#tabList()) !== this.#lastTabs) await this.#tabs();
+      const tabs = await this.#tabList();
+      if (JSON.stringify(tabs) !== this.#lastTabs) await this.#tabs(undefined, tabs);
     } finally {
       this.#checking = false;
     }
@@ -345,10 +375,9 @@ export class BrowserLive implements BrowserGate {
         if (!page) return;
         return this.#step(viewer, () => page.keyboard.insertText(message.text));
       case "dialog": {
+        // It is told closed when the page says so, whoever answers it first.
         const dialog = page && this.#dialogs.get(page);
-        if (!page || !dialog) return;
-        this.#dialogs.delete(page);
-        for (const shown of this.#shownTo(page)) this.#tellDialog(shown, page);
+        if (!dialog) return;
         return this.#step(viewer, () =>
           message.accept ? dialog.accept(message.text ?? undefined) : dialog.dismiss(),
         );
@@ -357,8 +386,9 @@ export class BrowserLive implements BrowserGate {
         const chooser = page && this.#choosers.get(page);
         if (!page || !chooser) return;
         this.#choosers.delete(page);
-        for (const shown of this.#shownTo(page)) this.#tellChooser(shown, page);
+        for (const socket of this.#shownTo(page)) this.#tellChooser(socket, page);
         // Each of the agent's sessions may still be waiting on it, and is told at its next call.
+        // That frees a session on this page; one on another finds the chooser if it comes here.
         for (const session of this.#sessions) this.#owed.add(session);
         return this.#step(viewer, () =>
           chooser.setFiles(
@@ -450,9 +480,9 @@ export class BrowserLive implements BrowserGate {
       viewer.chose = true;
       return this.#show(ws, page);
     }
-    if (!this.#context) return;
+    const page = await this.#context?.newPage();
+    if (!page) return;
     viewer.chose = true;
-    const page = await this.#context.newPage();
     await this.#show(ws, page);
     if (message.url) await page.goto(message.url).catch(() => {});
   }

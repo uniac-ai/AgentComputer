@@ -37,8 +37,10 @@ export interface BrowserConfig {
 export interface BrowserGate {
   /** Whether this session of the agent's may still wait on a file chooser a person answered. */
   takeAnsweredChooser(session: string): boolean;
-  /** The agent answered a dialog or a file chooser itself. */
-  agentAnswered(): void;
+  /** The agent answered a file chooser itself. */
+  agentAnsweredChooser(): void;
+  /** A session of the agent's has ended. */
+  sessionEnded(session: string): void;
 }
 
 /** Give a client what the server answered, however it ends. */
@@ -57,8 +59,6 @@ const mcpCli = () =>
   join(dirname(createRequire(import.meta.url).resolve("@playwright/mcp/package.json")), "cli.js");
 /** This program, which also runs the browser host. */
 const self = fileURLToPath(import.meta.url);
-/** Tool calls that answer a dialog or a file chooser. */
-const ANSWERS = new Set(["browser_handle_dialog", "browser_file_upload"]);
 
 type Message = { id?: unknown; method?: string; params?: { name?: unknown } };
 
@@ -226,9 +226,12 @@ export class Browser {
       const value = request.headers[name];
       if (typeof value === "string") headers[name] = value;
     }
-    // A person answered a file chooser the agent's session still waits on: close it there first,
-    // which leaves what the person chose in place.
-    if (tool && this.gate?.takeAnsweredChooser(headers["mcp-session-id"] ?? ""))
+    const session = headers["mcp-session-id"] ?? "";
+    if (request.method === "DELETE") this.gate?.sessionEnded(session);
+    // A person answered a file chooser the agent's session may still wait on: close it there
+    // first, which leaves what the person chose in place. Not before a call that answers a chooser
+    // itself, which may be one of the agent's own.
+    if (tool && this.gate?.takeAnsweredChooser(session) && tool !== "browser_file_upload")
       await fetch(`${origin}/mcp`, {
         method: "POST",
         headers,
@@ -241,7 +244,7 @@ export class Browser {
       })
         .then((answer) => answer.text())
         .catch(() => {});
-    if (tool && ANSWERS.has(tool)) this.gate?.agentAnswered();
+    if (tool === "browser_file_upload") this.gate?.agentAnsweredChooser();
     const upstream = await fetch(`${origin}/mcp`, {
       method: request.method as string,
       headers,

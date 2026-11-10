@@ -160,7 +160,27 @@ async function setup(t: test.TestContext, extra: string[]) {
     return { ws, frames, events, send, click, last };
   };
 
-  return { Computer, to, computer, call, session, state, centre, view, alive: () => !exited };
+  /** Wait for what only asking the page can tell. */
+  const becomes = async (key: string, value: unknown) => {
+    const deadline = Date.now() + 20_000;
+    while ((await state())[key] !== value) {
+      assert.ok(Date.now() < deadline, `Waited too long for ${key} to be ${String(value)}.`);
+      await new Promise((done) => setTimeout(done, 50));
+    }
+  };
+
+  return {
+    Computer,
+    to,
+    computer,
+    call,
+    session,
+    state,
+    becomes,
+    centre,
+    view,
+    alive: () => !exited,
+  };
 }
 
 for (const [isolation, extra] of ISOLATIONS) {
@@ -177,7 +197,7 @@ for (const [isolation, extra] of ISOLATIONS) {
     `isolation ${isolation}: a person and the agent use the browser at once, each socket shown its own tab`,
     options,
     async (t) => {
-      const { computer, call, session, state, centre, view, alive } = await setup(
+      const { computer, call, session, becomes, centre, view, alive } = await setup(
         t,
         extra as string[],
       );
@@ -186,10 +206,17 @@ for (const [isolation, extra] of ISOLATIONS) {
       await call("browser_evaluate", {
         function: `() => { document.open(); document.write(${JSON.stringify(PAGE)}); document.close(); }`,
       });
-      const shown = (viewer: { last(type: string): Event | undefined }) =>
-        viewer.last("tabs")?.shown as number | undefined;
-      const ids = (viewer: { last(type: string): Event | undefined }) =>
+      type Viewer = Awaited<ReturnType<typeof view>>;
+      const shown = (viewer: Viewer) => viewer.last("tabs")?.shown as number | undefined;
+      const ids = (viewer: Viewer) =>
         (viewer.last("tabs")?.tabs ?? []).map((tab: { id: number }) => tab.id) as number[];
+      const asked = (viewer: Viewer, type: string) =>
+        (viewer.last(type) as { open?: boolean } | undefined)?.open;
+      // Where things are on the page, asked while the agent is on it.
+      const count = await centre("#count");
+      const dialogButton = await centre("#dlg");
+      const fileButton = await centre("#file");
+      const [sx, sy] = await centre("#sel");
 
       const watcher = await view("watch");
       const person = await view("operate");
@@ -210,50 +237,45 @@ for (const [isolation, extra] of ISOLATIONS) {
       await until(() => person.frames.length > before, "frames while the agent works");
 
       // A watcher's input is dropped; the person's lands on the page.
-      const count = await centre("#count");
       await watcher.click(count);
       await person.click(count);
-      await until(() => person.frames.length > before + 1, "the page changing");
-      await new Promise((done) => setTimeout(done, 300));
-      assert.equal((await state()).count, 1);
+      await becomes("count", 1);
 
-      // A dialog the agent opened, answered by the person.
+      // A dialog the agent opened, told to everyone on its page and answered by the person.
       const ref = /button "dialog" \[ref=(e\d+)\]/.exec((await call("browser_snapshot")).text)?.[1];
       const opened = await call("browser_click", { target: ref, element: "dialog" });
       assert.match(opened.text, /Modal state/);
-      await until(() => (person.last("dialog") as { open?: boolean })?.open === true, "the dialog");
+      await until(() => asked(person, "dialog") === true, "the dialog");
       assert.equal((person.last("dialog") as { message?: string }).message, "sure?");
-      assert.equal((watcher.last("dialog") as { open?: boolean })?.open, true);
+      await until(() => asked(watcher, "dialog") === true, "the watcher told of it");
       person.send({ type: "dialog", accept: true });
-      await until(() => watcher.last("dialog")?.open === false, "the watcher told it closed");
-      await new Promise((done) => setTimeout(done, 300));
-      assert.equal((await state()).confirmed, true);
+      await until(
+        () => asked(person, "dialog") === false && asked(watcher, "dialog") === false,
+        "both told it closed",
+      );
+      await becomes("confirmed", true);
 
       // A file chooser the person opened and answered, leaving every session of the agent's free
       // to go on: a second one, on the same page, as well as the first.
       const other = await session();
       assert.equal((await other("browser_snapshot")).isError, false);
-      await person.click(await centre("#file"));
-      await until(
-        () => (person.last("file-chooser") as { open?: boolean })?.open === true,
-        "the chooser",
-      );
+      await person.click(fileButton);
+      await until(() => asked(person, "file-chooser") === true, "the chooser");
       person.send({
         type: "files",
         files: [
           { name: "notes.txt", mimeType: "text/plain", data: Buffer.from("hi").toString("base64") },
         ],
       });
-      await new Promise((done) => setTimeout(done, 300));
+      await until(() => asked(person, "file-chooser") === false, "the chooser answered");
       for (const one of [call, other]) {
         const after = await one("browser_snapshot");
         assert.equal(after.isError, false, after.text.slice(0, 300));
         assert.doesNotMatch(after.text, /Modal state/);
       }
-      assert.equal((await state()).file, "notes.txt");
+      await becomes("file", "notes.txt");
 
       // A list, which isn't in the frames, offered as a choice to the one who pressed it.
-      const [sx, sy] = await centre("#sel");
       person.send({ type: "mouse", action: "down", x: sx, y: sy });
       person.send({ type: "mouse", action: "up", x: sx, y: sy });
       await until(() => Boolean(person.last("choice")), "the choice");
@@ -261,10 +283,9 @@ for (const [isolation, extra] of ISOLATIONS) {
         person.last("choice")?.options.map((o: { value: string }) => o.value),
         ["a", "b"],
       );
-      assert.equal(watcher.last("choice"), undefined);
       person.send({ type: "choice", values: ["b"] });
-      await new Promise((done) => setTimeout(done, 300));
-      assert.equal((await state()).choice, "b");
+      await becomes("choice", "b");
+      assert.equal(watcher.last("choice"), undefined);
 
       // A title the page changes itself reaches the tab strip.
       await call("browser_evaluate", { function: "() => { document.title = 'Renamed in place' }" });
@@ -287,7 +308,6 @@ for (const [isolation, extra] of ISOLATIONS) {
       // Once a socket picks a tab, that tab is its own: the agent's next one doesn't move it.
       person.send({ type: "tab", action: "show", id: first });
       await until(() => shown(person) === first, "its own tab");
-      const framesOfFirst = person.frames.length;
       await call("browser_tabs", { action: "new", url: "about:blank" });
       await until(
         () => ids(watcher).length === 3 && shown(watcher) !== second,
@@ -298,30 +318,62 @@ for (const [isolation, extra] of ISOLATIONS) {
       await until(() => ids(person).length === 3, "the person told of the tab");
       assert.equal(shown(person), first);
 
+      // A socket that opens now follows too, and is sent the page as it stands though nothing on
+      // it is changing.
+      const late = await view("operate");
+      await until(() => shown(late) === third, "a new socket shown the newest tab");
+      await until(() => late.frames.length > 0, "the last frame of a page that is still");
+
       // The person works in its tab while the agent works in another: both land, neither moves.
       await call("browser_evaluate", { function: "() => { window.name = 'the agent tab' }" });
       await person.click(count);
-      await until(() => person.frames.length > framesOfFirst, "frames of its own tab");
-      await new Promise((done) => setTimeout(done, 300));
+      // A dialog in the person's tab is told only to those shown it, and isn't closed by the
+      // agent answering, or failing to answer, one where it is.
+      await person.click(dialogButton);
+      await until(() => asked(person, "dialog") === true, "the dialog in its own tab");
+      await call("browser_handle_dialog", { accept: true });
       const named = await call("browser_evaluate", { function: "() => window.name" });
       assert.match(named.text, /the agent tab/);
+      assert.equal(asked(person, "dialog"), true);
+      assert.equal(asked(watcher, "dialog"), false);
+      assert.equal(asked(late, "dialog"), false);
+      // A socket shown that page later is told what the page is waiting on.
+      late.send({ type: "tab", action: "show", id: first });
+      await until(() => shown(late) === first && asked(late, "dialog") === true, "told on show");
+      person.send({ type: "dialog", accept: false });
+      await until(
+        () => asked(person, "dialog") === false && asked(late, "dialog") === false,
+        "its dialog closed for those shown it",
+      );
       assert.equal(shown(watcher), third);
       await call("browser_tabs", { action: "select", index: 0 });
-      assert.equal((await state()).count, 2);
+      await becomes("count", 2);
+      await becomes("confirmed", false);
       assert.equal(shown(person), first);
       assert.equal(shown(watcher), third);
 
-      // A tab the person opens is its own too, and the agent sees it without being moved to it.
-      person.send({ type: "tab", action: "open", url: "about:blank" });
-      await until(() => ids(person).length === 4 && shown(person) !== first, "its new tab");
-      const fourth = shown(person) as number;
+      // A tab a socket opens is its own from then on, and the agent sees it without being moved.
+      const opener = await view("operate");
+      await until(() => shown(opener) === third, "the opener following at first");
+      opener.send({ type: "tab", action: "open", url: "about:blank" });
+      await until(() => ids(opener).length === 4 && shown(opener) !== third, "its new tab");
+      const fourth = shown(opener) as number;
+      await until(() => shown(watcher) === fourth, "the watcher following a person's tab too");
       const tabs = (await call("browser_tabs", { action: "list" })).text;
       assert.equal(tabs.split("\n").filter((line) => /^- \d/.test(line)).length, 4);
       assert.match(tabs, /- 0: \(current\)/);
+      // What an earlier client sent to let go is ignored, and its socket carries on.
+      opener.send({ type: "release" });
+      await call("browser_tabs", { action: "new", url: "about:blank" });
+      await until(() => ids(opener).length === 5, "the opener told of the agent's tab");
+      assert.equal(shown(opener), fourth);
+      assert.equal(shown(person), first);
+      const fifth = shown(watcher) as number;
+      assert.notEqual(fifth, fourth);
 
       // When a socket's page closes, it is shown the newest that is left.
-      person.send({ type: "tab", action: "close", id: fourth });
-      await until(() => ids(person).length === 3 && shown(person) === third, "falling back");
+      opener.send({ type: "tab", action: "close", id: fourth });
+      await until(() => ids(opener).length === 4 && shown(opener) === fifth, "falling back");
       assert.equal(person.last("driver"), undefined, "no one holds the browser");
 
       // Its socket is where only its user can reach it.
