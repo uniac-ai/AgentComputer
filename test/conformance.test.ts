@@ -210,18 +210,14 @@ async function scenario(surface: Surface, workspace: string, isolation: string) 
 
   assert.deepEqual(
     detail.surfaces.map((one: { surface: string }) => one.surface),
-    ["commands", "terminal", "files"],
+    ["terminal", "files"],
   );
-  const ticket = (await call("createLiveSession", { computerID, surface: "commands" })).value;
+  const ticket = (await call("createLiveSession", { computerID, surface: "terminal" })).value;
   assert.match(ticket.url, /^wss?:\/\/[^/]+\/v1\/live\/l_/);
-  assert.equal(ticket.protocol, "commands@1");
+  assert.equal(ticket.protocol, "terminal@1");
   assert.equal(ticket.mode, "watch");
-  const operated = await call("createLiveSession", {
-    computerID,
-    surface: "commands",
-    mode: "operate",
-  });
-  assert.match(operated.message, /watched, not operated/);
+  const noBrowser = await call("createLiveSession", { computerID, surface: "browser" });
+  assert.match(noBrowser.message, /no browser to open/);
 
   const stopped = (await call("stopComputer", { computerID })).value;
   assert.equal(stopped.state, "stopped");

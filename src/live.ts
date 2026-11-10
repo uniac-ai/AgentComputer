@@ -1,111 +1,79 @@
-// A computer's live surfaces, where its processes run: the agent's commands as they happen, a shell
-// of the person's own, its files, which files-live.ts holds, and its browser, which browser-live.ts
-// holds. Each is a WebSocket in a small protocol of its own.
-
-import { chmodSync, existsSync, statSync } from "node:fs";
+// A computer's live surfaces, where its processes run: its terminals, the agent's commands and a
+// person's shells alike, its files, which files-live.ts holds, and its browser, which
+// browser-live.ts holds. Each is a WebSocket in a small protocol of its own.
 import type { IncomingMessage } from "node:http";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import type { AgentExec, CommandEvent } from "@agentorg/exec";
-import type { IPty } from "node-pty";
 import { type WebSocket, WebSocketServer } from "ws";
 import type { BrowserLive } from "./browser-live.ts";
-import { FilesLive, MAX_PART } from "./files-live.ts";
+import { FilesLive, MAX_PART, reason } from "./files-live.ts";
 import type { components } from "./generated/schema.js";
+import { pieces } from "./text.ts";
 
 type Schemas = components["schemas"];
 export type Surface = Schemas["Surface"];
 export type LiveMode = Schemas["LiveMode"];
 export type SurfaceInfo = Schemas["SurfaceInfo"];
+type TerminalEvent = Schemas["TerminalEvent"];
 export const PROTOCOLS: Record<Surface, string> = {
-  commands: "commands@1",
-  terminal: "pty@1",
+  terminal: "terminal@1",
   files: "files@1",
   browser: "screencast@1",
 };
 
-/** What a new watcher is shown of commands that came before it. */
-const MAX_EVENTS = 2_000;
-const MAX_SCROLLBACK = 64 * 1024;
-/** pty@1, after ttyd: one byte of type, then the payload. */
-const OUTPUT = 0x30;
-const INPUT = 0x30;
-const RESIZE = 0x31;
+/** No terminal@1 message is larger, either way. A larger one closes its socket. */
+const MAX_MESSAGE = 64 * 1024;
+/** The most of its command and of its folder that a terminal's start carries. */
+const MAX_CMD = 8_000;
+const MAX_WORKDIR = 2_000;
 
-const sockets = new WebSocketServer({ noServer: true });
-/** A files@1 message is a part of a file at most. A larger one closes its socket. */
-const fileSockets = new WebSocketServer({ noServer: true, maxPayload: MAX_PART });
-
-/** node-pty, or why the terminal can't be offered here. */
-let pty: Promise<typeof import("node-pty") | string> | undefined;
-const loadPty = () => {
-  pty ??= (async () => {
-    const require = createRequire(import.meta.url);
-    let loaded: typeof import("node-pty");
-    try {
-      loaded = require("node-pty") as typeof import("node-pty");
-    } catch {
-      return "The terminal needs node-pty, which isn't installed with this service.";
-    }
-    // Its prebuilt helper is packed without its execute bit, and npm doesn't restore it.
-    const root = dirname(require.resolve("node-pty/package.json"));
-    for (const helper of [
-      join(root, "prebuilds", `${process.platform}-${process.arch}`, "spawn-helper"),
-      join(root, "build", "Release", "spawn-helper"),
-    ])
-      try {
-        if (existsSync(helper) && (statSync(helper).mode & 0o111) === 0) chmodSync(helper, 0o755);
-      } catch {
-        return `The terminal needs ${helper} to be executable, and it isn't.`;
-      }
-    return loaded;
-  })();
-  return pty;
+/** A files@1 message is a part of a file at most; a larger one closes its socket, as there. */
+const SERVERS: Record<Surface, WebSocketServer> = {
+  terminal: new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE }),
+  files: new WebSocketServer({ noServer: true, maxPayload: MAX_PART }),
+  browser: new WebSocketServer({ noServer: true }),
 };
 
+const MALFORMED = "That isn't a terminal@1 message.";
+
+const first = (text: string, most: number) => {
+  const [head = ""] = pieces(text, most);
+  return head;
+};
+/** One event as terminal@1 messages: what a terminal wrote is as many as its text needs. */
+function* messages(event: CommandEvent): Generator<TerminalEvent> {
+  if (event.type === "start")
+    yield { ...event, cmd: first(event.cmd, MAX_CMD), workdir: first(event.workdir, MAX_WORKDIR) };
+  else if (event.type === "exit") yield event;
+  else for (const text of pieces(event.text)) yield { ...event, text };
+}
+
 export class Live {
-  readonly #workspace: string | undefined;
-  readonly #terminal: boolean;
-  readonly #events: CommandEvent[] = [];
-  readonly #watchers = new Set<WebSocket>();
-  readonly #shells = new Map<WebSocket, LiveMode>();
-  #shell: IPty | undefined;
-  #scrollback = "";
+  readonly #terminals: AgentExec["terminals"] | undefined;
+  readonly #viewers = new Set<WebSocket>();
 
   readonly #browser: BrowserLive | undefined;
   readonly #files: FilesLive | undefined;
   /** Whether a person may write files here: not where the agent can only read them. */
   readonly #writes: boolean;
 
-  constructor(
-    exec: AgentExec | undefined,
-    workspace: string | undefined,
-    access: Schemas["Access"],
-    browser?: BrowserLive,
-  ) {
-    this.#workspace = workspace;
-    this.#terminal = access === "terminal" && exec !== undefined;
+  constructor(exec: AgentExec | undefined, access: Schemas["Access"], browser?: BrowserLive) {
+    if (exec && access === "terminal") {
+      this.#terminals = exec.terminals;
+      exec.onCommand((event) => {
+        for (const message of messages(event))
+          for (const ws of this.#viewers) ws.send(JSON.stringify(message));
+      });
+    }
     this.#files = exec && new FilesLive(exec.files);
     this.#writes = access !== "read";
     this.#browser = browser;
-    exec?.onCommand((event) => this.#heard(event));
   }
 
-  async surfaces(): Promise<SurfaceInfo[]> {
+  surfaces(): SurfaceInfo[] {
     const surfaces: SurfaceInfo[] = [];
-    if (this.#terminal) {
-      const loaded = await loadPty();
-      surfaces.push(
-        { surface: "commands", protocol: PROTOCOLS.commands, operate: false },
-        {
-          surface: "terminal",
-          protocol: PROTOCOLS.terminal,
-          operate: true,
-          ...(typeof loaded === "string" ? { unavailable: loaded } : {}),
-        },
-      );
-    }
+    if (this.#terminals)
+      surfaces.push({ surface: "terminal", protocol: PROTOCOLS.terminal, operate: true });
     if (this.#files)
       surfaces.push({ surface: "files", protocol: PROTOCOLS.files, operate: this.#writes });
     if (this.#browser)
@@ -116,87 +84,57 @@ export class Live {
   /** Take an upgraded request as a socket on one surface. */
   open(surface: Surface, mode: LiveMode, request: IncomingMessage, socket: Duplex, head: Buffer) {
     socket.on("error", () => socket.destroy());
-    const server = surface === "files" ? fileSockets : sockets;
-    server.handleUpgrade(request, socket, head, (ws) => {
+    SERVERS[surface].handleUpgrade(request, socket, head, (ws) => {
       ws.on("error", () => ws.terminate());
-      if (surface === "commands") this.#watch(ws);
+      if (surface === "terminal" && this.#terminals) this.#view(ws, mode, this.#terminals);
       else if (surface === "files" && this.#files) this.#files.open(ws, mode);
       else if (surface === "browser" && this.#browser) this.#browser.open(ws, mode);
-      else if (surface === "terminal") this.#attach(ws, mode).catch(() => ws.terminate());
       else ws.close(1011, `There's no ${surface} here.`);
     });
   }
 
+  /** The terminals themselves end with the AgentExec that runs them. */
   close() {
     void this.#browser?.close();
     this.#files?.close();
-    for (const ws of [...this.#watchers, ...this.#shells.keys()]) ws.close(1001, "It stopped.");
-    this.#shell?.kill();
-    this.#shell = undefined;
+    for (const ws of this.#viewers) ws.close(1001, "It stopped.");
   }
 
-  #heard(event: CommandEvent) {
-    this.#events.push(event);
-    if (this.#events.length > MAX_EVENTS) this.#events.splice(0, this.#events.length - MAX_EVENTS);
-    const message = JSON.stringify(event);
-    for (const ws of this.#watchers) ws.send(message);
-  }
-
-  /** commands@1: each event as a JSON message, those before it first. Nothing comes back. */
-  #watch(ws: WebSocket) {
-    for (const event of this.#events) ws.send(JSON.stringify(event));
-    this.#watchers.add(ws);
-    ws.on("close", () => this.#watchers.delete(ws));
-  }
-
-  /** pty@1: one shell for the computer, shared by every socket on it. */
-  async #attach(ws: WebSocket, mode: LiveMode) {
-    const loaded = await loadPty();
-    if (typeof loaded === "string") return ws.close(1011, loaded);
-    if (!this.#shell) {
-      this.#scrollback = "";
-      let shell: IPty;
-      try {
-        shell = loaded.spawn(process.env.SHELL || "/bin/bash", ["-l"], {
-          name: "xterm-256color",
-          cols: 80,
-          rows: 24,
-          cwd: this.#workspace,
-          env: process.env as Record<string, string>,
-        });
-      } catch (error) {
-        return ws.close(1011, `The shell didn't start: ${String(error)}`.slice(0, 120));
-      }
-      shell.onData((data) => {
-        this.#scrollback = (this.#scrollback + data).slice(-MAX_SCROLLBACK);
-        const frame = Buffer.concat([Buffer.from([OUTPUT]), Buffer.from(data)]);
-        for (const client of this.#shells.keys()) client.send(frame);
-      });
-      shell.onExit(() => {
-        if (this.#shell !== shell) return;
-        this.#shell = undefined;
-        for (const client of this.#shells.keys()) client.close(1000, "The shell exited.");
-      });
-      this.#shell = shell;
+  /**
+   * terminal@1: every terminal on one socket. Those already here come first, each with the end of
+   * what it wrote, and then each event as it happens. Listing and joining are one step, so nothing
+   * falls between them.
+   */
+  #view(ws: WebSocket, mode: LiveMode, terminals: AgentExec["terminals"]) {
+    const send = (message: TerminalEvent) => ws.send(JSON.stringify(message));
+    for (const { id, by, cmd, workdir, tty, at, output, exitCode, endedAt } of terminals.list()) {
+      const events: CommandEvent[] = [{ type: "start", id, by, cmd, workdir, tty, at }];
+      if (output) events.push({ type: "output", id, text: output });
+      if (exitCode !== undefined && endedAt)
+        events.push({ type: "exit", id, exitCode, at: endedAt });
+      for (const event of events) for (const message of messages(event)) send(message);
     }
-    if (this.#scrollback)
-      ws.send(Buffer.concat([Buffer.from([OUTPUT]), Buffer.from(this.#scrollback)]));
-    this.#shells.set(ws, mode);
-    ws.on("close", () => this.#shells.delete(ws));
-    ws.on("message", (data: Buffer, binary: boolean) => {
-      const frame = binary ? data : Buffer.from(data);
-      if (mode !== "operate" || frame.length === 0 || !this.#shell) return;
-      if (frame[0] === INPUT) this.#shell.write(frame.subarray(1).toString());
-      else if (frame[0] === RESIZE)
-        try {
-          const { columns, rows } = JSON.parse(frame.subarray(1).toString()) as {
-            columns: number;
-            rows: number;
-          };
-          if (columns > 0 && rows > 0) this.#shell.resize(Math.floor(columns), Math.floor(rows));
-        } catch {
-          // Not a size: ignored.
-        }
+    this.#viewers.add(ws);
+    ws.on("close", () => this.#viewers.delete(ws));
+    if (mode !== "operate") return;
+    // What can't be done is answered to the socket that asked, with why.
+    const refuse = (why: unknown) => send({ type: "refused", message: reason(why) });
+    ws.on("message", (data: Buffer) => {
+      try {
+        // The terminals take their types as given, and check a size themselves: the rest is
+        // checked here.
+        const sent = (JSON.parse(data.toString()) ?? {}) as Record<string, unknown>;
+        const { type, id, text } = sent;
+        const [columns, rows] = [sent.columns as number, sent.rows as number];
+        if (type === "open") terminals.open({ columns, rows });
+        else if (typeof id !== "string") throw new Error(MALFORMED);
+        else if (type === "input" && typeof text === "string") terminals.write(id, text);
+        else if (type === "resize") terminals.resize(id, columns, rows);
+        else if (type === "stop") terminals.stop(id).catch(refuse);
+        else throw new Error(MALFORMED);
+      } catch (error) {
+        refuse(error instanceof SyntaxError ? MALFORMED : error);
+      }
     });
   }
 }

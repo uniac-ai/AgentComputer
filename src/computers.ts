@@ -15,7 +15,7 @@ type ComputerState = Schemas["ComputerState"];
 const TOOLS: Record<Exclude<Access, "none">, string[]> = {
   read: ["read", "list", "search"],
   files: ["read", "list", "search", "edit"],
-  terminal: ["read", "list", "search", "edit", "exec_command", "write_stdin"],
+  terminal: ["read", "list", "search", "edit", "exec_command", "write_stdin", "list_sessions"],
 };
 const MAX_LOG = 256 * 1024;
 /** The longest a timer can wait; past this a computer simply doesn't expire. */

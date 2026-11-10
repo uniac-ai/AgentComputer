@@ -324,7 +324,7 @@ export const OPENAPI = {
       "post": {
         "operationId": "createLiveSession",
         "x-mcp-tool": "computer_live",
-        "summary": "A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, a shell of your own, its files, or its browser. Open its url as a WebSocket within 60 seconds.",
+        "summary": "A one-time ticket to watch or operate one of its surfaces live: its terminals, its files, or its browser. Open its url as a WebSocket within 60 seconds.",
         "requestBody": {
           "required": true,
           "content": {
@@ -455,7 +455,7 @@ export const OPENAPI = {
           "files",
           "terminal"
         ],
-        "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command and write_stdin. Below terminal, the browser's code-running tool is hidden."
+        "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
       },
       "ComputerState": {
         "type": "string",
@@ -663,12 +663,11 @@ export const OPENAPI = {
       "Surface": {
         "type": "string",
         "enum": [
-          "commands",
           "terminal",
           "files",
           "browser"
         ],
-        "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
+        "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
       },
       "LiveMode": {
         "type": "string",
@@ -1106,6 +1105,218 @@ export const OPENAPI = {
               "to": {
                 "type": "string",
                 "description": "A URL, or back, forward or reload."
+              }
+            }
+          }
+        ]
+      },
+      "TerminalEvent": {
+        "description": "What the service sends on a terminal@1 socket, as JSON text, no message over 65,536 bytes. A terminal is a command the agent started or a shell a person opened; its id is the session id the agent's tools use. A new socket is first sent, for each terminal already there, the oldest first, its start, the end of what it wrote (its last 65,536 characters), and its exit if it has ended; then each event as it happens, with nothing to mark where the first ends. The last 64 that ended are among those already there, and one that leaves that list is not told. A character here is a UTF-16 unit.",
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "A terminal began.",
+            "required": [
+              "type",
+              "id",
+              "by",
+              "cmd",
+              "workdir",
+              "tty",
+              "at"
+            ],
+            "properties": {
+              "type": {
+                "const": "start"
+              },
+              "id": {
+                "type": "string"
+              },
+              "by": {
+                "type": "string",
+                "enum": [
+                  "agent",
+                  "person"
+                ],
+                "description": "The way in it came: agent through a tool, person through this surface."
+              },
+              "cmd": {
+                "type": "string",
+                "description": "Its command, the first 8,000 characters of it."
+              },
+              "workdir": {
+                "type": "string",
+                "description": "Its folder, the first 2,000 characters of it."
+              },
+              "tty": {
+                "type": "boolean",
+                "description": "Whether it is on a terminal device, as a person's shell is. One that isn't, as the agent's commands aren't, echoes nothing typed into it and wants a line feed for Enter. Nothing tells the size of one that is."
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "What it wrote, as it writes: 10,000 characters a message at most, a longer piece as several. A command that left something running can still write after its exit.",
+            "required": [
+              "type",
+              "id",
+              "text"
+            ],
+            "properties": {
+              "type": {
+                "const": "output"
+              },
+              "id": {
+                "type": "string"
+              },
+              "stream": {
+                "type": "string",
+                "enum": [
+                  "stdout",
+                  "stderr"
+                ],
+                "description": "Left out for one on a terminal device, which has one stream, and in what a new socket is first sent, where the two are one text."
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "It ended.",
+            "required": [
+              "type",
+              "id",
+              "exitCode",
+              "at"
+            ],
+            "properties": {
+              "type": {
+                "const": "exit"
+              },
+              "id": {
+                "type": "string"
+              },
+              "exitCode": {
+                "type": "integer"
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "What this socket asked wasn't done, and why, in words for a person. Sent only to the operate socket that asked. What was done is answered by its event, or by nothing.",
+            "required": [
+              "type",
+              "message"
+            ],
+            "properties": {
+              "type": {
+                "const": "refused"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "TerminalInput": {
+        "description": "What an operate socket sends on terminal@1, as JSON text. One that can't be done, or that is none of these, is answered with refused. What a watch socket sends is dropped. A message over 65,536 bytes closes the socket, so a long text goes as several inputs.",
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Start a shell of your own in the workspace, as its user, on a terminal device of this size. It arrives as a start like any other. Refused past the 64 terminals that may run at once, and where the service has no node-pty.",
+            "required": [
+              "type",
+              "columns",
+              "rows"
+            ],
+            "properties": {
+              "type": {
+                "const": "open"
+              },
+              "columns": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              },
+              "rows": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Type into a running terminal, the agent's included. In a command, Ctrl-C (U+0003) interrupts it and Ctrl-D (U+0004) ends its input. Refused for one that has ended or isn't there.",
+            "required": [
+              "type",
+              "id",
+              "text"
+            ],
+            "properties": {
+              "type": {
+                "const": "input"
+              },
+              "id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Give a terminal on a terminal device a new size, which is the size for everyone looking at it. Refused for a command, which has none, and for one that has ended or isn't there.",
+            "required": [
+              "type",
+              "id",
+              "columns",
+              "rows"
+            ],
+            "properties": {
+              "type": {
+                "const": "resize"
+              },
+              "id": {
+                "type": "string"
+              },
+              "columns": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              },
+              "rows": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "End a terminal: an interrupt for a command, a hangup for a shell, then a kill a second later. Its exit is the answer. One that has ended is left as it is, and one that isn't there is refused.",
+            "required": [
+              "type",
+              "id"
+            ],
+            "properties": {
+              "type": {
+                "const": "stop"
+              },
+              "id": {
+                "type": "string"
               }
             }
           }
@@ -1597,7 +1808,7 @@ export const OPERATIONS: Operation[] = [
               "files",
               "terminal"
             ],
-            "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command and write_stdin. Below terminal, the browser's code-running tool is hidden."
+            "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
           },
           "browser": {
             "type": "boolean"
@@ -1686,7 +1897,7 @@ export const OPERATIONS: Operation[] = [
             "files",
             "terminal"
           ],
-          "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command and write_stdin. Below terminal, the browser's code-running tool is hidden."
+          "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
         },
         "browser": {
           "type": "boolean",
@@ -1756,7 +1967,7 @@ export const OPERATIONS: Operation[] = [
                 "files",
                 "terminal"
               ],
-              "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command and write_stdin. Below terminal, the browser's code-running tool is hidden."
+              "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
             },
             "browser": {
               "type": "boolean"
@@ -1896,7 +2107,7 @@ export const OPERATIONS: Operation[] = [
                 "files",
                 "terminal"
               ],
-              "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command and write_stdin. Below terminal, the browser's code-running tool is hidden."
+              "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
             },
             "browser": {
               "type": "boolean"
@@ -1980,12 +2191,11 @@ export const OPERATIONS: Operation[] = [
                   "surface": {
                     "type": "string",
                     "enum": [
-                      "commands",
                       "terminal",
                       "files",
                       "browser"
                     ],
-                    "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
+                    "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
                   },
                   "protocol": {
                     "type": "string"
@@ -2127,7 +2337,7 @@ export const OPERATIONS: Operation[] = [
             "files",
             "terminal"
           ],
-          "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command and write_stdin. Below terminal, the browser's code-running tool is hidden."
+          "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
         },
         "browser": {
           "type": "boolean"
@@ -2251,7 +2461,7 @@ export const OPERATIONS: Operation[] = [
             "files",
             "terminal"
           ],
-          "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command and write_stdin. Below terminal, the browser's code-running tool is hidden."
+          "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
         },
         "browser": {
           "type": "boolean"
@@ -2380,7 +2590,7 @@ export const OPERATIONS: Operation[] = [
             "files",
             "terminal"
           ],
-          "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command and write_stdin. Below terminal, the browser's code-running tool is hidden."
+          "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
         },
         "browser": {
           "type": "boolean"
@@ -2501,7 +2711,7 @@ export const OPERATIONS: Operation[] = [
     "method": "POST",
     "path": "/v1/computers/{computerID}/live",
     "tool": "computer_live",
-    "summary": "A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, a shell of your own, its files, or its browser. Open its url as a WebSocket within 60 seconds.",
+    "summary": "A one-time ticket to watch or operate one of its surfaces live: its terminals, its files, or its browser. Open its url as a WebSocket within 60 seconds.",
     "status": 201,
     "hasBody": true,
     "pathParameters": [
@@ -2520,12 +2730,11 @@ export const OPERATIONS: Operation[] = [
         "surface": {
           "type": "string",
           "enum": [
-            "commands",
             "terminal",
             "files",
             "browser"
           ],
-          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
+          "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
         },
         "mode": {
           "allOf": [
@@ -2567,12 +2776,11 @@ export const OPERATIONS: Operation[] = [
         "surface": {
           "type": "string",
           "enum": [
-            "commands",
             "terminal",
             "files",
             "browser"
           ],
-          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
+          "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
         },
         "mode": {
           "type": "string",

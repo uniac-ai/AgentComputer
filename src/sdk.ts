@@ -3,6 +3,7 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import createClient from "openapi-fetch";
 import type { components, paths } from "./generated/schema.js";
+import { pieces } from "./text.ts";
 
 type Schemas = components["schemas"];
 export type ComputerInfo = Schemas["Computer"];
@@ -12,19 +13,24 @@ export type ComputerLog = Schemas["ComputerLogs"]["logs"][number];
 export type LiveSurface = Schemas["Surface"];
 export type LiveMode = Schemas["LiveMode"];
 export type LiveSession = Schemas["LiveSession"];
-/** What happens to one of the agent's commands, as it happens. */
-export type CommandEvent =
-  | { type: "start"; id: string; cmd: string; workdir: string; at: string }
-  | { type: "output"; id: string; stream: "stdout" | "stderr"; text: string }
-  | { type: "exit"; id: string; exitCode: number; at: string };
+/**
+ * What happens to a terminal, as it happens: the agent's command or a person's shell. And
+ * `refused`, with why, when what this connection asked wasn't done.
+ */
+export type TerminalEvent = Schemas["TerminalEvent"];
 export interface LiveHandle {
   close(): void;
   /** Resolves when the socket closes, with why. */
   closed: Promise<{ code: number; reason: string }>;
 }
-export interface PtyHandle extends LiveHandle {
-  sendInput(data: string): void;
-  resize(columns: number, rows: number): void;
+/** What an operating connection can do. What can't be done comes back as a `refused` event. */
+export interface TerminalsHandle extends LiveHandle {
+  /** Start a shell of your own. It arrives as a `start` event, which carries its id. */
+  openShell(columns: number, rows: number): void;
+  /** Type into a running terminal, the agent's included: a long text as several messages. */
+  sendInput(id: string, text: string): void;
+  resize(id: string, columns: number, rows: number): void;
+  stop(id: string): void;
 }
 
 export interface ConnectionOpts {
@@ -165,36 +171,36 @@ async function openLive(session: LiveSession, onMessage: (data: string | ArrayBu
 }
 
 type Opener = (surface: LiveSurface, mode: LiveMode) => Promise<LiveSession>;
-const INPUT = 0x30;
-const RESIZE = 0x31;
-
-/** A shell of your own on the computer, beside the agent's commands. */
-class Pty {
+/** Every terminal on the computer: the agent's commands and a person's shells alike. */
+class Terminals {
   readonly #open: Opener;
 
   constructor(open: Opener) {
     this.#open = open;
   }
 
-  /** Attach to its shell, starting one if none is running. Every attachment shares it. */
-  async connect(opts: { onData: (data: string) => void; mode?: LiveMode }): Promise<PtyHandle> {
-    const mode = opts.mode ?? "operate";
-    const decoder = new TextDecoder();
-    const { ws, closed } = await openLive(await this.#open("terminal", mode), (data) => {
-      if (typeof data === "string") return;
-      const frame = new Uint8Array(data);
-      if (frame[0] === INPUT) opts.onData(decoder.decode(frame.subarray(1), { stream: true }));
-    });
-    const send = (type: number, text: string) => {
-      const body = new TextEncoder().encode(text);
-      const frame = new Uint8Array(body.length + 1);
-      frame[0] = type;
-      frame.set(body, 1);
-      ws.send(frame);
-    };
+  /**
+   * Each terminal as it starts, writes and exits: those already there first, each with the end of
+   * what it wrote. Operating, the default, can also open a shell and act on any of them.
+   */
+  async connect(opts: {
+    onEvent: (event: TerminalEvent) => void;
+    mode?: LiveMode;
+  }): Promise<TerminalsHandle> {
+    const { ws, closed } = await openLive(
+      await this.#open("terminal", opts.mode ?? "operate"),
+      (data) => {
+        if (typeof data === "string") opts.onEvent(JSON.parse(data) as TerminalEvent);
+      },
+    );
+    const send = (input: Schemas["TerminalInput"]) => ws.send(JSON.stringify(input));
     return {
-      sendInput: (data) => send(INPUT, data),
-      resize: (columns, rows) => send(RESIZE, JSON.stringify({ columns, rows })),
+      openShell: (columns, rows) => send({ type: "open", columns, rows }),
+      sendInput: (id, text) => {
+        for (const piece of pieces(text)) send({ type: "input", id, text: piece });
+      },
+      resize: (id, columns, rows) => send({ type: "resize", id, columns, rows }),
+      stop: (id) => send({ type: "stop", id }),
       close: () => ws.close(),
       closed,
     };
@@ -204,19 +210,9 @@ class Pty {
 /** Commands on a computer with the terminal level. */
 class Commands {
   readonly #endpoint: Endpoint;
-  readonly #open: Opener;
 
-  constructor(endpoint: Endpoint, open: Opener) {
+  constructor(endpoint: Endpoint) {
     this.#endpoint = endpoint;
-    this.#open = open;
-  }
-
-  /** Each of the agent's commands as it runs: the ones already heard first, then as they come. */
-  async watch(onEvent: (event: CommandEvent) => void): Promise<LiveHandle> {
-    const { ws, closed } = await openLive(await this.#open("commands", "watch"), (data) => {
-      if (typeof data === "string") onEvent(JSON.parse(data) as CommandEvent);
-    });
-    return { close: () => ws.close(), closed };
   }
 
   /** Run a command to its end. */
@@ -322,7 +318,7 @@ export class Computer {
   readonly computerID: string;
   readonly commands: Commands;
   readonly files: Files;
-  readonly pty: Pty;
+  readonly terminals: Terminals;
   readonly #connection: ConnectionOpts;
   readonly #token: string;
   readonly #computer: Endpoint;
@@ -334,9 +330,8 @@ export class Computer {
     this.#token = token;
     this.#urls = info.endpoints;
     this.#computer = new Endpoint(info.endpoints.computer, token);
-    const open: Opener = (surface, mode) => this.liveSession(surface, mode);
-    this.commands = new Commands(this.#computer, open);
-    this.pty = new Pty(open);
+    this.commands = new Commands(this.#computer);
+    this.terminals = new Terminals((surface, mode) => this.liveSession(surface, mode));
     this.files = new Files(this.#computer);
   }
 
