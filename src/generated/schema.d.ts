@@ -135,6 +135,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/computers/{computerID}/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                computerID: components["parameters"]["computerID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, or a shell of your own. Open its url as a WebSocket within 60 seconds. */
+        post: operations["createLiveSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/live/{liveID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                liveID: string;
+            };
+            cookie?: never;
+        };
+        /** Open a live session as a WebSocket. The ticket in its path is its authority and works once, so it takes no token. A request with an Origin header is refused unless the service was told to allow that origin. */
+        get: operations["openLiveSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -202,10 +240,44 @@ export interface components {
         };
         ComputerDetail: components["schemas"]["Computer"] & {
             uptimeSeconds: number;
+            /** @description What can be opened live while it runs. */
+            surfaces: components["schemas"]["SurfaceInfo"][];
             tools: {
                 computer: string[];
                 browser: string[];
             };
+        };
+        /**
+         * @description commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1.
+         * @enum {string}
+         */
+        Surface: "commands" | "terminal";
+        /**
+         * @description In watch, what you send is dropped.
+         * @enum {string}
+         */
+        LiveMode: "watch" | "operate";
+        SurfaceInfo: {
+            surface: components["schemas"]["Surface"];
+            protocol: string;
+            /** @description Whether it can be operated */
+            operate: boolean;
+            /** @description Why it can't be opened here */
+            unavailable?: string;
+        };
+        NewLiveSession: {
+            surface: components["schemas"]["Surface"];
+            /** @default watch */
+            mode: components["schemas"]["LiveMode"];
+        };
+        LiveSession: {
+            /** @description The WebSocket to open */
+            url: string;
+            protocol: string;
+            surface: components["schemas"]["Surface"];
+            mode: components["schemas"]["LiveMode"];
+            /** Format: date-time */
+            expiresAt: string;
         };
         ComputerLogs: {
             logs: {
@@ -474,6 +546,59 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["Error"];
+        };
+    };
+    createLiveSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                computerID: components["parameters"]["computerID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewLiveSession"];
+            };
+        };
+        responses: {
+            /** @description The ticket. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveSession"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    openLiveSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                liveID: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The socket */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            426: components["responses"]["Error"];
         };
     };
 }

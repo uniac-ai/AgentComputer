@@ -130,6 +130,17 @@ docker run -d --name agentcomputer --network host \
 - `--network host` is how it reaches each computer's port on the machine's loopback, so this needs Linux.
 - The socket gives it full control of that machine's Docker. Whoever holds the control token can make computers, but not reach the socket.
 
+## Live sessions
+
+A computer at `--access terminal` has two surfaces you can open live, as a WebSocket:
+
+- **`commands`** (protocol `commands@1`): each of the agent's commands as it runs, read-only. Each message is one JSON event: `start` (with `cmd` and `workdir`), `output` (with `stream` and `text`) or `exit` (with `exitCode`). Each carries the command's `id`, which is the `session_id` the agent sees. Those already heard come first.
+- **`terminal`** (protocol `pty@1`): a shell of your own in its workspace, as its user, beside the agent's commands rather than in them. Every socket on it shares one shell, and a new one is sent what it wrote before. Each binary message is one byte of type, then its payload: `0` is output from the shell, or input to it; `1` is a resize, `{"columns":100,"rows":30}`. In `watch` mode what you send is dropped.
+
+`POST /v1/computers/{computerID}/live` with `{ "surface": "terminal", "mode": "operate" }` gives a ticket: a `url` to open once within a minute, which needs no token. A request with an `Origin` header is refused unless `serve --allow-origin` names that origin, so a page can't open one. The SDK does the same with `computer.pty.connect({ onData })` and `computer.commands.watch(onEvent)`, and the CLI with `agentcomputer live <id> --surface terminal --mode operate`.
+
+The terminal needs [node-pty](https://github.com/microsoft/node-pty), an optional dependency installed beside the program. It comes prebuilt for macOS. On Linux it's compiled at install, which npm only does when told: `npm install -g @agentorg/computer --allow-scripts=node-pty`, with a C++ toolchain. Without it, the computer's `surfaces` say why the terminal isn't there. The computer image has it.
+
 ## Known limits
 
 - With no isolation, each browser's Playwright MCP listens on a loopback port with no token of its own, so another user on the same machine could reach it directly. Don't run that on a machine you share.

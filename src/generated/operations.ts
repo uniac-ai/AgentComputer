@@ -314,6 +314,86 @@ export const OPENAPI = {
           }
         }
       }
+    },
+    "/v1/computers/{computerID}/live": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/computerID"
+        }
+      ],
+      "post": {
+        "operationId": "createLiveSession",
+        "x-mcp-tool": "computer_live",
+        "summary": "A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, or a shell of your own. Open its url as a WebSocket within 60 seconds.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewLiveSession"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The ticket.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/live/{liveID}": {
+      "parameters": [
+        {
+          "name": "liveID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      ],
+      "get": {
+        "operationId": "openLiveSession",
+        "summary": "Open a live session as a WebSocket. The ticket in its path is its authority and works once, so it takes no token. A request with an Origin header is refused unless the service was told to allow that origin.",
+        "security": [],
+        "responses": {
+          "101": {
+            "description": "The socket",
+            "in the session's protocol.": null
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "426": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -541,11 +621,19 @@ export const OPENAPI = {
             "type": "object",
             "required": [
               "uptimeSeconds",
-              "tools"
+              "tools",
+              "surfaces"
             ],
             "properties": {
               "uptimeSeconds": {
                 "type": "integer"
+              },
+              "surfaces": {
+                "type": "array",
+                "description": "What can be opened live while it runs.",
+                "items": {
+                  "$ref": "#/components/schemas/SurfaceInfo"
+                }
               },
               "tools": {
                 "type": "object",
@@ -571,6 +659,98 @@ export const OPENAPI = {
             }
           }
         ]
+      },
+      "Surface": {
+        "type": "string",
+        "enum": [
+          "commands",
+          "terminal"
+        ],
+        "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1."
+      },
+      "LiveMode": {
+        "type": "string",
+        "enum": [
+          "watch",
+          "operate"
+        ],
+        "description": "In watch, what you send is dropped."
+      },
+      "SurfaceInfo": {
+        "type": "object",
+        "required": [
+          "surface",
+          "protocol",
+          "operate"
+        ],
+        "properties": {
+          "surface": {
+            "$ref": "#/components/schemas/Surface"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "operate": {
+            "type": "boolean",
+            "description": "Whether it can be operated",
+            "not only watched.": null
+          },
+          "unavailable": {
+            "type": "string",
+            "description": "Why it can't be opened here",
+            "if it can't.": null
+          }
+        }
+      },
+      "NewLiveSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "surface"
+        ],
+        "properties": {
+          "surface": {
+            "$ref": "#/components/schemas/Surface"
+          },
+          "mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LiveMode"
+              }
+            ],
+            "default": "watch"
+          }
+        }
+      },
+      "LiveSession": {
+        "type": "object",
+        "required": [
+          "url",
+          "protocol",
+          "surface",
+          "mode",
+          "expiresAt"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The WebSocket to open",
+            "once.": null
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "surface": {
+            "$ref": "#/components/schemas/Surface"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/LiveMode"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       },
       "ComputerLogs": {
         "type": "object",
@@ -627,7 +807,8 @@ export interface Operation {
   operationId: string;
   method: string;
   path: string;
-  tool: string;
+  /** Absent where the operation isn't a tool, as a WebSocket isn't. */
+  tool?: string;
   summary: string;
   status: number;
   hasBody: boolean;
@@ -635,6 +816,7 @@ export interface Operation {
   queryParameters: string[];
   input: Record<string, unknown>;
   output: Record<string, unknown> | null;
+  websocket: boolean;
 }
 
 export const OPERATIONS: Operation[] = [
@@ -673,7 +855,8 @@ export const OPERATIONS: Operation[] = [
           "description": "How this service isolates its computers, chosen when it is started."
         }
       }
-    }
+    },
+    "websocket": false
   },
   {
     "operationId": "listComputers",
@@ -800,7 +983,8 @@ export const OPERATIONS: Operation[] = [
           }
         }
       }
-    }
+    },
+    "websocket": false
   },
   {
     "operationId": "createComputer",
@@ -971,7 +1155,8 @@ export const OPERATIONS: Operation[] = [
           }
         }
       ]
-    }
+    },
+    "websocket": false
   },
   {
     "operationId": "getComputer",
@@ -1101,11 +1286,47 @@ export const OPERATIONS: Operation[] = [
           "type": "object",
           "required": [
             "uptimeSeconds",
-            "tools"
+            "tools",
+            "surfaces"
           ],
           "properties": {
             "uptimeSeconds": {
               "type": "integer"
+            },
+            "surfaces": {
+              "type": "array",
+              "description": "What can be opened live while it runs.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "surface",
+                  "protocol",
+                  "operate"
+                ],
+                "properties": {
+                  "surface": {
+                    "type": "string",
+                    "enum": [
+                      "commands",
+                      "terminal"
+                    ],
+                    "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1."
+                  },
+                  "protocol": {
+                    "type": "string"
+                  },
+                  "operate": {
+                    "type": "boolean",
+                    "description": "Whether it can be operated",
+                    "not only watched.": null
+                  },
+                  "unavailable": {
+                    "type": "string",
+                    "description": "Why it can't be opened here",
+                    "if it can't.": null
+                  }
+                }
+              }
             },
             "tools": {
               "type": "object",
@@ -1131,7 +1352,8 @@ export const OPERATIONS: Operation[] = [
           }
         }
       ]
-    }
+    },
+    "websocket": false
   },
   {
     "operationId": "killComputer",
@@ -1159,7 +1381,8 @@ export const OPERATIONS: Operation[] = [
         "computerID"
       ]
     },
-    "output": null
+    "output": null,
+    "websocket": false
   },
   {
     "operationId": "setComputerTimeout",
@@ -1288,7 +1511,8 @@ export const OPERATIONS: Operation[] = [
           }
         }
       }
-    }
+    },
+    "websocket": false
   },
   {
     "operationId": "stopComputer",
@@ -1411,7 +1635,8 @@ export const OPERATIONS: Operation[] = [
           }
         }
       }
-    }
+    },
+    "websocket": false
   },
   {
     "operationId": "startComputer",
@@ -1539,7 +1764,8 @@ export const OPERATIONS: Operation[] = [
           }
         }
       }
-    }
+    },
+    "websocket": false
   },
   {
     "operationId": "getComputerLogs",
@@ -1593,6 +1819,125 @@ export const OPERATIONS: Operation[] = [
           }
         }
       }
-    }
+    },
+    "websocket": false
+  },
+  {
+    "operationId": "createLiveSession",
+    "method": "POST",
+    "path": "/v1/computers/{computerID}/live",
+    "tool": "computer_live",
+    "summary": "A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, or a shell of your own. Open its url as a WebSocket within 60 seconds.",
+    "status": 201,
+    "hasBody": true,
+    "pathParameters": [
+      "computerID"
+    ],
+    "queryParameters": [],
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "computerID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "surface": {
+          "type": "string",
+          "enum": [
+            "commands",
+            "terminal"
+          ],
+          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1."
+        },
+        "mode": {
+          "allOf": [
+            {
+              "type": "string",
+              "enum": [
+                "watch",
+                "operate"
+              ],
+              "description": "In watch, what you send is dropped."
+            }
+          ],
+          "default": "watch"
+        }
+      },
+      "required": [
+        "computerID",
+        "surface"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "required": [
+        "url",
+        "protocol",
+        "surface",
+        "mode",
+        "expiresAt"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "The WebSocket to open",
+          "once.": null
+        },
+        "protocol": {
+          "type": "string"
+        },
+        "surface": {
+          "type": "string",
+          "enum": [
+            "commands",
+            "terminal"
+          ],
+          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "watch",
+            "operate"
+          ],
+          "description": "In watch, what you send is dropped."
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "websocket": false
+  },
+  {
+    "operationId": "openLiveSession",
+    "method": "GET",
+    "path": "/v1/live/{liveID}",
+    "summary": "Open a live session as a WebSocket. The ticket in its path is its authority and works once, so it takes no token. A request with an Origin header is refused unless the service was told to allow that origin.",
+    "status": 101,
+    "hasBody": false,
+    "pathParameters": [
+      "liveID"
+    ],
+    "queryParameters": [],
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "liveID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "liveID"
+      ]
+    },
+    "output": null,
+    "websocket": true
   }
 ];

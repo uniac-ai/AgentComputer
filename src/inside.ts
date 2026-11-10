@@ -3,6 +3,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { Duplex } from "node:stream";
+import type { Surface } from "./live.ts";
 import { type Access, ApiError, ProcessRuntime } from "./runtime.ts";
 import { digestOf, privateFolder, sameToken } from "./store.ts";
 
@@ -39,20 +41,33 @@ export async function serveInside(options: { access: Access; browser: boolean })
     if (!given || !sameToken(given, digest)) return void response.writeHead(401).end();
     const { pathname } = new URL(request.url ?? "/", "http://localhost");
     if (pathname === "/ready") {
-      const { browserTools } = await running;
+      const { browserTools, surfaces } = await running;
       response.writeHead(200, { "Content-Type": "application/json" });
-      return void response.end(JSON.stringify({ browserTools }));
+      return void response.end(JSON.stringify({ browserTools, surfaces }));
     }
     const endpoint = /^\/mcp\/(computer|browser)$/.exec(pathname)?.[1];
     if (!endpoint) return void response.writeHead(404).end();
     return (await running).handle(endpoint as "computer" | "browser", request, response);
   };
-  createServer((request, response) => {
+  const server = createServer((request, response) => {
     route(request, response).catch((error: unknown) => {
       if (response.headersSent) return void response.destroy();
       response.writeHead(error instanceof ApiError ? error.status : 500).end();
     });
-  }).listen(INNER_PORT, "0.0.0.0");
+  });
+  server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    socket.on("error", () => socket.destroy());
+    const given = /^Bearer (\S+)$/.exec(request.headers.authorization ?? "")?.[1];
+    const url = new URL(request.url ?? "/", "http://localhost");
+    const surface = /^\/live\/(commands|terminal)$/.exec(url.pathname)?.[1];
+    const mode = url.searchParams.get("mode");
+    if (!given || !sameToken(given, digest) || !surface || (mode !== "watch" && mode !== "operate"))
+      return void socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+    running
+      .then((computer) => computer.openLive(surface as Surface, mode, request, socket, head))
+      .catch(() => socket.destroy());
+  });
+  server.listen(INNER_PORT, "0.0.0.0");
 
   for (const signal of ["SIGINT", "SIGTERM"] as const)
     process.once(signal, () => {

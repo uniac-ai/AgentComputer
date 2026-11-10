@@ -4,12 +4,14 @@
 import { execFile, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { connect } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { Readable } from "node:stream";
+import { type Duplex, Readable } from "node:stream";
 import { promisify } from "node:util";
 import { sendAnswer } from "./browser.ts";
 import { INNER_PORT, INNER_TOKEN_VARIABLE } from "./inside.ts";
+import type { SurfaceInfo } from "./live.ts";
 import {
   ApiError,
   type ComputerSpec,
@@ -42,8 +44,22 @@ async function docker(args: string[], env: NodeJS.ProcessEnv = process.env) {
   }
 }
 
+const UPGRADE_HEADERS = [
+  "upgrade",
+  "connection",
+  "sec-websocket-key",
+  "sec-websocket-version",
+  "sec-websocket-extensions",
+  "sec-websocket-protocol",
+];
+
 const nameOf = (id: string) => `agentcomputer-${id}`;
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+
+interface Ready {
+  browserTools: string[];
+  surfaces: SurfaceInfo[];
+}
 
 interface Inspected {
   State: { Running: boolean; StartedAt: string };
@@ -162,17 +178,26 @@ export class ContainerRuntime implements Runtime {
       follower.kill();
     };
     const authorization = `Bearer ${token}`;
-    let browserTools: string[];
+    let ready: Ready;
     try {
-      browserTools = await this.#ready(origin, authorization, () => ended);
+      ready = await this.#ready(origin, authorization, () => ended);
     } catch (error) {
       await stop();
       throw error;
     }
 
     return {
-      browserTools,
+      ...ready,
       stop,
+      openLive: async (surface, mode, request, socket, head) =>
+        pipeUpgrade(
+          Number(port),
+          authorization,
+          `/live/${surface}?mode=${mode}`,
+          request,
+          socket,
+          head,
+        ),
       handle: async (endpoint, request, response) =>
         forward(`${origin}/mcp/${endpoint}`, authorization, request, response),
     };
@@ -187,7 +212,7 @@ export class ContainerRuntime implements Runtime {
           headers: { Authorization: authorization },
           signal: AbortSignal.timeout(START_MS),
         });
-        if (answer.ok) return ((await answer.json()) as { browserTools: string[] }).browserTools;
+        if (answer.ok) return (await answer.json()) as Ready;
       } catch {
         // Not listening yet.
       }
@@ -203,6 +228,35 @@ export class ContainerRuntime implements Runtime {
   async remove(id: string) {
     await docker(["rm", "--force", nameOf(id)]).catch(() => {});
   }
+}
+
+/** Pass a WebSocket upgrade to what's inside, then the bytes both ways. */
+async function pipeUpgrade(
+  port: number,
+  authorization: string,
+  path: string,
+  request: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+) {
+  const upstream = connect(port, "127.0.0.1");
+  upstream.on("error", () => socket.destroy());
+  socket.on("error", () => upstream.destroy());
+  upstream.on("close", () => socket.destroy());
+  socket.on("close", () => upstream.destroy());
+  const lines = [
+    `GET ${path} HTTP/1.1`,
+    `Host: 127.0.0.1:${port}`,
+    `Authorization: ${authorization}`,
+  ];
+  for (const name of UPGRADE_HEADERS) {
+    const value = request.headers[name];
+    if (typeof value === "string") lines.push(`${name}: ${value}`);
+  }
+  upstream.write(`${lines.join("\r\n")}\r\n\r\n`);
+  if (head.length > 0) upstream.write(head);
+  upstream.pipe(socket);
+  socket.pipe(upstream);
 }
 
 async function forward(

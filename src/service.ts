@@ -6,10 +6,12 @@ import {
   type IncomingMessage,
   type RequestListener,
   type ServerResponse,
+  STATUS_CODES,
 } from "node:http";
 import { createServer as createTlsServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
+import type { Duplex } from "node:stream";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { fromJsonSchema, McpServer } from "@modelcontextprotocol/server";
 import { Computers } from "./computers.ts";
@@ -32,6 +34,8 @@ export interface ServeOptions {
   tlsProxy?: boolean | undefined;
   /** The address clients reach it at, when that isn't the one it listens on. */
   publicUrl?: string | undefined;
+  /** Browser origins a live session may be opened from. None by default. */
+  allowOrigins?: string[] | undefined;
 }
 
 /** Refuse what would send tokens in the clear or give clients an address they can't use. */
@@ -112,22 +116,23 @@ export async function serve(options: ServeOptions) {
   const controlMcp = async (request: IncomingMessage, response: ServerResponse) => {
     const server = new McpServer({ name: "agentcomputer", version: VERSION });
     for (const route of routes)
-      server.registerTool(
-        route.operation.tool,
-        { description: route.operation.summary, inputSchema: route.check },
-        async (input: unknown) => {
-          try {
-            const output = (await run(route, input as Record<string, unknown>)) ?? {};
-            return { content: [{ type: "text", text: JSON.stringify(output) }] };
-          } catch (error) {
-            if (!(error instanceof ApiError)) throw error;
-            return {
-              isError: true,
-              content: [{ type: "text", text: JSON.stringify(failure(error)) }],
-            };
-          }
-        },
-      );
+      if (route.operation.tool)
+        server.registerTool(
+          route.operation.tool,
+          { description: route.operation.summary, inputSchema: route.check },
+          async (input: unknown) => {
+            try {
+              const output = (await run(route, input as Record<string, unknown>)) ?? {};
+              return { content: [{ type: "text", text: JSON.stringify(output) }] };
+            } catch (error) {
+              if (!(error instanceof ApiError)) throw error;
+              return {
+                isError: true,
+                content: [{ type: "text", text: JSON.stringify(failure(error)) }],
+              };
+            }
+          },
+        );
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     response.once("close", () => {
       Promise.all([transport.close(), server.close()]).catch(() => {});
@@ -140,6 +145,7 @@ export async function serve(options: ServeOptions) {
     const url = new URL(request.url ?? "/", "http://localhost");
     const { pathname } = url;
     if (pathname === "/openapi.json") return send(response, 200, OPENAPI);
+    if (pathname.startsWith("/v1/live/")) throw new ApiError(426, "Open it as a WebSocket.");
     // A computer's own endpoints take its own token and nothing else.
     const endpoint = /^\/v1\/computers\/([^/]+)\/mcp\/(computer|browser)$/.exec(pathname);
     if (endpoint)
@@ -188,6 +194,27 @@ export async function serve(options: ServeOptions) {
         listener,
       )
     : createServer(listener);
+  const allowed = new Set(options.allowOrigins ?? []);
+  server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    socket.on("error", () => socket.destroy());
+    const refuse = (status: number, message: string) =>
+      socket.end(
+        `HTTP/1.1 ${status} ${STATUS_CODES[status]}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n${JSON.stringify({ code: status, message })}\n`,
+      );
+    const { pathname } = new URL(request.url ?? "/", "http://localhost");
+    const ticket = /^\/v1\/live\/([^/]+)$/.exec(pathname)?.[1];
+    if (!ticket) return refuse(404, "Not found.");
+    // A browser doesn't keep a page's WebSockets to its own origin, so the origin is checked here.
+    const origin = request.headers.origin;
+    if (origin !== undefined && !allowed.has(origin))
+      return refuse(403, `A live session isn't opened from ${origin.slice(0, 200)}.`);
+    computers
+      .openLive(decodeURIComponent(ticket), request, socket, head)
+      .catch((error: unknown) => {
+        if (error instanceof ApiError) refuse(error.status, error.message);
+        else socket.destroy();
+      });
+  });
   await new Promise<void>((done, failed) => {
     server.once("error", failed);
     server.listen(port, host, done);

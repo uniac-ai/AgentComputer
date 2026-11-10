@@ -8,13 +8,13 @@ import { ContainerRuntime } from "./container.ts";
 import { VERSION } from "./handlers.ts";
 import { serveInside } from "./inside.ts";
 import { ProcessRuntime } from "./runtime.ts";
-import { Computer, type CreateOpts } from "./sdk.ts";
+import { Computer, type CreateOpts, type LiveMode, type LiveSurface } from "./sdk.ts";
 import { serve } from "./service.ts";
 
 const USAGE = `Usage: agentcomputer <command> [--data DIR]
 
   serve [--listen HOST:PORT] [--isolation none|container] [--image IMAGE]
-        [--tls-cert FILE --tls-key FILE | --tls-proxy] [--public-url URL]
+        [--tls-cert FILE --tls-key FILE | --tls-proxy] [--public-url URL] [--allow-origin ORIGIN]...
         [--browser-name NAME] [--browser-path PATH]
                                     run the service; 127.0.0.1:7878 by default, and
                                     anywhere else only with TLS
@@ -29,6 +29,8 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
   stop <id>                         stop it, keeping its folder and token
   start <id> [--timeout SECONDS]    start a stopped computer again
   logs <id>                         what its servers wrote
+  live <id> --surface commands|terminal [--mode watch|operate]
+                                    a one-time ticket to open one live, as a WebSocket
   kill <id>                         stop it and remove what the service made
 
 The data folder is --data, else $AGENTCOMPUTER_DATA, else $XDG_DATA_HOME/agentcomputer, else
@@ -73,6 +75,9 @@ async function main() {
       "tls-key": { type: "string" },
       "tls-proxy": { type: "boolean" },
       "public-url": { type: "string" },
+      "allow-origin": { type: "string", multiple: true },
+      surface: { type: "string" },
+      mode: { type: "string" },
       browser: { type: "boolean" },
       "browser-name": { type: "string" },
       "browser-path": { type: "string" },
@@ -108,6 +113,7 @@ async function main() {
       tls: cert && key ? { cert, key } : undefined,
       tlsProxy: values["tls-proxy"],
       publicUrl: values["public-url"],
+      allowOrigins: values["allow-origin"],
       runtime:
         isolation === "container"
           ? new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`)
@@ -173,6 +179,18 @@ async function main() {
       );
     case "logs":
       return out({ logs: await Computer.getLogs(idOf(), connection) });
+    case "live":
+      if (!values.surface) throw new UsageError("live takes --surface.");
+      return out(
+        await Computer.createLiveSession(
+          idOf(),
+          {
+            surface: values.surface as LiveSurface,
+            ...(values.mode ? { mode: values.mode as LiveMode } : {}),
+          },
+          connection,
+        ),
+      );
     case "kill":
       return Computer.kill(idOf(), connection);
     default:
