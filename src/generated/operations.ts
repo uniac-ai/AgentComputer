@@ -3,7 +3,7 @@ export const OPENAPI = {
   "openapi": "3.1.0",
   "info": {
     "title": "AgentComputer",
-    "version": "0.0.9",
+    "version": "0.0.10",
     "description": "Computers for agents. This file is the source of truth: the HTTP API, the MCP control tools and the SDK are all generated from it. An operation with `x-mcp-tool` is also an MCP tool of that name.",
     "license": {
       "name": "Apache-2.0",
