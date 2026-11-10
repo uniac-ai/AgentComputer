@@ -9,13 +9,18 @@ import type { Duplex } from "node:stream";
 import type { AgentExec, CommandEvent } from "@agentorg/exec";
 import type { IPty } from "node-pty";
 import { type WebSocket, WebSocketServer } from "ws";
+import type { BrowserLive } from "./browser-live.ts";
 import type { components } from "./generated/schema.js";
 
 type Schemas = components["schemas"];
 export type Surface = Schemas["Surface"];
 export type LiveMode = Schemas["LiveMode"];
 export type SurfaceInfo = Schemas["SurfaceInfo"];
-export const PROTOCOLS: Record<Surface, string> = { commands: "commands@1", terminal: "pty@1" };
+export const PROTOCOLS: Record<Surface, string> = {
+  commands: "commands@1",
+  terminal: "pty@1",
+  browser: "screencast@1",
+};
 
 /** What a new watcher is shown of commands that came before it. */
 const MAX_EVENTS = 2_000;
@@ -63,24 +68,37 @@ export class Live {
   #shell: IPty | undefined;
   #scrollback = "";
 
-  constructor(exec: AgentExec | undefined, workspace: string | undefined, terminal: boolean) {
+  readonly #browser: BrowserLive | undefined;
+
+  constructor(
+    exec: AgentExec | undefined,
+    workspace: string | undefined,
+    terminal: boolean,
+    browser?: BrowserLive,
+  ) {
     this.#workspace = workspace;
     this.#terminal = terminal && exec !== undefined;
+    this.#browser = browser;
     exec?.onCommand((event) => this.#heard(event));
   }
 
   async surfaces(): Promise<SurfaceInfo[]> {
-    if (!this.#terminal) return [];
-    const loaded = await loadPty();
-    return [
-      { surface: "commands", protocol: PROTOCOLS.commands, operate: false },
-      {
-        surface: "terminal",
-        protocol: PROTOCOLS.terminal,
-        operate: true,
-        ...(typeof loaded === "string" ? { unavailable: loaded } : {}),
-      },
-    ];
+    const surfaces: SurfaceInfo[] = [];
+    if (this.#terminal) {
+      const loaded = await loadPty();
+      surfaces.push(
+        { surface: "commands", protocol: PROTOCOLS.commands, operate: false },
+        {
+          surface: "terminal",
+          protocol: PROTOCOLS.terminal,
+          operate: true,
+          ...(typeof loaded === "string" ? { unavailable: loaded } : {}),
+        },
+      );
+    }
+    if (this.#browser)
+      surfaces.push({ surface: "browser", protocol: PROTOCOLS.browser, operate: true });
+    return surfaces;
   }
 
   /** Take an upgraded request as a socket on one surface. */
@@ -89,11 +107,14 @@ export class Live {
     sockets.handleUpgrade(request, socket, head, (ws) => {
       ws.on("error", () => ws.terminate());
       if (surface === "commands") this.#watch(ws);
-      else this.#attach(ws, mode).catch(() => ws.terminate());
+      else if (surface === "browser" && this.#browser) this.#browser.open(ws, mode);
+      else if (surface === "terminal") this.#attach(ws, mode).catch(() => ws.terminate());
+      else ws.close(1011, `There's no ${surface} here.`);
     });
   }
 
   close() {
+    void this.#browser?.close();
     for (const ws of [...this.#watchers, ...this.#shells.keys()]) ws.close(1001, "It stopped.");
     this.#shell?.kill();
     this.#shell = undefined;

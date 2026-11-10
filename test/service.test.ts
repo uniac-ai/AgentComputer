@@ -23,8 +23,12 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = join(here, "..", "..", "dist", "agentcomputer.js");
-const STAND_IN = join(here, "..", "..", "test", "fixtures", "playwright.js");
 const realBrowser = process.env.AGENTCOMPUTER_BROWSER_PATH;
+/** The headless shell, never the Chrome installed on this machine. */
+const BROWSER_ARGS = realBrowser
+  ? ["--browser-name", "chromium", "--browser-path", realBrowser]
+  : [];
+const withBrowser = { skip: !realBrowser && "needs AGENTCOMPUTER_BROWSER_PATH" };
 const run = promisify(execFile);
 
 interface Created {
@@ -35,7 +39,7 @@ interface Created {
   endpoints: { computer: string | null; browser: string | null };
 }
 
-async function setup(t: test.TestContext, extra: string[] = ["--playwright-cli", STAND_IN]) {
+async function setup(t: test.TestContext, extra: string[] = BROWSER_ARGS) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "agentcomputer-")));
   const data = join(root, "data");
   const workspace = join(root, "workspace");
@@ -127,7 +131,7 @@ const raw = (endpoint: string, token: string) =>
     body: initialize,
   });
 
-test("agentcomputer create gives endpoints a hand-run MCP client uses", async (t) => {
+test("agentcomputer create gives endpoints a hand-run MCP client uses", withBrowser, async (t) => {
   const { create, mcp, workspace } = await setup(t);
   const made = await create("--access", "terminal", "--browser", "--workspace", workspace);
   assert.equal(made.state, "running");
@@ -151,7 +155,7 @@ test("agentcomputer create gives endpoints a hand-run MCP client uses", async (t
 
   const browser = await mcp(made.endpoints.browser as string, made.accessToken);
   assert.ok((await browser.names()).includes("browser_navigate"));
-  assert.match((await browser.call("browser_navigate")).text, new RegExp(workspace));
+  assert.equal((await browser.call("browser_navigate", { url: "about:blank" })).isError, false);
 });
 
 test("the control token and each computer's token reach only their own", async (t) => {
@@ -203,21 +207,27 @@ for (const [access, tools] of [
     assert.deepEqual([...got.tools.computer].sort(), tools);
   });
 
-test("below terminal the tool that runs code is hidden and refused, at terminal it's there", async (t) => {
-  const { create, mcp, workspace } = await setup(t);
-  const below = await create("--access", "files", "--browser", "--workspace", workspace);
-  const browser = await mcp(below.endpoints.browser as string, below.accessToken);
-  assert.deepEqual(await browser.names(), ["browser_navigate", "browser_snapshot"]);
-  await assert.rejects(browser.call("browser_run_code_unsafe"), /Unknown tool/);
-  const full = await create("--access", "terminal", "--browser", "--workspace", workspace);
-  assert.ok(
-    (await (await mcp(full.endpoints.browser as string, full.accessToken)).names()).includes(
-      "browser_run_code_unsafe",
-    ),
-  );
-});
+test(
+  "below terminal the tool that runs code is hidden and refused, at terminal it's there",
+  withBrowser,
+  async (t) => {
+    const { create, mcp, workspace } = await setup(t);
+    const below = await create("--access", "files", "--browser", "--workspace", workspace);
+    const browser = await mcp(below.endpoints.browser as string, below.accessToken);
+    const names = await browser.names();
+    assert.ok(names.includes("browser_navigate"));
+    assert.ok(!names.includes("browser_run_code_unsafe"));
+    await assert.rejects(browser.call("browser_run_code_unsafe"), /Unknown tool/);
+    const full = await create("--access", "terminal", "--browser", "--workspace", workspace);
+    assert.ok(
+      (await (await mcp(full.endpoints.browser as string, full.accessToken)).names()).includes(
+        "browser_run_code_unsafe",
+      ),
+    );
+  },
+);
 
-test("a computer has only what it was asked for", async (t) => {
+test("a computer has only what it was asked for", withBrowser, async (t) => {
   const { create, api, workspace, url } = await setup(t);
   const plain = await create("--access", "read", "--workspace", workspace);
   assert.equal(plain.endpoints.browser, null);
@@ -270,19 +280,23 @@ test("a computer stops at its timeout, its folder stays, and a running one can b
   );
 });
 
-test("computers and tokens come back when the service restarts, and logs say what happened", async (t) => {
-  const { create, restart, cli, url, workspace } = await setup(t);
-  const made = await create("--access", "read", "--browser", "--workspace", workspace);
-  const before = new URL(made.endpoints.computer as string).pathname;
-  await restart();
-  assert.equal((await raw(`${url()}${before}`, made.accessToken)).status, 200);
-  assert.match(await cli("logs", made.computerID), /POST mcp\/computer/);
-  const listed = JSON.parse(await cli("list")) as { computerID: string; state: string }[];
-  assert.deepEqual(
-    listed.map((one) => [one.computerID, one.state]),
-    [[made.computerID, "running"]],
-  );
-});
+test(
+  "computers and tokens come back when the service restarts, and logs say what happened",
+  withBrowser,
+  async (t) => {
+    const { create, restart, cli, url, workspace } = await setup(t);
+    const made = await create("--access", "read", "--browser", "--workspace", workspace);
+    const before = new URL(made.endpoints.computer as string).pathname;
+    await restart();
+    assert.equal((await raw(`${url()}${before}`, made.accessToken)).status, 200);
+    assert.match(await cli("logs", made.computerID), /POST mcp\/computer/);
+    const listed = JSON.parse(await cli("list")) as { computerID: string; state: string }[];
+    assert.deepEqual(
+      listed.map((one) => [one.computerID, one.state]),
+      [[made.computerID, "running"]],
+    );
+  },
+);
 
 for (const [why, args] of [
   ["another address without TLS", ["--listen", "0.0.0.0:0"]],

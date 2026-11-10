@@ -16,10 +16,9 @@ type CommandEvent = import("../src/sdk.ts").CommandEvent;
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");
-const STAND_IN = join(here, "..", "..", "test", "fixtures", "playwright.js");
 const IMAGE = process.env.AGENTCOMPUTER_TEST_IMAGE;
 const ISOLATIONS: [string, string[]][] = [
-  ["none", ["--playwright-cli", STAND_IN]],
+  ["none", []],
   ...(IMAGE
     ? ([["container", ["--isolation", "container", "--image", IMAGE]]] as [string, string[]][])
     : []),
@@ -212,12 +211,7 @@ for (const [isolation, extra] of ISOLATIONS) {
 }
 
 test("a page's origin can be allowed", { timeout: 60_000 }, async (t) => {
-  const { Computer, to } = await setup(t, [
-    "--playwright-cli",
-    STAND_IN,
-    "--allow-origin",
-    "https://agents.example",
-  ]);
+  const { Computer, to } = await setup(t, ["--allow-origin", "https://agents.example"]);
   const computer = await Computer.create({ ...to, access: "terminal" });
   t.after(() => computer.close());
   assert.equal(
@@ -233,11 +227,7 @@ test("a page's origin can be allowed", { timeout: 60_000 }, async (t) => {
 test("a shell that can't start closes its socket and nothing else", {
   timeout: 60_000,
 }, async (t) => {
-  const { Computer, to, alive } = await setup(
-    t,
-    ["--playwright-cli", STAND_IN],
-    "/nonexistent/shell",
-  );
+  const { Computer, to, alive } = await setup(t, [], "/nonexistent/shell");
   const computer = await Computer.create({ ...to, access: "terminal" });
   t.after(() => computer.close());
   const shell = await computer.pty.connect({ onData: () => {} });

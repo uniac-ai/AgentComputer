@@ -1,11 +1,13 @@
-// A computer's browser: Playwright MCP on a loopback port of its own, proxied under the computer's
-// path, so one address and one token cover both of its endpoints.
+// A computer's browser: a host process that starts it and shares it on a Unix socket, and
+// Playwright MCP attached to that socket, on a loopback port of its own, proxied under the
+// computer's path, so one address and one token cover both of its endpoints.
 import { type ChildProcess, spawn } from "node:child_process";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { pipeline, Readable } from "node:stream";
+import { fileURLToPath } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 
 /** Its own README calls this equivalent to remote code execution. */
@@ -23,14 +25,22 @@ const FORWARDED = [
 ];
 
 export interface BrowserConfig {
-  /** Playwright MCP's program; the installed dependency by default. */
-  cli?: string | undefined;
-  /** Which browser: Playwright's `--browser`, by default the person's Chrome. */
+  /** Playwright's browser channel when no program is named: by default the person's Chrome. */
   browser?: string | undefined;
   /** A browser program to use in place of an installed one. */
   path?: string | undefined;
   /** False where the browser can't have its own sandbox, as in a container without privileges. */
   sandbox?: boolean | undefined;
+}
+
+/** What the agent's browser tools ask before they run, while a person may have the browser. */
+export interface BrowserGate {
+  /** An answer to give in place of running the call, if a person has or had the browser. */
+  wait(): Promise<string | undefined>;
+  /** Whether the agent's session still waits on a file chooser a person already answered. */
+  takeAnsweredChooser(): boolean;
+  /** The agent answered a dialog or a file chooser itself. */
+  agentAnswered(): void;
 }
 
 /** Give a client what the server answered, however it ends. */
@@ -45,8 +55,12 @@ export function sendAnswer(upstream: Response, response: ServerResponse) {
   pipeline(Readable.fromWeb(upstream.body as never), response, () => {});
 }
 
-const defaultCli = () =>
+const mcpCli = () =>
   join(dirname(createRequire(import.meta.url).resolve("@playwright/mcp/package.json")), "cli.js");
+/** This program, which also runs the browser host. */
+const self = fileURLToPath(import.meta.url);
+/** Tool calls that answer a dialog or a file chooser. */
+const ANSWERS = new Set(["browser_handle_dialog", "browser_file_upload"]);
 
 type Message = { id?: unknown; method?: string; params?: { name?: unknown } };
 
@@ -62,14 +76,27 @@ function withoutHidden(text: string, hidden: ReadonlySet<string>): string {
   return text.replace(/^data: (\{.*\})$/gm, (_, json: string) => `data: ${clean(json)}`);
 }
 
+/** Ask a process to stop, then make it. */
+async function end(child: ChildProcess) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const gone = new Promise<void>((done) => child.once("exit", () => done()));
+  child.kill("SIGTERM");
+  const timer = setTimeout(() => child.kill("SIGKILL"), STOP_MS);
+  await gone;
+  clearTimeout(timer);
+}
+
 export class Browser {
-  readonly #child: ChildProcess;
+  readonly #host: ChildProcess;
+  #mcp: ChildProcess | undefined;
   readonly #origin: Promise<string>;
+  /** The bound browser's socket, for the live viewer. */
+  readonly endpoint: Promise<string>;
   readonly #hidden: ReadonlySet<string>;
-  #exited = false;
   #stopping = false;
   /** The tools it offers, read once it is up. */
   tools: string[] = [];
+  gate: BrowserGate | undefined;
 
   constructor(
     config: BrowserConfig,
@@ -80,41 +107,76 @@ export class Browser {
     exited: () => void,
   ) {
     this.#hidden = new Set(terminal ? [] : [RUNS_CODE]);
-    this.#child = spawn(
+    const ended = (what: string) => (code: number | null) => {
+      if (!this.#stopping) {
+        log(`${what} exited with ${code}.`);
+        exited();
+      }
+    };
+    this.#host = spawn(
       process.execPath,
       [
-        config.cli ?? defaultCli(),
-        "--headless",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "0",
-        ...(config.path
-          ? ["--browser", config.browser ?? "chromium", "--executable-path", config.path]
-          : ["--browser", config.browser ?? "chrome"]),
-        ...(config.sandbox === false ? ["--no-sandbox"] : []),
-        "--user-data-dir",
+        self,
+        "browser-host",
+        "--profile",
         join(folder, "profile"),
-        "--output-dir",
-        join(folder, "output"),
+        ...(config.path
+          ? ["--executable", config.path]
+          : ["--channel", config.browser ?? "chrome"]),
+        ...(config.sandbox === false ? ["--no-sandbox"] : []),
       ],
-      // Its own limit on which files it touches is the folder it starts in.
-      { cwd, stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"] },
     );
-    this.#origin = new Promise((done, failed) => {
-      this.#child.on("error", failed);
-      this.#child.once("exit", (code) => {
-        this.#exited = true;
-        failed(new Error(`The browser's server exited with ${code}.`));
-        if (!this.#stopping) exited();
-      });
-      for (const stream of [this.#child.stdout, this.#child.stderr])
-        createInterface({ input: stream as NodeJS.ReadableStream }).on("line", (line) => {
+    this.endpoint = new Promise((done, failed) => {
+      this.#host.on("error", failed);
+      this.#host.once("exit", (code) => failed(new Error(`The browser exited with ${code}.`)));
+      this.#host.once("exit", ended("The browser"));
+      createInterface({ input: this.#host.stdout as NodeJS.ReadableStream }).on("line", (line) => {
+        try {
+          const { endpoint } = JSON.parse(line) as { endpoint: string };
+          log(`The browser is shared on ${endpoint}.`);
+          done(endpoint);
+        } catch {
           log(line);
-          const listening = /^Listening on (http:\/\/[^/\s]+)/.exec(line);
-          if (listening) done(listening[1] as string);
-        });
+        }
+      });
+      createInterface({ input: this.#host.stderr as NodeJS.ReadableStream }).on("line", log);
     });
+    this.endpoint.catch(() => {});
+    this.#origin = this.endpoint.then(
+      (endpoint) =>
+        new Promise<string>((done, failed) => {
+          if (this.#stopping) return failed(new Error("It stopped."));
+          const mcp = spawn(
+            process.execPath,
+            [
+              mcpCli(),
+              "--host",
+              "127.0.0.1",
+              "--port",
+              "0",
+              "--endpoint",
+              endpoint,
+              "--output-dir",
+              join(folder, "output"),
+            ],
+            // Its own limit on which files it touches is the folder it starts in.
+            { cwd, stdio: ["ignore", "pipe", "pipe"] },
+          );
+          this.#mcp = mcp;
+          mcp.on("error", failed);
+          mcp.once("exit", (code) =>
+            failed(new Error(`The browser's server exited with ${code}.`)),
+          );
+          mcp.once("exit", ended("The browser's server"));
+          for (const stream of [mcp.stdout, mcp.stderr])
+            createInterface({ input: stream as NodeJS.ReadableStream }).on("line", (line) => {
+              log(line);
+              const listening = /^Listening on (http:\/\/[^/\s]+)/.exec(line);
+              if (listening) done(listening[1] as string);
+            });
+        }),
+    );
     this.#origin.catch(() => {});
   }
 
@@ -150,21 +212,45 @@ export class Browser {
     } catch {
       // Not JSON: the server answers that itself.
     }
-    if (message.method === "tools/call" && this.#hidden.has(String(message.params?.name))) {
+    const tool = message.method === "tools/call" ? String(message.params?.name) : undefined;
+    const refuse = (text: string, code = -32000) => {
       response.writeHead(200, { "Content-Type": "application/json" });
-      return void response.end(
+      response.end(
         JSON.stringify({
           jsonrpc: "2.0",
           id: message.id ?? null,
-          error: { code: -32602, message: `Unknown tool: ${String(message.params?.name)}` },
+          ...(code === -32602
+            ? { error: { code, message: text } }
+            : { result: { content: [{ type: "text", text }], isError: true } }),
         }),
       );
+    };
+    if (tool && this.#hidden.has(tool)) return refuse(`Unknown tool: ${tool}`, -32602);
+    if (tool && this.gate) {
+      const answer = await this.gate.wait();
+      if (answer) return refuse(answer);
     }
     const headers: Record<string, string> = {};
     for (const name of FORWARDED) {
       const value = request.headers[name];
       if (typeof value === "string") headers[name] = value;
     }
+    // A person answered a file chooser the agent's session still waits on: close it there first,
+    // which leaves what the person chose in place.
+    if (tool && this.gate?.takeAnsweredChooser())
+      await fetch(`${origin}/mcp`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "agentcomputer-answered",
+          method: "tools/call",
+          params: { name: "browser_file_upload", arguments: {} },
+        }),
+      })
+        .then((answer) => answer.text())
+        .catch(() => {});
+    if (tool && ANSWERS.has(tool)) this.gate?.agentAnswered();
     const upstream = await fetch(`${origin}/mcp`, {
       method: request.method as string,
       headers,
@@ -179,11 +265,6 @@ export class Browser {
 
   async stop() {
     this.#stopping = true;
-    if (this.#exited) return;
-    const gone = new Promise<void>((done) => this.#child.once("exit", () => done()));
-    this.#child.kill("SIGTERM");
-    const timer = setTimeout(() => this.#child.kill("SIGKILL"), STOP_MS);
-    await gone;
-    clearTimeout(timer);
+    await Promise.all([this.#mcp, this.#host].map((child) => (child ? end(child) : undefined)));
   }
 }

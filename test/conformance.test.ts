@@ -23,13 +23,12 @@ type Surface = (operationId: string, input: Input) => Promise<Answer>;
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");
-const STAND_IN = join(here, "..", "..", "test", "fixtures", "playwright.js");
 const run = promisify(execFile);
 /** Every operation but opening a live session, which is a WebSocket and has its own tests. */
 const TOOLS = OPERATIONS.filter((one) => one.tool);
 const IMAGE = process.env.AGENTCOMPUTER_TEST_IMAGE;
 const ISOLATIONS: [string, string[]][] = [
-  ["none", ["--playwright-cli", STAND_IN]],
+  ["none", []],
   ...(IMAGE
     ? ([["container", ["--isolation", "container", "--image", IMAGE]]] as [string, string[]][])
     : []),
@@ -247,7 +246,7 @@ async function scenario(surface: Surface, workspace: string, isolation: string) 
   );
 }
 
-async function service(t: test.TestContext, extra: string[] = ["--playwright-cli", STAND_IN]) {
+async function service(t: test.TestContext, extra: string[] = []) {
   const root = realpathSync(
     mkdtempSync(join(process.env.AGENTCOMPUTER_TEST_ROOT ?? tmpdir(), "agentcomputer-")),
   );
