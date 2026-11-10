@@ -1,7 +1,8 @@
 // Two single files: the program, holding the service and AgentExec, and the SDK. playwright-core
 // stays a dependency, installed beside the program: the browser host and the browser's MCP server
-// are built from it. @playwright/mcp is no longer run; it stays as the release whose
-// playwright-core this is pinned to. The licences of what is bundled go beside them.
+// are built from it. @playwright/mcp is not run and not installed with the package: it is a
+// development dependency, the release whose playwright-core this is pinned to. The licences of
+// what is bundled go beside them.
 import { cpSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { build } from "esbuild";
