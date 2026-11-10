@@ -1,6 +1,7 @@
 // A computer's live surfaces, where its processes run: its terminals, the agent's commands and a
-// person's shells alike, its files, which files-live.ts holds, and its browser, which
-// browser-live.ts holds. Each is a WebSocket in a small protocol of its own.
+// person's shells alike, its files, which files-live.ts holds, its browser, which browser-live.ts
+// holds, and its load, which load-live.ts holds. Each is a WebSocket in a small protocol of its
+// own.
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import type { AgentExec, CommandEvent } from "@agentorg/exec";
@@ -8,6 +9,7 @@ import { type WebSocket, WebSocketServer } from "ws";
 import type { BrowserLive } from "./browser-live.ts";
 import { FilesLive, MAX_PART, reason } from "./files-live.ts";
 import type { components } from "./generated/schema.js";
+import type { LoadLive } from "./load-live.ts";
 import { pieces } from "./text.ts";
 
 type Schemas = components["schemas"];
@@ -19,6 +21,7 @@ export const PROTOCOLS: Record<Surface, string> = {
   terminal: "terminal@1",
   files: "files@1",
   browser: "screencast@1",
+  load: "metrics@1",
 };
 
 /** No terminal@1 message is larger, either way. A larger one closes its socket. */
@@ -44,6 +47,7 @@ const SERVERS: Record<Surface, WebSocketServer> = {
   terminal: new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE }),
   files: new WebSocketServer({ noServer: true, maxPayload: MAX_PART }),
   browser: new WebSocketServer({ noServer: true }),
+  load: new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE }),
 };
 
 const MALFORMED = "That isn't a terminal@1 message.";
@@ -69,7 +73,15 @@ export class Live {
   /** Whether a person may write files here: not where the agent can only read them. */
   readonly #writes: boolean;
 
-  constructor(exec: AgentExec | undefined, access: Schemas["Access"], browser?: BrowserLive) {
+  readonly #load: LoadLive;
+
+  constructor(
+    exec: AgentExec | undefined,
+    access: Schemas["Access"],
+    load: LoadLive,
+    browser?: BrowserLive,
+  ) {
+    this.#load = load;
     if (exec && access === "terminal") {
       this.#terminals = exec.terminals;
       exec.onCommand((event) => {
@@ -89,6 +101,7 @@ export class Live {
       surfaces.push({ surface: "files", protocol: PROTOCOLS.files, operate: this.#writes });
     if (this.#browser)
       surfaces.push({ surface: "browser", protocol: PROTOCOLS.browser, operate: true });
+    surfaces.push({ surface: "load", protocol: PROTOCOLS.load, operate: false });
     return surfaces;
   }
 
@@ -100,6 +113,7 @@ export class Live {
       if (surface === "terminal" && this.#terminals) this.#view(ws, mode, this.#terminals);
       else if (surface === "files" && this.#files) this.#files.open(ws, mode);
       else if (surface === "browser" && this.#browser) this.#browser.open(ws, mode);
+      else if (surface === "load") this.#load.open(ws);
       else ws.close(1011, `There's no ${surface} here.`);
     });
   }
@@ -108,6 +122,7 @@ export class Live {
   close() {
     void this.#browser?.close();
     this.#files?.close();
+    this.#load.close();
     for (const ws of this.#viewers) ws.close(1001, "It stopped.");
   }
 

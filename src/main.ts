@@ -31,7 +31,7 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
   stop <id>                         stop it, keeping its folder and token
   start <id> [--timeout SECONDS]    start a stopped computer again
   logs <id>                         what its servers wrote
-  live <id> --surface terminal|files|browser [--mode watch|operate]
+  live <id> --surface terminal|files|browser|load [--mode watch|operate]
                                     a one-time ticket to open one live, as a WebSocket
   kill <id>                         stop it and remove what the service made
 
