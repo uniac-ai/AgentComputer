@@ -389,7 +389,15 @@ test("a viewer more than 4 MiB behind is closed, and one that opens is shown all
     onCommand: (listener: typeof hear) => {
       hear = listener;
     },
-    terminals: { list: () => [{ ...kept, output: "y\n".repeat(32_768) }] },
+    // Enough of them that, as the JSON they are sent as, they are more than 4 MiB: about 6.
+    terminals: {
+      list: () =>
+        Array.from({ length: 64 }, (_, n) => ({
+          ...kept,
+          id: `s_${n + 1}`,
+          output: "y\n".repeat(32_768),
+        })),
+    },
   } as unknown as Exec;
   const live = new Live(exec, "terminal");
   const server = createServer().on("upgrade", (request, socket, head) =>
@@ -423,7 +431,8 @@ test("a viewer more than 4 MiB behind is closed, and one that opens is shown all
 
   const fresh = await view();
   t.after(() => fresh.ws.close());
-  await until(() => fresh.heard.length === 8, "what a new viewer is first sent");
+  await until(() => fresh.heard.length === 64 * 8, "what a new viewer is first sent, all of it");
   assert.deepEqual(fresh.heard[0], { type: "start", ...kept });
-  assert.equal(fresh.heard.map((e) => (e.type === "output" ? e.text : "")).join("").length, 65_536);
+  const ofLast = fresh.heard.map((e) => (e.type === "output" && e.id === "s_64" ? e.text : ""));
+  assert.equal(ofLast.join("").length, 65_536);
 });
