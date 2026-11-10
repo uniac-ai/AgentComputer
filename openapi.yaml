@@ -165,6 +165,48 @@ paths:
               schema: { $ref: "#/components/schemas/ComputerLogs" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/Error" }
+  /v1/computers/{computerID}/live:
+    parameters:
+      - $ref: "#/components/parameters/computerID"
+    post:
+      operationId: createLiveSession
+      x-mcp-tool: computer_live
+      summary: >-
+        A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they
+        run, or a shell of your own. Open its url as a WebSocket within 60 seconds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewLiveSession" }
+      responses:
+        "201":
+          description: The ticket.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LiveSession" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/live/{liveID}:
+    parameters:
+      - name: liveID
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 128 }
+    get:
+      operationId: openLiveSession
+      summary: >-
+        Open a live session as a WebSocket. The ticket in its path is its authority and works once,
+        so it takes no token. A request with an Origin header is refused unless the service was
+        told to allow that origin.
+      security: []
+      responses:
+        "101": { description: The socket, in the session's protocol. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "426": { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     controlToken:
@@ -271,15 +313,55 @@ components:
       allOf:
         - $ref: "#/components/schemas/Computer"
         - type: object
-          required: [uptimeSeconds, tools]
+          required: [uptimeSeconds, tools, surfaces]
           properties:
             uptimeSeconds: { type: integer }
+            surfaces:
+              type: array
+              description: What can be opened live while it runs.
+              items: { $ref: "#/components/schemas/SurfaceInfo" }
             tools:
               type: object
               required: [computer, browser]
               properties:
                 computer: { type: array, items: { type: string } }
                 browser: { type: array, items: { type: string } }
+    Surface:
+      type: string
+      enum: [commands, terminal]
+      description: >-
+        commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of
+        your own in its workspace, as its user, in pty@1.
+    LiveMode:
+      type: string
+      enum: [watch, operate]
+      description: In watch, what you send is dropped.
+    SurfaceInfo:
+      type: object
+      required: [surface, protocol, operate]
+      properties:
+        surface: { $ref: "#/components/schemas/Surface" }
+        protocol: { type: string }
+        operate: { type: boolean, description: Whether it can be operated, not only watched. }
+        unavailable: { type: string, description: Why it can't be opened here, if it can't. }
+    NewLiveSession:
+      type: object
+      additionalProperties: false
+      required: [surface]
+      properties:
+        surface: { $ref: "#/components/schemas/Surface" }
+        mode:
+          allOf: [{ $ref: "#/components/schemas/LiveMode" }]
+          default: watch
+    LiveSession:
+      type: object
+      required: [url, protocol, surface, mode, expiresAt]
+      properties:
+        url: { type: string, description: The WebSocket to open, once. }
+        protocol: { type: string }
+        surface: { $ref: "#/components/schemas/Surface" }
+        mode: { $ref: "#/components/schemas/LiveMode" }
+        expiresAt: { type: string, format: date-time }
     ComputerLogs:
       type: object
       required: [logs]

@@ -2,9 +2,11 @@
 // the other way. Inside a container the same processes run, through this file.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
+import type { Duplex } from "node:stream";
 import { type AgentExec, createAgentExec } from "@agentorg/exec";
 import { Browser, type BrowserConfig } from "./browser.ts";
 import type { components } from "./generated/schema.js";
+import { Live, type LiveMode, type Surface, type SurfaceInfo } from "./live.ts";
 import { privateFolder } from "./store.ts";
 
 export type Access = components["schemas"]["Access"];
@@ -36,7 +38,17 @@ export interface RuntimeEvents {
 export interface Running {
   /** The tools its browser offers, read once it is up. */
   readonly browserTools: string[];
+  /** What it can open live. */
+  readonly surfaces: SurfaceInfo[];
   handle(endpoint: Endpoint, request: IncomingMessage, response: ServerResponse): Promise<void>;
+  /** Take an upgraded request as a live socket on one surface. */
+  openLive(
+    surface: Surface,
+    mode: LiveMode,
+    request: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+  ): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -92,14 +104,19 @@ export class ProcessRuntime implements Runtime {
         throw error;
       }
     }
+    const live = new Live(exec, spec.workspace, spec.access === "terminal");
     return {
       browserTools: browser?.tools ?? [],
+      surfaces: await live.surfaces(),
+      openLive: async (surface, mode, request, socket, head) =>
+        live.open(surface, mode, request, socket, head),
       handle: async (endpoint, request, response) => {
         if (endpoint === "computer") return (exec as AgentExec).handle(request, response);
         if (browserDown) throw new ApiError(502, "Its browser has stopped.");
         return (browser as Browser).handle(request, response);
       },
       stop: async () => {
+        live.close();
         await Promise.all([exec?.close(), browser?.stop()]);
       },
     };

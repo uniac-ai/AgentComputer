@@ -16,9 +16,17 @@ const bundle = (entry, outfile, banner = "") =>
     metafile: true,
     banner: { js: banner },
     legalComments: "none",
+    // node-pty is a native module installed beside the bundle when it can be; the other two are
+    // optional speed-ups of the WebSocket library.
+    external: ["node-pty", "bufferutil", "utf-8-validate"],
   });
 const results = [
-  await bundle("src/main.ts", "dist/agentcomputer.js", "#!/usr/bin/env node"),
+  // The WebSocket library is CommonJS, so the program gets a `require` of its own.
+  await bundle(
+    "src/main.ts",
+    "dist/agentcomputer.js",
+    '#!/usr/bin/env node\nimport { createRequire as agentcomputerRequire } from "node:module";\nconst require = agentcomputerRequire(import.meta.url);',
+  ),
   await bundle("src/sdk.ts", "dist/sdk.js"),
 ];
 cpSync("out/src/sdk.d.ts", "dist/types/sdk.d.ts");

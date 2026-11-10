@@ -25,6 +25,8 @@ const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");
 const STAND_IN = join(here, "..", "..", "test", "fixtures", "playwright.js");
 const run = promisify(execFile);
+/** Every operation but opening a live session, which is a WebSocket and has its own tests. */
+const TOOLS = OPERATIONS.filter((one) => one.tool);
 const IMAGE = process.env.AGENTCOMPUTER_TEST_IMAGE;
 const ISOLATIONS: [string, string[]][] = [
   ["none", ["--playwright-cli", STAND_IN]],
@@ -61,7 +63,7 @@ function http(url: string, token: string): Surface {
 function mcp(client: Client): Surface {
   return async (operationId, input) => {
     const { tool } = OPERATIONS.find((one) => one.operationId === operationId) as Operation;
-    const result = (await client.callTool({ name: tool, arguments: input })) as {
+    const result = (await client.callTool({ name: tool as string, arguments: input })) as {
       content: { text: string }[];
       isError?: boolean;
     };
@@ -94,6 +96,8 @@ function sdk({ Computer }: Sdk, apiUrl: string, apiKey: string): Surface {
     stopComputer: ({ computerID }) => Computer.stop(computerID, to),
     startComputer: ({ computerID }) => Computer.start(computerID, to),
     getComputerLogs: async ({ computerID }) => ({ logs: await Computer.getLogs(computerID, to) }),
+    createLiveSession: ({ computerID, surface, mode }) =>
+      Computer.createLiveSession(computerID, { surface, ...(mode ? { mode } : {}) }, to),
     killComputer: ({ computerID }) => Computer.kill(computerID, to),
   };
   return async (operationId, input) => {
@@ -127,6 +131,13 @@ function cli(data: string): Surface {
     stopComputer: ({ computerID }) => ["stop", computerID],
     startComputer: ({ computerID }) => ["start", computerID],
     getComputerLogs: ({ computerID }) => ["logs", computerID],
+    createLiveSession: ({ computerID, surface, mode }) => [
+      "live",
+      computerID,
+      "--surface",
+      surface,
+      ...(mode ? ["--mode", mode] : []),
+    ],
     killComputer: ({ computerID }) => ["kill", computerID],
   };
   return async (operationId, input) => {
@@ -198,6 +209,21 @@ async function scenario(surface: Surface, workspace: string, isolation: string) 
 
   assert.ok(Array.isArray((await call("getComputerLogs", { computerID })).value.logs));
 
+  assert.deepEqual(
+    detail.surfaces.map((one: { surface: string }) => one.surface),
+    ["commands", "terminal"],
+  );
+  const ticket = (await call("createLiveSession", { computerID, surface: "commands" })).value;
+  assert.match(ticket.url, /^wss?:\/\/[^/]+\/v1\/live\/l_/);
+  assert.equal(ticket.protocol, "commands@1");
+  assert.equal(ticket.mode, "watch");
+  const operated = await call("createLiveSession", {
+    computerID,
+    surface: "commands",
+    mode: "operate",
+  });
+  assert.match(operated.message, /watched, not operated/);
+
   const stopped = (await call("stopComputer", { computerID })).value;
   assert.equal(stopped.state, "stopped");
   assert.equal(stopped.endAt, null);
@@ -216,7 +242,7 @@ async function scenario(surface: Surface, workspace: string, isolation: string) 
 
   assert.deepEqual(
     [...reached].sort(),
-    OPERATIONS.map((one) => one.operationId).sort(),
+    TOOLS.map((one) => one.operationId).sort(),
     "every operation is reached",
   );
 }
@@ -275,10 +301,7 @@ for (const [isolation, extra] of ISOLATIONS)
       );
       inner.after(() => client.close());
       const { tools } = await client.listTools();
-      assert.deepEqual(
-        tools.map((tool) => tool.name).sort(),
-        OPERATIONS.map((one) => one.tool).sort(),
-      );
+      assert.deepEqual(tools.map((tool) => tool.name).sort(), TOOLS.map((one) => one.tool).sort());
       await scenario(mcp(client), workspace, isolation);
     });
     await t.test("SDK", async () =>

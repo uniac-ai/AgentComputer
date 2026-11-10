@@ -9,6 +9,23 @@ export type ComputerInfo = Schemas["Computer"];
 export type ComputerDetail = Schemas["ComputerDetail"];
 export type ServiceInfo = Schemas["ServiceInfo"];
 export type ComputerLog = Schemas["ComputerLogs"]["logs"][number];
+export type LiveSurface = Schemas["Surface"];
+export type LiveMode = Schemas["LiveMode"];
+export type LiveSession = Schemas["LiveSession"];
+/** What happens to one of the agent's commands, as it happens. */
+export type CommandEvent =
+  | { type: "start"; id: string; cmd: string; workdir: string; at: string }
+  | { type: "output"; id: string; stream: "stdout" | "stderr"; text: string }
+  | { type: "exit"; id: string; exitCode: number; at: string };
+export interface LiveHandle {
+  close(): void;
+  /** Resolves when the socket closes, with why. */
+  closed: Promise<{ code: number; reason: string }>;
+}
+export interface PtyHandle extends LiveHandle {
+  sendInput(data: string): void;
+  resize(columns: number, rows: number): void;
+}
 
 export interface ConnectionOpts {
   /** The control token; `AGENTCOMPUTER_API_KEY` by default. */
@@ -128,12 +145,78 @@ class Endpoint {
   }
 }
 
+/** Open a ticket's socket, and say when it closes. */
+async function openLive(session: LiveSession, onMessage: (data: string | ArrayBuffer) => void) {
+  const ws = new WebSocket(session.url);
+  ws.binaryType = "arraybuffer";
+  const closed = new Promise<{ code: number; reason: string }>((done) => {
+    ws.addEventListener("close", (event) => done({ code: event.code, reason: event.reason }));
+  });
+  await new Promise<void>((done, failed) => {
+    ws.addEventListener("open", () => done(), { once: true });
+    ws.addEventListener(
+      "error",
+      () => failed(new ComputerError(502, "The live session didn't open.")),
+      { once: true },
+    );
+  });
+  ws.addEventListener("message", (event) => onMessage(event.data as string | ArrayBuffer));
+  return { ws, closed };
+}
+
+type Opener = (surface: LiveSurface, mode: LiveMode) => Promise<LiveSession>;
+const INPUT = 0x30;
+const RESIZE = 0x31;
+
+/** A shell of your own on the computer, beside the agent's commands. */
+class Pty {
+  readonly #open: Opener;
+
+  constructor(open: Opener) {
+    this.#open = open;
+  }
+
+  /** Attach to its shell, starting one if none is running. Every attachment shares it. */
+  async connect(opts: { onData: (data: string) => void; mode?: LiveMode }): Promise<PtyHandle> {
+    const mode = opts.mode ?? "operate";
+    const decoder = new TextDecoder();
+    const { ws, closed } = await openLive(await this.#open("terminal", mode), (data) => {
+      if (typeof data === "string") return;
+      const frame = new Uint8Array(data);
+      if (frame[0] === INPUT) opts.onData(decoder.decode(frame.subarray(1), { stream: true }));
+    });
+    const send = (type: number, text: string) => {
+      const body = new TextEncoder().encode(text);
+      const frame = new Uint8Array(body.length + 1);
+      frame[0] = type;
+      frame.set(body, 1);
+      ws.send(frame);
+    };
+    return {
+      sendInput: (data) => send(INPUT, data),
+      resize: (columns, rows) => send(RESIZE, JSON.stringify({ columns, rows })),
+      close: () => ws.close(),
+      closed,
+    };
+  }
+}
+
 /** Commands on a computer with the terminal level. */
 class Commands {
   readonly #endpoint: Endpoint;
+  readonly #open: Opener;
 
-  constructor(endpoint: Endpoint) {
+  constructor(endpoint: Endpoint, open: Opener) {
     this.#endpoint = endpoint;
+    this.#open = open;
+  }
+
+  /** Each of the agent's commands as it runs: the ones already heard first, then as they come. */
+  async watch(onEvent: (event: CommandEvent) => void): Promise<LiveHandle> {
+    const { ws, closed } = await openLive(await this.#open("commands", "watch"), (data) => {
+      if (typeof data === "string") onEvent(JSON.parse(data) as CommandEvent);
+    });
+    return { close: () => ws.close(), closed };
   }
 
   /** Run a command to its end. */
@@ -239,6 +322,7 @@ export class Computer {
   readonly computerID: string;
   readonly commands: Commands;
   readonly files: Files;
+  readonly pty: Pty;
   readonly #connection: ConnectionOpts;
   readonly #token: string;
   readonly #computer: Endpoint;
@@ -250,7 +334,9 @@ export class Computer {
     this.#token = token;
     this.#urls = info.endpoints;
     this.#computer = new Endpoint(info.endpoints.computer, token);
-    this.commands = new Commands(this.#computer);
+    const open: Opener = (surface, mode) => this.liveSession(surface, mode);
+    this.commands = new Commands(this.#computer, open);
+    this.pty = new Pty(open);
     this.files = new Files(this.#computer);
   }
 
@@ -333,6 +419,20 @@ export class Computer {
       .logs;
   }
 
+  /** A one-time ticket to open one of its surfaces live, within a minute. */
+  static async createLiveSession(
+    computerID: string,
+    session: { surface: LiveSurface; mode?: LiveMode },
+    opts: ConnectionOpts = {},
+  ): Promise<LiveSession> {
+    return answered(
+      await apiOf(opts).POST("/v1/computers/{computerID}/live", {
+        ...pathOf(computerID),
+        body: { surface: session.surface, mode: session.mode ?? "watch" },
+      }),
+    );
+  }
+
   static async kill(computerID: string, opts: ConnectionOpts = {}): Promise<void> {
     answered(await apiOf(opts).DELETE("/v1/computers/{computerID}", pathOf(computerID)));
   }
@@ -368,6 +468,10 @@ export class Computer {
 
   start(opts: { timeoutMs?: number } = {}) {
     return Computer.start(this.computerID, { ...this.#connection, ...opts });
+  }
+
+  liveSession(surface: LiveSurface, mode: LiveMode = "watch") {
+    return Computer.createLiveSession(this.computerID, { surface, mode }, this.#connection);
   }
 
   getLogs() {

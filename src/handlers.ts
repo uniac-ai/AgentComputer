@@ -2,6 +2,7 @@
 // has one here, and both the HTTP API and the MCP control tools call these.
 import type { Computers } from "./computers.ts";
 import type { operations } from "./generated/schema.js";
+import { ApiError } from "./runtime.ts";
 
 type Json<T> = T extends { content: { "application/json": infer B } } ? B : never;
 type Fields<T> = [NonNullable<T>] extends [never] ? object : NonNullable<T>;
@@ -34,5 +35,10 @@ export function createHandlers(computers: Computers): Handlers {
     stopComputer: ({ computerID }) => computers.stop(computerID),
     startComputer: ({ computerID, timeout }) => computers.start(computerID, timeout),
     getComputerLogs: async ({ computerID }) => ({ logs: computers.logs(computerID) }),
+    createLiveSession: async ({ computerID, surface, mode }) =>
+      computers.liveSession(computerID, surface, mode ?? "watch"),
+    openLiveSession: async () => {
+      throw new ApiError(426, "Open it as a WebSocket.");
+    },
   };
 }

@@ -55,7 +55,7 @@ for (const [path, item] of Object.entries(spec.paths)) {
       ...parameters.filter((p) => p.required).map((p) => p.name),
       ...(operation.requestBody?.required ? (body?.required ?? []) : []),
     ];
-    const status = Object.keys(operation.responses).find((code) => code.startsWith("2"));
+    const status = Object.keys(operation.responses).find((code) => /^[12]/.test(code));
     operations.push({
       operationId: operation.operationId,
       method: method.toUpperCase(),
@@ -68,6 +68,7 @@ for (const [path, item] of Object.entries(spec.paths)) {
       queryParameters: parameters.filter((p) => p.in === "query").map((p) => p.name),
       input: { type: "object", additionalProperties: false, properties, required },
       output: inlined(operation.responses[status].content?.["application/json"]?.schema) ?? null,
+      websocket: status === "101",
     });
   }
 }
@@ -81,7 +82,8 @@ export interface Operation {
   operationId: string;
   method: string;
   path: string;
-  tool: string;
+  /** Absent where the operation isn't a tool, as a WebSocket isn't. */
+  tool?: string;
   summary: string;
   status: number;
   hasBody: boolean;
@@ -89,6 +91,7 @@ export interface Operation {
   queryParameters: string[];
   input: Record<string, unknown>;
   output: Record<string, unknown> | null;
+  websocket: boolean;
 }
 
 export const OPERATIONS: Operation[] = ${JSON.stringify(operations, null, 2)};

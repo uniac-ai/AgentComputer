@@ -3,7 +3,9 @@ import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isAbsolute, join, resolve } from "node:path";
+import type { Duplex } from "node:stream";
 import type { components } from "./generated/schema.js";
+import type { LiveMode, Surface } from "./live.ts";
 import { ApiError, type Endpoint, type Running, type Runtime } from "./runtime.ts";
 import { digestOf, newToken, privateFolder, sameToken, writePrivate } from "./store.ts";
 
@@ -38,6 +40,16 @@ interface Live {
   failed?: boolean;
 }
 
+/** How long a live session's ticket can wait to be opened. */
+const TICKET_MS = 60_000;
+
+interface Ticket {
+  computerID: string;
+  surface: Surface;
+  mode: LiveMode;
+  expiresAt: number;
+}
+
 const expiry = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
 
 export class Computers {
@@ -46,6 +58,7 @@ export class Computers {
   readonly #runtime: Runtime;
   readonly #stored = new Map<string, Stored>();
   readonly #live = new Map<string, Live>();
+  readonly #tickets = new Map<string, Ticket>();
   readonly #file: string;
 
   constructor(data: string, base: () => string, runtime: Runtime) {
@@ -148,6 +161,7 @@ export class Computers {
         computer: stored.access === "none" ? [] : TOOLS[stored.access],
         browser: live?.running?.browserTools ?? [],
       },
+      surfaces: live?.running?.surfaces ?? [],
     };
   }
 
@@ -240,6 +254,43 @@ export class Computers {
     if (!running) throw new ApiError(409, "It has stopped.");
     this.#log(id, `${request.method} mcp/${endpoint}`);
     return running.handle(endpoint, request, response);
+  }
+
+  /** A one-time ticket to open one of its surfaces live. */
+  liveSession(id: string, surface: Surface, mode: LiveMode): Schemas["LiveSession"] {
+    this.#found(id);
+    const running = this.#live.get(id)?.running;
+    if (!running) throw new ApiError(409, "It has stopped.");
+    const info = running.surfaces.find((one) => one.surface === surface);
+    if (!info) throw new ApiError(409, `This computer has no ${surface} to open.`);
+    if (info.unavailable) throw new ApiError(409, info.unavailable);
+    if (mode === "operate" && !info.operate)
+      throw new ApiError(400, `Its ${surface} can be watched, not operated.`);
+    const now = Date.now();
+    for (const [key, ticket] of this.#tickets)
+      if (ticket.expiresAt <= now) this.#tickets.delete(key);
+    const ticket = `l_${randomBytes(24).toString("base64url")}`;
+    const expiresAt = now + TICKET_MS;
+    this.#tickets.set(ticket, { computerID: id, surface, mode, expiresAt });
+    return {
+      url: `${this.#base().replace(/^http/, "ws")}/v1/live/${ticket}`,
+      protocol: info.protocol,
+      surface,
+      mode,
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+  }
+
+  /** Open a live session by its ticket, which then can't be used again. */
+  async openLive(ticket: string, request: IncomingMessage, socket: Duplex, head: Buffer) {
+    const found = this.#tickets.get(ticket);
+    this.#tickets.delete(ticket);
+    if (!found || found.expiresAt <= Date.now())
+      throw new ApiError(404, "There's no such live session: it was used, or it expired.");
+    const running = this.#live.get(found.computerID)?.running;
+    if (!running) throw new ApiError(409, "It has stopped.");
+    this.#log(found.computerID, `live ${found.surface} ${found.mode}`);
+    await running.openLive(found.surface, found.mode, request, socket, head);
   }
 
   /** Stop every computer, leaving their records to resume at the next start. */
