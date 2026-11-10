@@ -1,9 +1,11 @@
-// Live sessions: one-time tickets, the Origin rule, the agent's commands as they run, and a shell
-// of the person's own, the same with and without isolation.
+// Live sessions: one-time tickets, the Origin rule, and every terminal on one socket, the agent's
+// commands and a person's shells alike, the same with and without isolation.
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -12,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import WebSocket from "ws";
 
 type Sdk = typeof import("../src/sdk.ts");
-type CommandEvent = import("../src/sdk.ts").CommandEvent;
+type TerminalEvent = import("../src/sdk.ts").TerminalEvent;
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");
@@ -105,17 +107,16 @@ for (const [isolation, extra] of ISOLATIONS) {
       assert.deepEqual(
         surfaces.map((one) => [one.surface, one.operate, one.unavailable ?? null]),
         [
-          ["commands", false, null],
           ["terminal", true, null],
           ["files", true, null],
         ],
       );
 
-      const once1 = await computer.liveSession("commands");
+      const once1 = await computer.liveSession("terminal");
       assert.equal(await attempt(once1.url), "open");
       assert.equal(await attempt(once1.url), "404");
 
-      const fromPage = await computer.liveSession("commands");
+      const fromPage = await computer.liveSession("terminal");
       assert.equal(await attempt(fromPage.url, "https://evil.example"), "403");
       assert.equal(
         await attempt(fromPage.url),
@@ -143,10 +144,21 @@ for (const [isolation, extra] of ISOLATIONS) {
       const computer = await Computer.create({ ...to, access: "terminal", workspace });
       t.after(() => computer.close());
       await computer.commands.run("echo earlier");
-      const heard: CommandEvent[] = [];
-      const watch = await computer.commands.watch((event) => heard.push(event));
+      const heard: TerminalEvent[] = [];
+      const watch = await computer.terminals.connect({
+        mode: "watch",
+        onEvent: (event) => heard.push(event),
+      });
       await until(() => heard.some((e) => e.type === "exit"), "the earlier command");
-      assert.ok(heard.some((e) => e.type === "output" && e.text === "earlier\n"));
+      assert.deepEqual(
+        heard.map((e) => e.type),
+        ["start", "output", "exit"],
+      );
+      const [earlier, wrote, ended] = heard;
+      assert.ok(earlier?.type === "start" && earlier.by === "agent" && !earlier.tty);
+      assert.equal(earlier.cmd, "echo earlier");
+      assert.ok(wrote?.type === "output" && wrote.text === "earlier\n" && !wrote.stream);
+      assert.ok(ended?.type === "exit" && ended.exitCode === 0 && ended.id === earlier.id);
 
       const running = await computer.commands.run("echo now; sleep 1; echo later", {
         background: true,
@@ -155,7 +167,11 @@ for (const [isolation, extra] of ISOLATIONS) {
       await until(
         () =>
           heard.some(
-            (e) => e.type === "output" && e.id === running.sessionId && e.text.includes("later"),
+            (e) =>
+              e.type === "output" &&
+              e.id === running.sessionId &&
+              e.stream === "stdout" &&
+              e.text.includes("later"),
           ),
         "output written after the agent's call returned",
       );
@@ -164,51 +180,134 @@ for (const [isolation, extra] of ISOLATIONS) {
         start?.type === "start" && start.workdir,
         isolation === "none" ? workspace : "/workspace",
       );
+
+      await computer.commands.run(`: ${"x".repeat(9_000)}`);
+      const long = () => heard.find((e) => e.type === "start" && e.cmd.startsWith(": x"));
+      await until(() => long() !== undefined, "the long command starting");
+      const cut = long();
+      assert.equal(cut?.type === "start" && cut.cmd.length, 8_000);
       watch.close();
     },
   );
 
   test(
-    `isolation ${isolation}: a shell of the person's own, shared, sized, and watched without typing`,
+    `isolation ${isolation}: a person's shell and the agent's commands, each reached by the other`,
     options,
     async (t) => {
       const { Computer, to, workspace, alive } = await setup(t, extra);
       const computer = await Computer.create({ ...to, access: "terminal", workspace });
       t.after(() => computer.close());
-      let seen = "";
-      const shell = await computer.pty.connect({ onData: (data) => (seen += data) });
-      let watched = "";
-      const watcher = await computer.pty.connect({
+      const seen: TerminalEvent[] = [];
+      const watched: TerminalEvent[] = [];
+      const wrote = (events: TerminalEvent[], id: string) =>
+        events.map((e) => (e.type === "output" && e.id === id ? e.text : "")).join("");
+      const person = await computer.terminals.connect({ onEvent: (event) => seen.push(event) });
+      const watcher = await computer.terminals.connect({
         mode: "watch",
-        onData: (data) => (watched += data),
+        onEvent: (event) => watched.push(event),
       });
 
-      shell.sendInput("pwd; echo answer-$((6*7))\n");
-      await until(() => seen.includes("answer-42"), "the shell's answer");
-      assert.ok(seen.includes(isolation === "none" ? workspace : "/workspace"));
-      await until(() => watched.includes("answer-42"), "the watcher seeing it");
+      // A watcher opens nothing; an operator's shell arrives as a start like any other.
+      watcher.openShell(80, 24);
+      person.openShell(80, 24);
+      await until(() => seen.some((e) => e.type === "start"), "the shell starting");
+      await until(() => watched.some((e) => e.type === "start"), "the watcher hearing it start");
+      const shell = seen.find((e) => e.type === "start");
+      assert.ok(shell?.type === "start" && shell.by === "person" && shell.tty);
+      assert.equal(shell.workdir, isolation === "none" ? workspace : "/workspace");
 
-      watcher.sendInput("echo typed-by-watcher\n");
-      shell.resize(100, 30);
-      shell.sendInput("stty size\n");
-      await until(() => seen.includes("30 100"), "the new size");
-      assert.ok(!seen.includes("typed-by-watcher"));
+      person.sendInput(shell.id, "echo answer-$((6*7))\n");
+      await until(() => wrote(seen, shell.id).includes("answer-42"), "the shell's answer");
+      await until(() => wrote(watched, shell.id).includes("answer-42"), "the watcher seeing it");
 
-      let late = "";
-      const second = await computer.pty.connect({ onData: (data) => (late += data) });
-      await until(() => late.includes("answer-42"), "what the shell wrote before, for a new tab");
-      second.close();
+      watcher.sendInput(shell.id, "echo typed-by-watcher\n");
+      person.resize(shell.id, 100, 30);
+      person.sendInput(shell.id, "stty size\n");
+      await until(() => wrote(seen, shell.id).includes("30 100"), "the new size");
+      assert.ok(!wrote(seen, shell.id).includes("typed-by-watcher"));
+      assert.equal(seen.filter((e) => e.type === "start").length, 1);
 
-      shell.sendInput("exit\n");
-      assert.equal((await shell.closed).reason, "The shell exited.");
-      await watcher.closed;
-      let again = "";
-      const fresh = await computer.pty.connect({ onData: (data) => (again += data) });
-      fresh.sendInput("echo fresh\n");
-      await until(() => again.includes("fresh"), "a new shell");
+      // The agent types into the person's shell, by the id every viewer was given.
+      await computer.commands.sendStdin(shell.id, "echo from-the-agent-$((1+1))\n");
+      await until(() => wrote(seen, shell.id).includes("from-the-agent-2"), "the agent's typing");
+
+      // The person types into the agent's command, and stops it.
+      const cat = await computer.commands.run("cat", { background: true });
+      assert.ok("sessionId" in cat);
+      person.sendInput(cat.sessionId, "typed-by-a-person\n");
+      await until(() => wrote(seen, cat.sessionId).includes("typed-by-a-person"), "cat's echo");
+      person.sendInput(cat.sessionId, `${"long".repeat(20_000)}\n`);
+      await until(() => wrote(seen, cat.sessionId).length > 80_000, "a long text, sent in parts");
+      person.stop(cat.sessionId);
+      const exitOf = (id: string) => seen.find((e) => e.type === "exit" && e.id === id);
+      await until(() => exitOf(cat.sessionId) !== undefined, "the command stopping");
+
+      // What can't be done is answered with why, to the one that asked, and the socket goes on.
+      const refusals = (events: TerminalEvent[]) =>
+        events.flatMap((e) => (e.type === "refused" ? [e.message] : []));
+      person.sendInput("s_nobody", "x");
+      person.resize(shell.id, 0, 30);
+      person.resize(cat.sessionId, 100, 30);
+      person.sendInput(cat.sessionId, "too late\n");
+      person.stop("s_nobody");
+      await until(() => refusals(seen).length === 5, "five refusals");
+      assert.deepEqual(refusals(seen), [
+        "No terminal s_nobody is here.",
+        "A terminal has 1 to 1000 columns and rows.",
+        "That terminal has ended.",
+        "That terminal has ended.",
+        "No terminal s_nobody is here.",
+      ]);
+      assert.deepEqual(refusals(watched), []);
+
+      // A late socket is shown each terminal with the end of what it wrote, no message too large
+      // whatever the text, and no character cut in two.
+      await computer.commands.run("head -c 70000 /dev/zero");
+      await computer.commands.run("yes 😀 | head -c 300000");
+      const sizes: number[] = [];
+      const late: TerminalEvent[] = [];
+      const raw = new WebSocket((await computer.liveSession("terminal", "operate")).url);
+      raw.on("message", (data: Buffer) => {
+        sizes.push(data.length);
+        late.push(JSON.parse(data.toString()) as TerminalEvent);
+      });
+      await until(() => late.filter((e) => e.type === "exit").length === 3, "the three that ended");
+      assert.ok(wrote(late, shell.id).includes("answer-42"));
+      const started = (cmd: string) => {
+        const start = late.find((e) => e.type === "start" && e.cmd.startsWith(cmd));
+        return start?.type === "start" ? start.id : "";
+      };
+      assert.equal(wrote(late, started("head")), "\0".repeat(65_536));
+      assert.ok(wrote(late, started("yes")).length >= 65_535);
+      for (const e of late)
+        if (e.type === "output") assert.equal(Buffer.from(e.text).toString(), e.text);
+      assert.ok(Math.max(...sizes) > 32_768, "The text that takes the most bytes was sent.");
+      assert.ok(Math.max(...sizes) <= 65_536, `A message of ${Math.max(...sizes)} bytes.`);
+      raw.send("not json");
+      raw.send(JSON.stringify({ type: "input", id: 7, text: "x" }));
+      raw.send(JSON.stringify({ type: "open", columns: "80", rows: 24 }));
+      raw.send(JSON.stringify({ type: "input", id: shell.id, text: "echo still-$((2+3))\n" }));
+      await until(() => wrote(late, shell.id).includes("still-5"), "the socket going on");
+      assert.deepEqual(refusals(late), [
+        "That isn't a terminal@1 message.",
+        "That isn't a terminal@1 message.",
+        "A terminal has 1 to 1000 columns and rows.",
+      ]);
+      assert.equal(refusals(seen).length, 5, "a refusal goes only to the socket that asked");
+      assert.equal(late.filter((e) => e.type === "start").length, 4);
+      const closed = once(raw, "close");
+      raw.send(JSON.stringify({ type: "input", id: shell.id, text: "x".repeat(70_000) }));
+      await closed;
+
+      // A shell that exits is heard ending, and its socket stays for the others.
+      person.sendInput(shell.id, "exit\n");
+      await until(() => exitOf(shell.id) !== undefined, "the shell exiting");
+      person.openShell(80, 24);
+      await until(() => seen.filter((e) => e.type === "start").length === 5, "a second shell");
 
       await computer.kill();
-      assert.equal((await fresh.closed).code > 0, true);
+      assert.equal((await person.closed).code > 0, true);
+      await watcher.closed;
       assert.equal(alive(), true);
     },
   );
@@ -219,26 +318,62 @@ test("a page's origin can be allowed", { timeout: 60_000 }, async (t) => {
   const computer = await Computer.create({ ...to, access: "terminal" });
   t.after(() => computer.close());
   assert.equal(
-    await attempt((await computer.liveSession("commands")).url, "https://agents.example"),
+    await attempt((await computer.liveSession("terminal")).url, "https://agents.example"),
     "open",
   );
   assert.equal(
-    await attempt((await computer.liveSession("commands")).url, "https://other.example"),
+    await attempt((await computer.liveSession("terminal")).url, "https://other.example"),
     "403",
   );
 });
 
-test("a shell that can't start closes its socket and nothing else", {
+test("a shell that can't start is refused or heard ending, and nothing else does", {
   timeout: 60_000,
 }, async (t) => {
   const { Computer, to, alive } = await setup(t, [], "/nonexistent/shell");
   const computer = await Computer.create({ ...to, access: "terminal" });
   t.after(() => computer.close());
-  const shell = await computer.pty.connect({ onData: () => {} });
-  // Refused at spawn on one platform, started and gone at once on another: either way it closes.
-  const { reason } = await shell.closed;
-  assert.match(reason, /didn't start|exited/);
+  const heard: TerminalEvent[] = [];
+  const person = await computer.terminals.connect({ onEvent: (event) => heard.push(event) });
+  person.openShell(80, 24);
+  // Refused at spawn on one platform, started and gone at once on another.
+  await until(() => heard.some((e) => e.type === "exit" || e.type === "refused"), "its end");
+  const end = heard.at(-1);
+  if (end?.type === "refused") assert.match(end.message, /^The shell didn't start: /);
+  else assert.ok(end?.type === "exit" && end.exitCode !== 0 && heard[0]?.type === "start");
   await new Promise((done) => setTimeout(done, 500));
   assert.equal(alive(), true);
   assert.equal(await computer.isRunning(), true);
+  person.close();
+});
+
+test("where a shell can't run on a terminal device, opening one is refused with why", async (t) => {
+  const { Live } = await import("../src/live.ts");
+  const { createAgentExec } = await import("@agentorg/exec");
+  const workspace = realpathSync(mkdtempSync(join(tmpdir(), "ac-")));
+  const pty = () => {
+    throw new Error("there is no device here.");
+  };
+  const exec = createAgentExec({ workspace, level: "terminal", pty });
+  const live = new Live(exec, "terminal");
+  const server = createServer().on("upgrade", (request, socket, head) =>
+    live.open("terminal", "operate", request, socket, head),
+  );
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  t.after(async () => {
+    live.close();
+    await exec.close();
+    server.close();
+    rmSync(workspace, { recursive: true, force: true });
+  });
+  const ws = new WebSocket(`ws://127.0.0.1:${(server.address() as AddressInfo).port}`);
+  const heard: TerminalEvent[] = [];
+  ws.on("message", (data: Buffer) => heard.push(JSON.parse(data.toString()) as TerminalEvent));
+  await once(ws, "open");
+  ws.send(JSON.stringify({ type: "open", columns: 80, rows: 24 }));
+  await until(() => heard.length === 1, "the refusal");
+  assert.deepEqual(heard, [
+    { type: "refused", message: "The shell didn't start: there is no device here." },
+  ]);
+  ws.close();
 });

@@ -192,7 +192,7 @@ test("the control token and each computer's token reach only their own", async (
 for (const [access, tools] of [
   ["read", ["list", "read", "search"]],
   ["files", ["edit", "list", "read", "search"]],
-  ["terminal", ["edit", "exec_command", "list", "read", "search", "write_stdin"]],
+  ["terminal", ["edit", "exec_command", "list", "list_sessions", "read", "search", "write_stdin"]],
 ] as const)
   test(`at ${access} the service lists only its tools`, async (t) => {
     const { create, mcp, workspace, api } = await setup(t);

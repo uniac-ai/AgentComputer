@@ -19,7 +19,7 @@ const MAX_BUFFERED = 4 * 1024 * 1024;
 /** Files part written at once on one computer: each holds a file open. */
 const MAX_UPLOADS = 64;
 
-const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
+export const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const text = (value: unknown): value is string => typeof value === "string";
 const whole = (value: unknown): value is number => Number.isSafeInteger(value);
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));

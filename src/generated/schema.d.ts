@@ -146,7 +146,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, a shell of your own, its files, or its browser. Open its url as a WebSocket within 60 seconds. */
+        /** A one-time ticket to watch or operate one of its surfaces live: its terminals, its files, or its browser. Open its url as a WebSocket within 60 seconds. */
         post: operations["createLiveSession"];
         delete?: never;
         options?: never;
@@ -182,7 +182,7 @@ export interface components {
             message: string;
         };
         /**
-         * @description How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command and write_stdin. Below terminal, the browser's code-running tool is hidden.
+         * @description How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden.
          * @enum {string}
          */
         Access: "none" | "read" | "files" | "terminal";
@@ -248,10 +248,10 @@ export interface components {
             };
         };
         /**
-         * @description commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes.
+         * @description terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes.
          * @enum {string}
          */
-        Surface: "commands" | "terminal" | "files" | "browser";
+        Surface: "terminal" | "files" | "browser";
         /**
          * @description In watch you see and don't act: what you send is dropped, except that a files socket may still ask to list, to read and for what changed.
          * @enum {string}
@@ -370,6 +370,68 @@ export interface components {
             type: "navigate";
             /** @description A URL, or back, forward or reload. */
             to: string;
+        };
+        /** @description What the service sends on a terminal@1 socket, as JSON text, no message over 65,536 bytes. A terminal is a command the agent started or a shell a person opened; its id is the session id the agent's tools use. A new socket is first sent, for each terminal already there, the oldest first, its start, the end of what it wrote (its last 65,536 characters), and its exit if it has ended; then each event as it happens, with nothing to mark where the first ends. The last 64 that ended are among those already there, and one that leaves that list is not told. A character here is a UTF-16 unit. */
+        TerminalEvent: {
+            /** @constant */
+            type: "start";
+            id: string;
+            /**
+             * @description The way in it came: agent through a tool, person through this surface.
+             * @enum {string}
+             */
+            by: "agent" | "person";
+            /** @description Its command, the first 8,000 characters of it. */
+            cmd: string;
+            /** @description Its folder, the first 2,000 characters of it. */
+            workdir: string;
+            /** @description Whether it is on a terminal device, as a person's shell is. One that isn't, as the agent's commands aren't, echoes nothing typed into it and wants a line feed for Enter. Nothing tells the size of one that is. */
+            tty: boolean;
+            /** Format: date-time */
+            at: string;
+        } | {
+            /** @constant */
+            type: "output";
+            id: string;
+            /**
+             * @description Left out for one on a terminal device, which has one stream, and in what a new socket is first sent, where the two are one text.
+             * @enum {string}
+             */
+            stream?: "stdout" | "stderr";
+            text: string;
+        } | {
+            /** @constant */
+            type: "exit";
+            id: string;
+            exitCode: number;
+            /** Format: date-time */
+            at: string;
+        } | {
+            /** @constant */
+            type: "refused";
+            message: string;
+        };
+        /** @description What an operate socket sends on terminal@1, as JSON text. One that can't be done, or that is none of these, is answered with refused. What a watch socket sends is dropped. A message over 65,536 bytes closes the socket, so a long text goes as several inputs. */
+        TerminalInput: {
+            /** @constant */
+            type: "open";
+            columns: number;
+            rows: number;
+        } | {
+            /** @constant */
+            type: "input";
+            id: string;
+            text: string;
+        } | {
+            /** @constant */
+            type: "resize";
+            id: string;
+            columns: number;
+            rows: number;
+        } | {
+            /** @constant */
+            type: "stop";
+            id: string;
         };
         /** @description What a socket sends on files@1, as JSON text. Each has an id of its own choosing, which the answer repeats; answers come as they are ready, in any order, and ids aren't checked for repeats. A request still unanswered when the socket closes gets no answer. A path is from the workspace, with / between its parts, or absolute inside it, and nothing outside the workspace is reached. A binary message that follows no write closes the socket, and so does any message over 1,048,576 bytes. */
         FilesRequest: {

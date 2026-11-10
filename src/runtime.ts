@@ -1,9 +1,11 @@
 // How a computer runs. Without isolation it's processes of the service's user; `container.ts` is
 // the other way. Inside a container the same processes run, through this file.
+import { chmodSync, existsSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
-import { type AgentExec, createAgentExec } from "@agentorg/exec";
+import { type AgentExec, createAgentExec, type PtySpawn } from "@agentorg/exec";
 import { Browser, type BrowserConfig } from "./browser.ts";
 import { BrowserLive } from "./browser-live.ts";
 import type { components } from "./generated/schema.js";
@@ -65,6 +67,41 @@ export interface Runtime {
   remove(id: string): Promise<void>;
 }
 
+/**
+ * What a person's shell runs on: node-pty's spawn. Where node-pty can't be used, one that fails
+ * saying why, so the shell is refused and the agent's commands are as they are.
+ */
+let pty: Promise<PtySpawn> | undefined;
+const loadPty = () => {
+  pty ??= (async () => {
+    const fails =
+      (why: string): PtySpawn =>
+      () => {
+        throw new Error(why);
+      };
+    const require = createRequire(import.meta.url);
+    let loaded: typeof import("node-pty");
+    try {
+      loaded = require("node-pty") as typeof import("node-pty");
+    } catch {
+      return fails("node-pty isn't installed with this service.");
+    }
+    // Its prebuilt helper is packed without its execute bit, and npm doesn't restore it.
+    const root = dirname(require.resolve("node-pty/package.json"));
+    for (const helper of [
+      join(root, "prebuilds", `${process.platform}-${process.arch}`, "spawn-helper"),
+      join(root, "build", "Release", "spawn-helper"),
+    ])
+      try {
+        if (existsSync(helper) && (statSync(helper).mode & 0o111) === 0) chmodSync(helper, 0o755);
+      } catch {
+        return fails(`${helper} has to be executable, and it isn't.`);
+      }
+    return loaded.spawn;
+  })();
+  return pty;
+};
+
 export class ProcessRuntime implements Runtime {
   readonly isolation = "none";
   readonly #config: BrowserConfig;
@@ -82,7 +119,11 @@ export class ProcessRuntime implements Runtime {
   async start(spec: ComputerSpec, folder: string, events: RuntimeEvents): Promise<Running> {
     let exec: AgentExec | undefined;
     if (spec.access !== "none")
-      exec = createAgentExec({ workspace: spec.workspace as string, level: spec.access });
+      exec = createAgentExec({
+        workspace: spec.workspace as string,
+        level: spec.access,
+        pty: await loadPty(),
+      });
     let browser: Browser | undefined;
     let browserDown = false;
     if (spec.browser) {
@@ -110,8 +151,8 @@ export class ProcessRuntime implements Runtime {
       browserLive = new BrowserLive(browser.endpoint);
       browser.gate = browserLive;
     }
-    const live = new Live(exec, spec.workspace, spec.access, browserLive);
-    const surfaces = await live.surfaces();
+    const live = new Live(exec, spec.access, browserLive);
+    const surfaces = live.surfaces();
     return {
       browserTools: browser?.tools ?? [],
       /** As they are now: a browser that has stopped can't be opened, and says so. */

@@ -28,12 +28,12 @@ That prints the computer's `computerID`, its endpoints and its `accessToken`, on
 
 ## Access
 
-| `--access` | Tools at the `computer` endpoint          |
-| ---------- | ----------------------------------------- |
-| `read`     | `read`, `list`, `search`                  |
-| `files`    | Those, and `edit`                         |
-| `terminal` | Those, and `exec_command`, `write_stdin`  |
-| `none`     | No `computer` endpoint; needs `--browser` |
+| `--access` | Tools at the `computer` endpoint                          |
+| ---------- | --------------------------------------------------------- |
+| `read`     | `read`, `list`, `search`                                  |
+| `files`    | Those, and `edit`                                         |
+| `terminal` | Those, and `exec_command`, `write_stdin`, `list_sessions` |
+| `none`     | No `computer` endpoint; needs `--browser`                 |
 
 The file tools stay inside the workspace. That's a check, not a boundary. Below `terminal`, the browser's `browser_run_code_unsafe` tool is hidden and refused, because it would otherwise be a terminal. The service enforces all of this, whatever the client does.
 
@@ -134,12 +134,17 @@ docker run -d --name agentcomputer --network host \
 
 ## Live sessions
 
-A computer at `--access terminal` has two surfaces you can open live, as a WebSocket:
+A computer at `--access terminal` has a surface you can open live, as a WebSocket:
 
-- **`commands`** (protocol `commands@1`): each of the agent's commands as it runs, read-only. Each message is one JSON event: `start` (with `cmd` and `workdir`), `output` (with `stream` and `text`) or `exit` (with `exitCode`). Each carries the command's `id`, which is the `session_id` the agent sees. Those already heard come first.
-- **`terminal`** (protocol `pty@1`): a shell of your own in its workspace, as its user, beside the agent's commands rather than in them. Every socket on it shares one shell, and a new one is sent what it wrote before. Each binary message is one byte of type, then its payload: `0` is output from the shell, or input to it; `1` is a resize, `{"columns":100,"rows":30}`. In `watch` mode what you send is dropped.
+- **`terminal`** (protocol `terminal@1`): every terminal on it, on one socket. A terminal is a command the agent started or a shell a person opened, and they are one list: you read and type into the agent's commands, and the agent lists, reads and types into your shell, with `list_sessions` and `write_stdin`. Every message is JSON text, and `openapi.yaml` has each one's fields.
+  - **The service sends** `start` (with `by`, which is `agent` or `person`, `cmd`, `workdir` and `tty`), `output` (with `text`, and `stream` unless the terminal is on a terminal device) and `exit` (with `exitCode`). Each carries the terminal's `id`, which is the `session_id` the agent's tools use. A new socket is first sent each terminal already there, the last 64 that ended among them, with the last 65,536 characters it wrote, as one text with no `stream`.
+  - **An `operate` socket sends** `open` (with `columns` and `rows`) to start a shell of your own in the workspace, as its user, which arrives as a `start` like any other; `input` (with `id` and `text`) to type into any running terminal; `resize`; and `stop`, which interrupts a command or hangs up a shell, and kills it a second later. A `watch` socket reads everything, and what it sends is dropped.
+  - **`by` is only the way in:** through a tool, or through this surface. Nothing says which client or person it was, and anyone who can operate the surface, like any agent with the tools, reaches every terminal.
+  - **A command isn't on a terminal device** (`tty` is false): it echoes nothing you type, Enter is a line feed, and it has no size. In it Ctrl-C (U+0003) interrupts and Ctrl-D (U+0004) ends its input. A shell is on one, and what the agent types into it goes in as keys. Its size is the last `resize` anyone sent, and nothing tells it.
+  - **What can't be done is answered with `refused`,** with why in `message`, only to the socket that asked: input or a size for a terminal that has ended or isn't there, a size for a command or out of range, a shell past the 64 terminals that may run at once, or a message that is none of these. What was done is answered by its event. Stopping a terminal that has ended does nothing.
+  - No message is over 65,536 bytes: a longer piece of output comes as several messages, and a larger message from you closes the socket, so send a long text as several inputs.
 
-A computer at `--access read` or above has one more, and at `read` it is the only one:
+A computer at `--access read` or above has another, and at `read` it is the only one:
 
 - **`files`** (protocol `files@1`): its workspace's files, for a file window. Text messages are JSON, and each request has an `id` of your choosing, which its answer repeats. `openapi.yaml` has each one's fields.
   - **`list`** is answered with `entries`: a folder's entries with their kind, size and date, folders first, the first thousand.
@@ -158,9 +163,9 @@ A computer with `--browser` has another:
   - **A dialog, a file chooser and a list belong to a page.** A dialog is told to the sockets shown its page until someone answers it, you or the agent. Nothing says when the agent answers a file chooser, so when it answers one every open chooser is taken as closed: press again if yours was.
   - **A client written for the earlier `screencast@1` still connects.** Its `release` is ignored and no `driver` event comes: nobody holds the browser any more.
 
-`POST /v1/computers/{computerID}/live` with `{ "surface": "terminal", "mode": "operate" }` gives a ticket: a `url` to open once within a minute, which needs no token. A request with an `Origin` header is refused unless `serve --allow-origin` names that origin, so a page can't open one. The SDK does the same with `computer.pty.connect({ onData })` and `computer.commands.watch(onEvent)`, or gives the ticket alone with `computer.liveSession("files")` or `computer.liveSession("browser", "operate")`, and the CLI with `agentcomputer live <id> --surface terminal --mode operate`.
+`POST /v1/computers/{computerID}/live` with `{ "surface": "terminal", "mode": "operate" }` gives a ticket: a `url` to open once within a minute, which needs no token. A request with an `Origin` header is refused unless `serve --allow-origin` names that origin, so a page can't open one. The SDK does the same with `computer.terminals.connect({ onEvent })`, or gives the ticket alone with `computer.liveSession("files")` or `computer.liveSession("browser", "operate")`, and the CLI with `agentcomputer live <id> --surface terminal --mode operate`.
 
-The terminal needs [node-pty](https://github.com/microsoft/node-pty), an optional dependency installed beside the program. It comes prebuilt for macOS. On Linux it's compiled at install, which npm only does when told: `npm install -g @agentorg/computer --allow-scripts=node-pty`, with a C++ toolchain. Without it, the computer's `surfaces` say why the terminal isn't there. The computer image has it.
+A shell of your own needs [node-pty](https://github.com/microsoft/node-pty), an optional dependency installed beside the program. It comes prebuilt for macOS. On Linux it's compiled at install, which npm only does when told: `npm install -g @agentorg/computer --allow-scripts=node-pty`, with a C++ toolchain. Without it, the agent's commands run and show as ever, and only `open` is refused, saying why. The computer image has it.
 
 ## Known limits
 
