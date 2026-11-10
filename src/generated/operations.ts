@@ -676,7 +676,7 @@ export const OPENAPI = {
           "watch",
           "operate"
         ],
-        "description": "In watch, what you send is dropped."
+        "description": "In watch you see and don't act: what you send is dropped, except that a files socket may still ask to list, to read and for what changed."
       },
       "SurfaceInfo": {
         "type": "object",
@@ -1106,20 +1106,18 @@ export const OPENAPI = {
               },
               "to": {
                 "type": "string",
-                "description": "A URL",
-                "or back": null,
-                "forward or reload.": null
+                "description": "A URL, or back, forward or reload."
               }
             }
           }
         ]
       },
       "FilesRequest": {
-        "description": "What a socket sends on files@1, as JSON text. Each has an id of its own choosing, which the answer repeats. Paths are from the workspace, and nothing outside it is reached.",
+        "description": "What a socket sends on files@1, as JSON text. Each has an id of its own choosing, which the answer repeats; answers come as they are ready, in any order, and ids aren't checked for repeats. A request still unanswered when the socket closes gets no answer. A path is from the workspace, with / between its parts, or absolute inside it, and nothing outside the workspace is reached. A binary message that follows no write closes the socket, and so does any message over 1,048,576 bytes.",
         "oneOf": [
           {
             "type": "object",
-            "description": "A folder's entries, folders first, the first thousand.",
+            "description": "A folder's entries, folders first, the first thousand. There is no asking for the rest.",
             "required": [
               "type",
               "id"
@@ -1135,8 +1133,7 @@ export const OPENAPI = {
               },
               "path": {
                 "type": "string",
-                "description": "The workspace itself",
-                "if left out.": null
+                "description": "The workspace itself, if left out."
               }
             }
           },
@@ -1198,7 +1195,7 @@ export const OPENAPI = {
           },
           {
             "type": "object",
-            "description": "The next part of a file, on an operate socket, followed by one binary message of exactly length bytes. The part at offset 0 starts the file, and each one after starts where the last ended. Nothing is at the path until the part marked last, which puts the file there whole, over any that was there, and is answered with written. Only that part, and a part that is refused, is answered. It makes no folders. A file not finished when the socket closes is given up.",
+            "description": "The next part of a file, on an operate socket, followed by one binary message of exactly length bytes, with no message between them. The part at offset 0 starts the file, or starts it again, and each one after starts where the last ended. Nothing is at the path until the part marked last, which puts the file there whole, over any that was there, and is answered with written. Only that part, and a part that is refused, is answered. It makes no folders. A file not finished when the socket closes is given up.",
             "required": [
               "type",
               "id",
@@ -1236,7 +1233,7 @@ export const OPENAPI = {
         ]
       },
       "FilesAnswer": {
-        "description": "What the service sends on files@1, as JSON text, each with the id it answers.",
+        "description": "What the service sends on files@1, as JSON text, each with the id it answers. Nothing comes between a data message and its bytes.",
         "oneOf": [
           {
             "type": "object",
@@ -2540,7 +2537,7 @@ export const OPERATIONS: Operation[] = [
                 "watch",
                 "operate"
               ],
-              "description": "In watch, what you send is dropped."
+              "description": "In watch you see and don't act: what you send is dropped, except that a files socket may still ask to list, to read and for what changed."
             }
           ],
           "default": "watch"
@@ -2585,7 +2582,7 @@ export const OPERATIONS: Operation[] = [
             "watch",
             "operate"
           ],
-          "description": "In watch, what you send is dropped."
+          "description": "In watch you see and don't act: what you send is dropped, except that a files socket may still ask to list, to read and for what changed."
         },
         "expiresAt": {
           "type": "string",

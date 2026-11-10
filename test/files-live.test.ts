@@ -96,17 +96,22 @@ async function window(url: string) {
   /** A data answer, until the binary message that follows it arrives. */
   let held: Answer | undefined;
   let next = 0;
+  /** Give an answer to whoever asked, if anyone here did. */
+  const answered = (answer: Answer) => {
+    const asked = waiting.get(String(answer.id));
+    if (typeof asked === "function") asked(answer);
+  };
   ws.on("message", (data: Buffer, binary: boolean) => {
     if (binary) {
       assert.ok(held, "bytes follow a data message");
       const answer = { ...held, bytes: data };
       held = undefined;
-      return waiting.get(answer.id)?.(answer);
+      return answered(answer);
     }
     assert.equal(held, undefined, "a data message is followed by its bytes");
     const answer = JSON.parse(data.toString()) as Answer;
     if (answer.type === "data") held = answer;
-    else waiting.get(answer.id)?.(answer);
+    else answered(answer);
   });
   const sent = (id: string) =>
     new Promise<Answer>((done) => {
@@ -204,13 +209,19 @@ for (const [isolation, extra] of ISOLATIONS) {
       ]);
       assert.equal(changed.type, "changes");
       assert.equal(changed.since, since);
+      // The newest first: notes.txt was written after big.bin, and is given a later date for sure.
+      const later = new Date(Date.now() + 60_000);
+      utimesSync(join(workspace, "notes.txt"), later, later);
+      assert.deepEqual(
+        (await ask({ type: "changed", since })).changes.map((change: Answer) => change.path),
+        ["notes.txt", "big.bin"],
+      );
       assert.deepEqual(changed.changes.map((change: Answer) => change.path).sort(), [
         "big.bin",
         "notes.txt",
       ]);
       assert.deepEqual(again.changes, changed.changes);
-      const newest = changed.changes[0].modifiedAt;
-      assert.deepEqual((await ask({ type: "changed", since: newest })).changes, []);
+      assert.deepEqual((await ask({ type: "changed", since: later.toISOString() })).changes, []);
 
       for (const [request, why] of [
         [{ type: "read", path: "big.bin", offset: 0, length: MIB + 1 }, /1 to 1,048,576 bytes/],
@@ -224,6 +235,31 @@ for (const [isolation, extra] of ISOLATIONS) {
         assert.equal(refused.type, "refused", JSON.stringify(request));
         assert.match(refused.message, why);
       }
+
+      // What has no id to answer to is refused with none, and the socket carries on.
+      const stray: Answer[] = [];
+      ws.on("message", (data: Buffer, binary: boolean) => {
+        if (binary) return;
+        const answer = JSON.parse(data.toString()) as Answer;
+        if (answer.id === "") stray.push(answer);
+      });
+      ws.send("not json");
+      ws.send(JSON.stringify({ type: "list" }));
+      ws.send(JSON.stringify({ type: "list", id: 7 }));
+      ws.send(JSON.stringify({ type: "list", id: "x".repeat(65) }));
+      ws.send("null");
+      // A write with no id is refused, and its bytes, already on their way, are let pass.
+      ws.send(JSON.stringify({ type: "write", path: "x", offset: 0, length: 2, last: true }));
+      ws.send(new Uint8Array(2));
+      await until(() => stray.length === 6, "six refusals with no id");
+      assert.match(stray[0].message, /isn't JSON/);
+      assert.match(stray[1].message, /id of 1 to 64 characters/);
+      assert.equal((await ask({ type: "list" })).type, "entries");
+
+      // When the computer stops, so does the socket.
+      const closed = new Promise<number>((done) => ws.once("close", (code) => done(code)));
+      await computer.stop();
+      assert.equal(await closed, 1001);
     },
   );
 
@@ -271,6 +307,29 @@ for (const [isolation, extra] of ISOLATIONS) {
         new Uint8Array(3),
       );
       assert.match(short.message, /said 5 bytes, and 3 came/);
+      const long = await ask(
+        { type: "write", path: "x", offset: 0, length: MIB + 1, last: true },
+        new Uint8Array(1),
+      );
+      assert.match(long.message, /0 to 1,048,576 bytes/);
+      const unfollowed = ask({ type: "write", path: "x", offset: 0, length: 3, last: true });
+      assert.equal((await ask({ type: "list" })).type, "entries");
+      assert.match((await unfollowed).message, /bytes didn't follow/);
+      assert.equal(existsSync(join(workspace, "x")), false);
+      // No more than 64 files are part written at once on a computer.
+      for (let i = 0; i < 64; i++) void part(`many-${i}`, 0, new Uint8Array(1));
+      const tooMany = await part("many-64", 0, new Uint8Array(1));
+      assert.match(tooMany.message, /64 files are part written here/);
+      assert.equal(temporaries(workspace).length, 64);
+      const again = await window((await computer.liveSession("files", "operate")).url);
+      assert.match((await again.part("other", 0, new Uint8Array(1))).message, /64 files/);
+      again.ws.close();
+      for (let i = 0; i < 64; i++)
+        await ask(
+          { type: "write", path: `many-${i}`, offset: 1, length: 0, last: true },
+          new Uint8Array(0),
+        );
+      assert.equal(temporaries(workspace).length, 0);
       const nowhere = await ask(
         { type: "write", path: "missing/x", offset: 0, length: 0, last: true },
         new Uint8Array(0),
@@ -283,12 +342,18 @@ for (const [isolation, extra] of ISOLATIONS) {
       assert.equal(empty.size, 0);
       assert.ok(existsSync(join(workspace, "empty")));
 
-      // A socket that closes with a file unfinished leaves nothing of it.
+      // A socket that closes with a file unfinished leaves nothing of it: one that has waited for
+      // its part to be written, and one that closes with the part still on its way in.
       void part("left.bin", 0, new Uint8Array(1000));
       await ask({ type: "list" });
       ws.close();
-      await until(() => temporaries(workspace).length === 0, "the unfinished file to go");
+      const hasty = await window((await computer.liveSession("files", "operate")).url);
+      void hasty.part("hasty.bin", 0, new Uint8Array(MIB));
+      hasty.ws.close();
+      await new Promise((done) => setTimeout(done, 500));
+      await until(() => temporaries(workspace).length === 0, "the unfinished files to go");
       assert.equal(existsSync(join(workspace, "left.bin")), false);
+      assert.equal(existsSync(join(workspace, "hasty.bin")), false);
     },
   );
 
@@ -329,10 +394,11 @@ for (const [isolation, extra] of ISOLATIONS) {
       assert.equal(read.bytes.toString(), "a");
       assert.equal(existsSync(join(workspace, "b.txt")), false);
 
-      // A message larger than a part of a file is never taken.
+      // A message larger than a part of a file closes the socket, and nothing else.
       const large = await window((await writer.liveSession("files", "operate")).url);
-      large.ws.send(new Uint8Array(2 * MIB));
-      assert.equal(await large.closed, 1009);
+      large.ws.send(new Uint8Array(MIB + 1));
+      assert.notEqual(await large.closed, 1000);
+      assert.equal((await writer.getInfo()).state, "running");
     },
   );
 }

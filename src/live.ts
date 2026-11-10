@@ -34,8 +34,8 @@ const INPUT = 0x30;
 const RESIZE = 0x31;
 
 const sockets = new WebSocketServer({ noServer: true });
-/** A files@1 message is a part of a file at most, or a little JSON. */
-const fileSockets = new WebSocketServer({ noServer: true, maxPayload: MAX_PART + 64 * 1024 });
+/** A files@1 message is a part of a file at most. A larger one closes its socket. */
+const fileSockets = new WebSocketServer({ noServer: true, maxPayload: MAX_PART });
 
 /** node-pty, or why the terminal can't be offered here. */
 let pty: Promise<typeof import("node-pty") | string> | undefined;
@@ -129,6 +129,7 @@ export class Live {
 
   close() {
     void this.#browser?.close();
+    this.#files?.close();
     for (const ws of [...this.#watchers, ...this.#shells.keys()]) ws.close(1001, "It stopped.");
     this.#shell?.kill();
     this.#shell = undefined;

@@ -253,7 +253,7 @@ export interface components {
          */
         Surface: "commands" | "terminal" | "files" | "browser";
         /**
-         * @description In watch, what you send is dropped.
+         * @description In watch you see and don't act: what you send is dropped, except that a files socket may still ask to list, to read and for what changed.
          * @enum {string}
          */
         LiveMode: "watch" | "operate";
@@ -368,15 +368,15 @@ export interface components {
         } | {
             /** @constant */
             type: "navigate";
-            /** @description A URL */
+            /** @description A URL, or back, forward or reload. */
             to: string;
         };
-        /** @description What a socket sends on files@1, as JSON text. Each has an id of its own choosing, which the answer repeats. Paths are from the workspace, and nothing outside it is reached. */
+        /** @description What a socket sends on files@1, as JSON text. Each has an id of its own choosing, which the answer repeats; answers come as they are ready, in any order, and ids aren't checked for repeats. A request still unanswered when the socket closes gets no answer. A path is from the workspace, with / between its parts, or absolute inside it, and nothing outside the workspace is reached. A binary message that follows no write closes the socket, and so does any message over 1,048,576 bytes. */
         FilesRequest: {
             /** @constant */
             type: "list";
             id: string;
-            /** @description The workspace itself */
+            /** @description The workspace itself, if left out. */
             path?: string;
         } | {
             /** @constant */
@@ -400,7 +400,7 @@ export interface components {
             length: number;
             last: boolean;
         };
-        /** @description What the service sends on files@1, as JSON text, each with the id it answers. */
+        /** @description What the service sends on files@1, as JSON text, each with the id it answers. Nothing comes between a data message and its bytes. */
         FilesAnswer: {
             /** @constant */
             type: "entries";
