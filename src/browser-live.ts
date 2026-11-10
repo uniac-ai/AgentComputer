@@ -1,6 +1,7 @@
-// The browser, live: its frames to whoever watches, and a person's input to it, through a second
-// connection to the same browser the agent's tools use. Whoever operates it holds it, and the
-// agent's browser calls wait while they do.
+// The browser, live: a page's frames to whoever watches it, and a person's input to it, through a
+// second connection to the same browser the agent's tools use. Nobody waits for anybody: a person
+// and the agent can both act at once, each in a tab of their own if they like. Which page a socket
+// is shown is that socket's alone.
 import type {
   Browser,
   BrowserContext,
@@ -13,16 +14,14 @@ import type { WebSocket } from "ws";
 import type { BrowserGate } from "./browser.ts";
 import type { components } from "./generated/schema.js";
 import { playwright } from "./playwright.ts";
-import { startScreencast } from "./screencast.ts";
+import { type Frame, startScreencast } from "./screencast.ts";
 
 type Schemas = components["schemas"];
 type ServerMessage = Schemas["ScreencastEvent"];
 type ClientMessage = Schemas["ScreencastInput"];
 type Mode = Schemas["LiveMode"];
+type Tab = Extract<ServerMessage, { type: "tabs" }>["tabs"][number];
 
-/** How long an agent's call waits for a person to let go, then how long until they're let go. */
-const WAIT_MS = 25_000;
-const IDLE_MS = 60_000;
 /** How often the tabs' titles are read while anyone watches. */
 const TITLE_CHECK_MS = 1_000;
 /** One input step can't hold up the rest for longer, as a dialog would. */
@@ -39,33 +38,56 @@ interface PageSelect {
 }
 declare const document: { elementFromPoint(x: number, y: number): PageSelect | null };
 
+/** One socket on the surface, and the page it is shown. */
+interface Viewer {
+  mode: Mode;
+  shown?: Page | undefined;
+  /**
+   * Whether it has chosen a tab itself. Until it does it is shown each new tab as it opens, so
+   * watching follows the work; after, its page changes only when that page closes.
+   */
+  chose: boolean;
+  /** The list it pressed on, waiting for its choice. */
+  choice?: ElementHandle | undefined;
+  swallowUp: boolean;
+  /** Its input, each step in order. */
+  steps: Promise<unknown>;
+}
+
+/** A page being cast, for every socket shown it. */
+interface Cast {
+  stop: Promise<(() => Promise<void>) | undefined>;
+  size: { width: number; height: number };
+  /** The last frame, for a socket that joins while the page is still. */
+  last?: Buffer | undefined;
+}
+
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 const within = <T>(work: Promise<T>, ms: number) =>
   Promise.race([work, sleep(ms).then(() => undefined)]);
 
 export class BrowserLive implements BrowserGate {
   readonly #endpoint: Promise<string>;
-  readonly #sockets = new Map<WebSocket, Mode>();
-  #viewer: Promise<Browser> | undefined;
+  readonly #viewers = new Map<WebSocket, Viewer>();
+  #client: Promise<Browser> | undefined;
   #context: BrowserContext | undefined;
   readonly #ids = new Map<Page, number>();
   #nextId = 1;
-  #shown: Page | undefined;
-  #stopCast: (() => Promise<void>) | undefined;
-  #size = { width: 0, height: 0 };
-  #dialog: Dialog | undefined;
-  #chooser: FileChooser | undefined;
-  #choice: ElementHandle | undefined;
-  #swallowUp = false;
-  #driver: WebSocket | undefined;
-  #lastInput = 0;
-  #agentWaiting = 0;
-  #answeredChooser = false;
+  readonly #casts = new Map<Page, Cast>();
+  /** A page's cast that is still stopping, which its next one waits for. */
+  readonly #stopping = new Map<Page, Promise<void>>();
+  readonly #dialogs = new Map<Page, Dialog>();
+  readonly #choosers = new Map<Page, FileChooser>();
+  /** The agent's MCP sessions seen so far. */
+  readonly #sessions = new Set<string>();
+  /** Those still to be told that a person answered a file chooser. */
+  readonly #owed = new Set<string>();
   /** The tabs last sent, to send them again only when something about them changed. */
   #lastTabs = "";
   #titles: NodeJS.Timeout | undefined;
   #checking = false;
-  #steps: Promise<unknown> = Promise.resolve();
+  /** Counts each time everyone has left, so a connection begun before that knows it is stale. */
+  #ended = 0;
 
   constructor(endpoint: Promise<string>) {
     this.#endpoint = endpoint;
@@ -73,206 +95,250 @@ export class BrowserLive implements BrowserGate {
 
   // ---- The agent's side
 
-  async wait() {
-    if (!this.#held()) return undefined;
-    this.#agentWaiting++;
-    this.#announceDriver();
-    try {
-      const deadline = Date.now() + WAIT_MS;
-      while (this.#held() && Date.now() < deadline) await sleep(200);
-      return this.#held()
-        ? "A person has the browser now, so this didn't run. Try again later."
-        : "A person used the browser, so this didn't run and the page may have changed. Take a new snapshot before you act.";
-    } finally {
-      this.#agentWaiting--;
-      this.#announceDriver();
-    }
+  takeAnsweredChooser(session: string) {
+    this.#sessions.add(session);
+    return this.#owed.delete(session);
   }
 
-  takeAnsweredChooser() {
-    const answered = this.#answeredChooser;
-    this.#answeredChooser = false;
-    return answered;
+  sessionEnded(session: string) {
+    this.#sessions.delete(session);
+    this.#owed.delete(session);
   }
 
-  agentAnswered() {
-    this.#dialog = undefined;
-    this.#chooser = undefined;
-    this.#broadcast({ type: "dialog", open: false });
-    this.#broadcast({ type: "file-chooser", open: false });
+  agentAnsweredChooser() {
+    // Which page it was on isn't known here, and nothing says when a chooser closes, so every one
+    // is taken as closed. A person whose own was open presses again.
+    this.#choosers.clear();
+    for (const ws of this.#viewers.keys()) this.#send(ws, { type: "file-chooser", open: false });
   }
 
   // ---- The person's side
 
   open(ws: WebSocket, mode: Mode) {
-    this.#sockets.set(ws, mode);
-    // Opening it to operate is taking the browser: the agent's calls wait from now.
-    if (mode === "operate") {
-      this.#driver = ws;
-      this.#lastInput = Date.now();
-    }
+    const viewer: Viewer = { mode, chose: false, swallowUp: false, steps: Promise.resolve() };
+    this.#viewers.set(ws, viewer);
     ws.on("close", () => this.#left(ws));
     ws.on("message", (data: Buffer, binary: boolean) => {
-      if (binary || this.#sockets.get(ws) !== "operate") return;
+      if (binary || viewer.mode !== "operate") return;
       let message: ClientMessage;
       try {
         message = JSON.parse(data.toString()) as ClientMessage;
       } catch {
         return;
       }
-      this.#input(ws, message);
+      this.#input(ws, viewer, message);
     });
     this.#begin().then(
-      () => this.#greet(ws),
+      // Unless it chose a tab while this was starting, it is shown the newest.
+      () => (viewer.chose ? undefined : this.#show(ws, this.#newest())),
       () => ws.close(1011, "The browser can't be reached."),
     );
   }
 
   async close() {
-    for (const ws of this.#sockets.keys()) ws.close(1001, "It stopped.");
+    for (const ws of this.#viewers.keys()) ws.close(1001, "It stopped.");
     await this.#end();
-  }
-
-  #held() {
-    return this.#driver !== undefined && Date.now() - this.#lastInput < IDLE_MS;
   }
 
   #send(ws: WebSocket, message: ServerMessage) {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
   }
 
-  #broadcast(message: ServerMessage) {
-    for (const ws of this.#sockets.keys()) this.#send(ws, message);
+  /** The sockets shown a page. */
+  #shownTo(page: Page) {
+    return [...this.#viewers].filter(([, viewer]) => viewer.shown === page).map(([ws]) => ws);
   }
 
-  #announceDriver() {
-    for (const ws of this.#sockets.keys())
-      this.#send(ws, {
-        type: "driver",
-        you: ws === this.#driver && this.#held(),
-        held: this.#held(),
-        agentWaiting: this.#agentWaiting > 0,
-      });
+  #newest() {
+    return this.#context?.pages().at(-1);
   }
 
   async #begin() {
-    this.#viewer ??= (async () => {
-      const viewer = await playwright().chromium.connect(await this.#endpoint);
-      const context = viewer.contexts()[0] ?? (await viewer.newContext());
+    this.#client ??= (async () => {
+      const ended = this.#ended;
+      const client = await playwright().chromium.connect(await this.#endpoint);
+      const context = client.contexts()[0] ?? (await client.newContext());
+      // Everyone left while it connected, and it is being closed.
+      if (ended !== this.#ended) return client;
       this.#context = context;
       for (const page of context.pages()) this.#track(page);
       context.on("page", (page) => {
         this.#track(page);
-        void this.#show(page);
+        // A new tab is shown to every socket that hasn't chosen one of its own, or has none left.
+        for (const [ws, viewer] of this.#viewers)
+          if (!viewer.chose || !viewer.shown) void this.#show(ws, page);
+        void this.#tabs();
       });
-      await this.#show(context.pages().at(-1) ?? (await context.newPage()));
+      if (context.pages().length === 0) await context.newPage();
       // A page can change its title without navigating, and nothing says so but asking.
-      this.#titles = setInterval(() => void this.#checkTabs(), TITLE_CHECK_MS);
-      return viewer;
+      if (ended === this.#ended)
+        this.#titles = setInterval(() => void this.#checkTabs(), TITLE_CHECK_MS);
+      return client;
     })();
-    await this.#viewer;
+    await this.#client;
   }
 
+  /** Everyone has left. All of it is forgotten at once, so a socket that opens next starts anew. */
   async #end() {
-    const viewer = this.#viewer;
-    this.#viewer = undefined;
+    const client = this.#client;
+    const casts = [...this.#casts.values()];
+    this.#ended++;
+    this.#client = undefined;
+    this.#context = undefined;
     clearInterval(this.#titles);
     this.#titles = undefined;
     this.#lastTabs = "";
-    await this.#stopCast?.();
-    this.#stopCast = undefined;
-    this.#shown = undefined;
+    this.#casts.clear();
+    this.#stopping.clear();
     this.#ids.clear();
-    await (await viewer?.catch(() => undefined))?.close().catch(() => {});
+    this.#dialogs.clear();
+    this.#choosers.clear();
+    await Promise.all(casts.map((cast) => cast.stop.then((stop) => stop?.()).catch(() => {})));
+    await (await client?.catch(() => undefined))?.close().catch(() => {});
   }
 
   #left(ws: WebSocket) {
-    this.#sockets.delete(ws);
-    if (this.#driver === ws) {
-      this.#driver = undefined;
-      this.#announceDriver();
-    }
-    if (this.#sockets.size === 0) void this.#end();
-  }
-
-  async #greet(ws: WebSocket) {
-    await this.#tabs(ws);
-    if (this.#size.width) this.#send(ws, { type: "viewport", ...this.#size });
-    if (this.#dialog)
-      this.#send(ws, {
-        type: "dialog",
-        open: true,
-        kind: this.#dialog.type() as "alert",
-        message: this.#dialog.message(),
-      });
-    if (this.#chooser)
-      this.#send(ws, { type: "file-chooser", open: true, multiple: this.#chooser.isMultiple() });
-    this.#announceDriver();
+    const shown = this.#viewers.get(ws)?.shown;
+    this.#viewers.delete(ws);
+    if (this.#viewers.size === 0) return void this.#end();
+    if (shown) void this.#uncast(shown);
   }
 
   #track(page: Page) {
     if (this.#ids.has(page)) return;
     this.#ids.set(page, this.#nextId++);
     page.on("dialog", (dialog) => {
-      this.#dialog = dialog;
-      this.#broadcast({
-        type: "dialog",
-        open: true,
-        kind: dialog.type() as "alert",
-        message: dialog.message(),
-        ...(dialog.defaultValue() ? { defaultValue: dialog.defaultValue() } : {}),
-      });
+      this.#dialogs.set(page, dialog);
+      for (const ws of this.#shownTo(page)) this.#tellDialog(ws, page);
+    });
+    // Whoever answered it, a person here or the agent.
+    page.on("dialogclosed", () => {
+      this.#dialogs.delete(page);
+      for (const ws of this.#shownTo(page)) this.#tellDialog(ws, page);
     });
     page.on("filechooser", (chooser) => {
-      this.#chooser = chooser;
-      this.#broadcast({ type: "file-chooser", open: true, multiple: chooser.isMultiple() });
+      this.#choosers.set(page, chooser);
+      for (const ws of this.#shownTo(page)) this.#tellChooser(ws, page);
     });
     page.on("framenavigated", (frame) => {
       if (frame === page.mainFrame()) void this.#tabs();
     });
     page.on("close", () => {
       this.#ids.delete(page);
-      if (this.#shown === page) void this.#show(this.#context?.pages().at(-1));
-      else void this.#tabs();
+      this.#dialogs.delete(page);
+      this.#choosers.delete(page);
+      this.#casts.delete(page);
+      this.#stopping.delete(page);
+      // Whoever was shown it is shown the newest that is left, whether or not they chose it.
+      for (const ws of this.#shownTo(page)) void this.#show(ws, this.#newest());
+      void this.#tabs();
     });
   }
 
-  /** Which page the frames are of: the newest by default, or the one the person picked. */
-  async #show(page: Page | undefined) {
-    if (page === this.#shown) return;
-    await this.#stopCast?.();
-    this.#stopCast = undefined;
-    this.#shown = page;
-    this.#choice = undefined;
-    if (page) {
-      this.#stopCast = await startScreencast(page, (frame) => {
-        if (frame.width !== this.#size.width || frame.height !== this.#size.height) {
-          this.#size = { width: frame.width, height: frame.height };
-          this.#broadcast({ type: "viewport", ...this.#size });
-        }
-        for (const ws of this.#sockets.keys())
-          if (ws.readyState === ws.OPEN && ws.bufferedAmount < MAX_BUFFERED) ws.send(frame.data);
-      }).catch(() => undefined);
-    }
-    await this.#tabs();
+  #tellDialog(ws: WebSocket, page: Page) {
+    const dialog = this.#dialogs.get(page);
+    this.#send(
+      ws,
+      dialog
+        ? {
+            type: "dialog",
+            open: true,
+            kind: dialog.type() as "alert",
+            message: dialog.message(),
+            ...(dialog.defaultValue() ? { defaultValue: dialog.defaultValue() } : {}),
+          }
+        : { type: "dialog", open: false },
+    );
   }
 
-  async #tabList(): Promise<ServerMessage> {
-    const tabs = await Promise.all(
+  #tellChooser(ws: WebSocket, page: Page) {
+    const chooser = this.#choosers.get(page);
+    this.#send(
+      ws,
+      chooser
+        ? { type: "file-chooser", open: true, multiple: chooser.isMultiple() }
+        : { type: "file-chooser", open: false },
+    );
+  }
+
+  /** The cast of a page, started if no socket was shown it yet. */
+  #cast(page: Page) {
+    const running = this.#casts.get(page);
+    if (running) return running;
+    const onFrame = (frame: Frame) => {
+      const watching = this.#shownTo(page);
+      if (frame.width !== cast.size.width || frame.height !== cast.size.height) {
+        cast.size = { width: frame.width, height: frame.height };
+        for (const ws of watching) this.#send(ws, { type: "viewport", ...cast.size });
+      }
+      cast.last = frame.data;
+      for (const ws of watching)
+        if (ws.readyState === ws.OPEN && ws.bufferedAmount < MAX_BUFFERED) ws.send(frame.data);
+    };
+    const cast: Cast = {
+      size: { width: 0, height: 0 },
+      // A page has one screencast at a time, so this one starts once the last has stopped.
+      stop: (this.#stopping.get(page) ?? Promise.resolve())
+        .then(() => startScreencast(page, onFrame))
+        .catch(() => undefined),
+    };
+    this.#casts.set(page, cast);
+    return cast;
+  }
+
+  /** Stop casting a page no socket is shown any more. */
+  async #uncast(page: Page) {
+    const cast = this.#casts.get(page);
+    if (!cast || this.#shownTo(page).length > 0) return;
+    this.#casts.delete(page);
+    const stopped = cast.stop.then((stop) => stop?.()).catch(() => {});
+    this.#stopping.set(page, stopped);
+    await stopped;
+    if (this.#stopping.get(page) === stopped) this.#stopping.delete(page);
+  }
+
+  /** Change the page a socket is shown, and tell it what that page is waiting on. */
+  async #show(ws: WebSocket, page: Page | undefined) {
+    const viewer = this.#viewers.get(ws);
+    if (!viewer || (page && viewer.shown === page)) return;
+    const before = viewer.shown;
+    viewer.shown = page;
+    viewer.choice = undefined;
+    viewer.swallowUp = false;
+    if (before) await this.#uncast(before);
+    // It left, or was shown another, while that stopped.
+    if (this.#viewers.get(ws) !== viewer || viewer.shown !== page) return;
+    if (page) {
+      const cast = this.#cast(page);
+      if (cast.size.width) this.#send(ws, { type: "viewport", ...cast.size });
+      if (cast.last && ws.readyState === ws.OPEN) ws.send(cast.last);
+      this.#tellDialog(ws, page);
+      this.#tellChooser(ws, page);
+    }
+    await this.#tabs(ws);
+  }
+
+  async #tabList(): Promise<Tab[]> {
+    return Promise.all(
       [...this.#ids].map(async ([page, id]) => ({
         id,
         url: page.url(),
         title: (await within(page.title(), STEP_MS).catch(() => undefined)) ?? "",
       })),
     );
-    return { type: "tabs", tabs, shown: (this.#shown && this.#ids.get(this.#shown)) ?? null };
   }
 
-  async #tabs(only?: WebSocket) {
-    const message = await this.#tabList();
-    this.#lastTabs = JSON.stringify(message);
-    if (only) this.#send(only, message);
-    else this.#broadcast(message);
+  /** The tabs, to one socket or to all, each told which one it is shown. */
+  async #tabs(only?: WebSocket, listed?: Tab[]) {
+    const tabs = listed ?? (await this.#tabList());
+    if (!only) this.#lastTabs = JSON.stringify(tabs);
+    for (const [ws, viewer] of this.#viewers)
+      if (!only || ws === only)
+        this.#send(ws, {
+          type: "tabs",
+          tabs,
+          shown: (viewer.shown && this.#ids.get(viewer.shown)) ?? null,
+        });
   }
 
   /** Send the tabs again if anything about them changed, such as a title. */
@@ -280,61 +346,51 @@ export class BrowserLive implements BrowserGate {
     if (this.#checking) return;
     this.#checking = true;
     try {
-      const message = await this.#tabList();
-      const text = JSON.stringify(message);
-      if (text === this.#lastTabs) return;
-      this.#lastTabs = text;
-      this.#broadcast(message);
+      const tabs = await this.#tabList();
+      if (JSON.stringify(tabs) !== this.#lastTabs) await this.#tabs(undefined, tabs);
     } finally {
       this.#checking = false;
     }
   }
 
   /** Each step in order, none waiting on another for long: a dialog blocks the page's input. */
-  #step(work: () => Promise<unknown>) {
-    this.#steps = this.#steps.then(() => within(work(), STEP_MS)).catch(() => {});
+  #step(viewer: Viewer, work: () => Promise<unknown>) {
+    viewer.steps = viewer.steps.then(() => within(work(), STEP_MS)).catch(() => {});
   }
 
-  #input(ws: WebSocket, message: ClientMessage) {
-    if (message.type === "release") {
-      if (this.#driver === ws) this.#driver = undefined;
-      return this.#announceDriver();
-    }
-    const changed = this.#driver !== ws || !this.#held();
-    this.#driver = ws;
-    this.#lastInput = Date.now();
-    if (changed) this.#announceDriver();
-    const page = this.#shown;
+  #input(ws: WebSocket, viewer: Viewer, message: ClientMessage) {
+    const page = viewer.shown;
     switch (message.type) {
       case "mouse":
         if (!page) return;
-        return this.#step(() => this.#mouse(page, message));
+        return this.#step(viewer, () => this.#mouse(ws, viewer, page, message));
       case "key":
         if (!page) return;
-        return this.#step(() =>
+        return this.#step(viewer, () =>
           message.action === "down"
             ? page.keyboard.down(message.key)
             : page.keyboard.up(message.key),
         );
       case "text":
         if (!page) return;
-        return this.#step(() => page.keyboard.insertText(message.text));
+        return this.#step(viewer, () => page.keyboard.insertText(message.text));
       case "dialog": {
-        const dialog = this.#dialog;
-        this.#dialog = undefined;
-        this.#broadcast({ type: "dialog", open: false });
+        // It is told closed when the page says so, whoever answers it first.
+        const dialog = page && this.#dialogs.get(page);
         if (!dialog) return;
-        return this.#step(() =>
+        return this.#step(viewer, () =>
           message.accept ? dialog.accept(message.text ?? undefined) : dialog.dismiss(),
         );
       }
       case "files": {
-        const chooser = this.#chooser;
-        this.#chooser = undefined;
-        this.#broadcast({ type: "file-chooser", open: false });
-        if (!chooser) return;
-        this.#answeredChooser = true;
-        return this.#step(() =>
+        const chooser = page && this.#choosers.get(page);
+        if (!page || !chooser) return;
+        this.#choosers.delete(page);
+        for (const socket of this.#shownTo(page)) this.#tellChooser(socket, page);
+        // Each of the agent's sessions may still be waiting on it, and is told at its next call.
+        // That frees a session on this page; one on another finds the chooser if it comes here.
+        for (const session of this.#sessions) this.#owed.add(session);
+        return this.#step(viewer, () =>
           chooser.setFiles(
             message.files.map((file) => ({
               name: file.name,
@@ -345,16 +401,16 @@ export class BrowserLive implements BrowserGate {
         );
       }
       case "choice": {
-        const choice = this.#choice;
-        this.#choice = undefined;
+        const choice = viewer.choice;
+        viewer.choice = undefined;
         if (!choice) return;
-        return this.#step(() => choice.selectOption(message.values));
+        return this.#step(viewer, () => choice.selectOption(message.values));
       }
       case "tab":
-        return this.#step(() => this.#tab(message));
+        return this.#step(viewer, () => this.#tab(ws, viewer, message));
       case "navigate":
         if (!page) return;
-        return this.#step(async () => {
+        return this.#step(viewer, async () => {
           if (message.to === "back") await page.goBack();
           else if (message.to === "forward") await page.goForward();
           else if (message.to === "reload") await page.reload();
@@ -363,15 +419,20 @@ export class BrowserLive implements BrowserGate {
     }
   }
 
-  async #mouse(page: Page, message: Extract<ClientMessage, { type: "mouse" }>) {
+  async #mouse(
+    ws: WebSocket,
+    viewer: Viewer,
+    page: Page,
+    message: Extract<ClientMessage, { type: "mouse" }>,
+  ) {
     const { x, y } = message;
     if (message.action === "move") return page.mouse.move(x, y);
     if (message.action === "wheel")
       return page.mouse.wheel(message.deltaX ?? 0, message.deltaY ?? 0);
     const button = message.button ?? "left";
     if (message.action === "up") {
-      if (this.#swallowUp) {
-        this.#swallowUp = false;
+      if (viewer.swallowUp) {
+        viewer.swallowUp = false;
         return;
       }
       return page.mouse.up({ button });
@@ -400,20 +461,29 @@ export class BrowserLive implements BrowserGate {
           ([px, py]) => document.elementFromPoint(px as number, py as number),
           [x, y],
         );
-        this.#choice = (handle.asElement() as ElementHandle | null) ?? undefined;
-        this.#swallowUp = true;
-        return this.#broadcast({ type: "choice", ...choice });
+        viewer.choice = (handle.asElement() as ElementHandle | null) ?? undefined;
+        viewer.swallowUp = true;
+        return this.#send(ws, { type: "choice", ...choice });
       }
     }
     await page.mouse.move(x, y);
     return page.mouse.down({ button });
   }
 
-  async #tab(message: Extract<ClientMessage, { type: "tab" }>) {
+  /** Showing or opening a tab makes the socket's page its own from then on. */
+  async #tab(ws: WebSocket, viewer: Viewer, message: Extract<ClientMessage, { type: "tab" }>) {
     const byId = (id: number | undefined) => [...this.#ids].find(([, known]) => known === id)?.[0];
-    if (message.action === "show") return this.#show(byId(message.id));
     if (message.action === "close") return byId(message.id)?.close();
+    if (message.action === "show") {
+      const page = byId(message.id);
+      if (!page) return;
+      viewer.chose = true;
+      return this.#show(ws, page);
+    }
     const page = await this.#context?.newPage();
-    if (page && message.url) await page.goto(message.url).catch(() => {});
+    if (!page) return;
+    viewer.chose = true;
+    await this.#show(ws, page);
+    if (message.url) await page.goto(message.url).catch(() => {});
   }
 }

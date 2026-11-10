@@ -33,14 +33,14 @@ export interface BrowserConfig {
   sandbox?: boolean | undefined;
 }
 
-/** What the agent's browser tools ask before they run, while a person may have the browser. */
+/** What the proxy asks of the live view, where a person may answer what a page asks. */
 export interface BrowserGate {
-  /** An answer to give in place of running the call, if a person has or had the browser. */
-  wait(): Promise<string | undefined>;
-  /** Whether the agent's session still waits on a file chooser a person already answered. */
-  takeAnsweredChooser(): boolean;
-  /** The agent answered a dialog or a file chooser itself. */
-  agentAnswered(): void;
+  /** Whether this session of the agent's may still wait on a file chooser a person answered. */
+  takeAnsweredChooser(session: string): boolean;
+  /** The agent answered a file chooser itself. */
+  agentAnsweredChooser(): void;
+  /** A session of the agent's has ended. */
+  sessionEnded(session: string): void;
 }
 
 /** Give a client what the server answered, however it ends. */
@@ -59,8 +59,6 @@ const mcpCli = () =>
   join(dirname(createRequire(import.meta.url).resolve("@playwright/mcp/package.json")), "cli.js");
 /** This program, which also runs the browser host. */
 const self = fileURLToPath(import.meta.url);
-/** Tool calls that answer a dialog or a file chooser. */
-const ANSWERS = new Set(["browser_handle_dialog", "browser_file_upload"]);
 
 type Message = { id?: unknown; method?: string; params?: { name?: unknown } };
 
@@ -213,31 +211,27 @@ export class Browser {
       // Not JSON: the server answers that itself.
     }
     const tool = message.method === "tools/call" ? String(message.params?.name) : undefined;
-    const refuse = (text: string, code = -32000) => {
+    if (tool && this.#hidden.has(tool)) {
       response.writeHead(200, { "Content-Type": "application/json" });
-      response.end(
+      return void response.end(
         JSON.stringify({
           jsonrpc: "2.0",
           id: message.id ?? null,
-          ...(code === -32602
-            ? { error: { code, message: text } }
-            : { result: { content: [{ type: "text", text }], isError: true } }),
+          error: { code: -32602, message: `Unknown tool: ${tool}` },
         }),
       );
-    };
-    if (tool && this.#hidden.has(tool)) return refuse(`Unknown tool: ${tool}`, -32602);
-    if (tool && this.gate) {
-      const answer = await this.gate.wait();
-      if (answer) return refuse(answer);
     }
     const headers: Record<string, string> = {};
     for (const name of FORWARDED) {
       const value = request.headers[name];
       if (typeof value === "string") headers[name] = value;
     }
-    // A person answered a file chooser the agent's session still waits on: close it there first,
-    // which leaves what the person chose in place.
-    if (tool && this.gate?.takeAnsweredChooser())
+    const session = headers["mcp-session-id"] ?? "";
+    if (request.method === "DELETE") this.gate?.sessionEnded(session);
+    // A person answered a file chooser the agent's session may still wait on: close it there
+    // first, which leaves what the person chose in place. Not before a call that answers a chooser
+    // itself, which may be one of the agent's own.
+    if (tool && this.gate?.takeAnsweredChooser(session) && tool !== "browser_file_upload")
       await fetch(`${origin}/mcp`, {
         method: "POST",
         headers,
@@ -250,7 +244,7 @@ export class Browser {
       })
         .then((answer) => answer.text())
         .catch(() => {});
-    if (tool && ANSWERS.has(tool)) this.gate?.agentAnswered();
+    if (tool === "browser_file_upload") this.gate?.agentAnsweredChooser();
     const upstream = await fetch(`${origin}/mcp`, {
       method: request.method as string,
       headers,
