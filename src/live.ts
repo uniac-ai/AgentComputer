@@ -1,5 +1,6 @@
-// A computer's live surfaces, where its processes run: the agent's commands as they happen, and a
-// shell of the person's own. Each is a WebSocket in a small protocol of its own.
+// A computer's live surfaces, where its processes run: the agent's commands as they happen, a shell
+// of the person's own, and its browser, which browser-live.ts holds. Each is a WebSocket in a small
+// protocol of its own.
 
 import { chmodSync, existsSync, statSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
