@@ -1,5 +1,6 @@
-// However one computer ends, the service and every other computer carry on. It uses the real
-// Playwright MCP, whose server starts without needing a browser until a page is opened.
+// However one computer ends, the service and every other computer carry on. The computers that end
+// have a real browser: with no isolation the one AGENTCOMPUTER_BROWSER_PATH names, never the Chrome
+// installed on this machine, and in a container the image's.
 import assert from "node:assert/strict";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -16,13 +17,12 @@ type Sdk = typeof import("../src/sdk.ts");
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");
+const BROWSER = process.env.AGENTCOMPUTER_BROWSER_PATH;
 const IMAGE = process.env.AGENTCOMPUTER_TEST_IMAGE;
 const docker = promisify(execFile);
-const ISOLATIONS: [string, string[]][] = [
-  ["none", []],
-  ...(IMAGE
-    ? ([["container", ["--isolation", "container", "--image", IMAGE]]] as [string, string[]][])
-    : []),
+const ISOLATIONS: [string, string[] | undefined][] = [
+  ["none", BROWSER ? ["--browser-name", "chromium", "--browser-path", BROWSER] : undefined],
+  ["container", IMAGE ? ["--isolation", "container", "--image", IMAGE] : undefined],
 ];
 /** Longer than a failure on the socket to a server that has just gone takes to surface. */
 const SETTLE_MS = 2500;
@@ -100,8 +100,16 @@ async function setup(t: test.TestContext, extra: string[]) {
   return { Computer, to, workspace, connect, survived };
 }
 
-for (const [isolation, extra] of ISOLATIONS) {
-  const options = { timeout: 120_000 };
+for (const [isolation, given] of ISOLATIONS) {
+  const options = {
+    timeout: 120_000,
+    skip:
+      !given &&
+      (isolation === "none"
+        ? "needs AGENTCOMPUTER_BROWSER_PATH"
+        : "needs AGENTCOMPUTER_TEST_IMAGE"),
+  };
+  const extra = given ?? [];
 
   test(
     `isolation ${isolation}: killing a browser computer once its client has gone`,
