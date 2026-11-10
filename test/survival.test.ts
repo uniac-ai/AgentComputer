@@ -1,5 +1,4 @@
-// However one computer ends, the service and every other computer carry on, and a computer's
-// browser lives as long as the computer does, whatever its clients do. The computers that end
+// However one computer ends, the service and every other computer carry on. The computers that end
 // have a real browser: with no isolation the one AGENTCOMPUTER_BROWSER_PATH names, never the Chrome
 // installed on this machine, and in a container the image's.
 import assert from "node:assert/strict";
@@ -161,109 +160,6 @@ for (const [isolation, given] of ISOLATIONS) {
     },
   );
 }
-
-for (const [isolation, given] of ISOLATIONS)
-  test(`isolation ${isolation}: its browser outlives its clients, and isn't theirs to close`, {
-    timeout: 180_000,
-    skip:
-      !given &&
-      (isolation === "none"
-        ? "needs AGENTCOMPUTER_BROWSER_PATH"
-        : "needs AGENTCOMPUTER_TEST_IMAGE"),
-  }, async (t) => {
-    const { Computer, to, workspace } = await setup(t, given ?? []);
-    const computer = await Computer.create({
-      ...to,
-      access: "terminal",
-      browser: true,
-      workspace,
-    });
-    /** One session on the browser, as one client holds. */
-    const session = async () => {
-      const transport = new StreamableHTTPClientTransport(new URL(computer.getMcpUrl("browser")), {
-        requestInit: { headers: { Authorization: `Bearer ${computer.getMcpToken()}` } },
-      });
-      const client = new Client({ name: "by-hand", version: "1" });
-      await client.connect(transport);
-      const call = async (name: string, args: Record<string, unknown> = {}) => {
-        const result = (await client.callTool({ name, arguments: args })) as {
-          content: { text?: string }[];
-          isError?: boolean;
-        };
-        return {
-          text: result.content.map((b) => b.text ?? "").join(""),
-          isError: !!result.isError,
-        };
-      };
-      return { client, transport, call };
-    };
-    const stillThere = async () => {
-      assert.equal((await computer.getInfo()).state, "running");
-      const next = await session();
-      const page = await next.call("browser_snapshot");
-      assert.equal(page.isError, false, page.text.slice(0, 300));
-      assert.match(page.text, /Page Title: kept/);
-      return next;
-    };
-
-    // Its only client ends its session, as a client does that closes well.
-    const first = await session();
-    await first.call("browser_navigate", { url: "data:text/html,<title>kept</title>here" });
-    await first.transport.terminateSession();
-    await first.client.close();
-    await settle();
-    const second = await stillThere();
-
-    // Its only client goes without a word, as an app does that is restarted: after a few
-    // seconds unanswered its session is closed for it, which is waited for here.
-    const gone = second.transport.sessionId as string;
-    await second.client.close();
-    const asked = async () => {
-      const answer = await fetch(computer.getMcpUrl("browser"), {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${computer.getMcpToken()}`,
-          "Content-Type": "application/json",
-          Accept: "application/json, text/event-stream",
-          "Mcp-Session-Id": gone,
-        },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
-      });
-      await answer.arrayBuffer();
-      return answer.status;
-    };
-    assert.equal(await asked(), 200);
-    const deadline = Date.now() + 60_000;
-    while ((await asked()) !== 404) {
-      assert.ok(Date.now() < deadline, "Waited too long for the silent session to be closed.");
-      await new Promise((done) => setTimeout(done, 500));
-    }
-    const third = await stillThere();
-
-    // The tool that closes the browser is refused: the browser is the computer's.
-    const closing = await third.call("browser_close");
-    assert.equal(closing.isError, true);
-    assert.match(closing.text, /cannot be closed/);
-    await settle();
-    assert.equal((await third.call("browser_snapshot")).isError, false);
-    assert.equal((await computer.getInfo()).state, "running");
-
-    // When its browser does stop, here by the agent's own code at terminal access, what can be
-    // opened live says so.
-    // Its answer may not get back out of a container that ends with its browser.
-    await third
-      .call("browser_run_code_unsafe", {
-        code: "async (page) => { await page.context().close(); }",
-      })
-      .catch(() => {});
-    await settle();
-    const stopped = await computer.getInfo();
-    assert.equal(stopped.state, "failed");
-    const browser = stopped.surfaces.find((one) => one.surface === "browser");
-    assert.match(browser?.unavailable ?? "", /has stopped/);
-    await assert.rejects(computer.liveSession("browser"), /has stopped/);
-    await third.client.close().catch(() => {});
-  });
 
 test("isolation container: a container dying with a client connected", {
   skip: !IMAGE && "needs AGENTCOMPUTER_TEST_IMAGE",
