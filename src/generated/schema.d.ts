@@ -146,7 +146,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, or a shell of your own. Open its url as a WebSocket within 60 seconds. */
+        /** A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, a shell of your own, or its browser. Open its url as a WebSocket within 60 seconds. */
         post: operations["createLiveSession"];
         delete?: never;
         options?: never;

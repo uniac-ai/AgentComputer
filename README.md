@@ -49,6 +49,7 @@ The file tools stay inside the workspace. That's a check, not a boundary. Below 
 | `list [--state]`, `get <id>`, `logs <id>` | Look at them                                                                                           |
 | `timeout <id> <seconds>`                  | It now stops this long from now                                                                        |
 | `stop <id>`, `start <id> [--timeout]`     | Stop it, keeping its folder and token; start it again                                                  |
+| `live <id> --surface [--mode]`            | A one-time ticket to open one of its surfaces live; see [Live sessions](#live-sessions)                |
 | `kill <id>`                               | Stop it and remove what the service made                                                               |
 
 With no `--workspace`, the service makes a folder, which goes when the computer is killed. A folder you name is never deleted. A computer with a `--timeout` stops when it runs out, and its folder stays.
@@ -72,6 +73,7 @@ The data folder is `--data`, else `$AGENTCOMPUTER_DATA`, else `$XDG_DATA_HOME/ag
 | `POST /v1/computers/{computerID}/stop`    | `computer_stop`        |
 | `POST /v1/computers/{computerID}/start`   | `computer_start`       |
 | `GET /v1/computers/{computerID}/logs`     | `computer_logs`        |
+| `POST /v1/computers/{computerID}/live`    | `computer_live`        |
 
 These take the control token, kept in the data folder. A computer's own endpoints take its `accessToken`, and neither token works for the other:
 
@@ -141,7 +143,7 @@ A computer with `--browser` has a third:
 
 - **`browser`** (protocol `screencast@1`): its browser, on the same page the agent works on. Binary messages are JPEG frames of the page shown. Text messages are JSON: the service sends `tabs`, `viewport`, `dialog`, `file-chooser`, `choice` and `driver`, and an `operate` socket sends `mouse`, `key`, `text`, `dialog`, `files`, `choice`, `tab`, `navigate` and `release`. `openapi.yaml` has each one's fields. A page's own dialogs, file choosers and select lists aren't in the frames, so they arrive as events for you to show and answer. Opening it to operate makes you the driver: the agent's browser calls wait up to 25 seconds while you are, then answer that a person has or had the browser. You stop being the driver when you send `release`, close the socket, or send nothing for 60 seconds, and sending input takes it again.
 
-`POST /v1/computers/{computerID}/live` with `{ "surface": "terminal", "mode": "operate" }` gives a ticket: a `url` to open once within a minute, which needs no token. A request with an `Origin` header is refused unless `serve --allow-origin` names that origin, so a page can't open one. The SDK does the same with `computer.pty.connect({ onData })` and `computer.commands.watch(onEvent)`, and the CLI with `agentcomputer live <id> --surface terminal --mode operate`.
+`POST /v1/computers/{computerID}/live` with `{ "surface": "terminal", "mode": "operate" }` gives a ticket: a `url` to open once within a minute, which needs no token. A request with an `Origin` header is refused unless `serve --allow-origin` names that origin, so a page can't open one. The SDK does the same with `computer.pty.connect({ onData })` and `computer.commands.watch(onEvent)`, or gives the ticket alone with `computer.liveSession("browser", "operate")`, and the CLI with `agentcomputer live <id> --surface terminal --mode operate`.
 
 The terminal needs [node-pty](https://github.com/microsoft/node-pty), an optional dependency installed beside the program. It comes prebuilt for macOS. On Linux it's compiled at install, which npm only does when told: `npm install -g @agentorg/computer --allow-scripts=node-pty`, with a C++ toolchain. Without it, the computer's `surfaces` say why the terminal isn't there. The computer image has it.
 
@@ -154,7 +156,7 @@ The terminal needs [node-pty](https://github.com/microsoft/node-pty), an optiona
 
 ## Tests
 
-`npm test` runs the built service through the official MCP client, with a stand-in for Playwright, and one scenario through HTTP, MCP, the SDK and the CLI that fails if any operation in the schema isn't reached by each. Set `AGENTCOMPUTER_TEST_IMAGE` to a built image (`npm run build`, then `docker build .`) to run the same suite on containers, and `AGENTCOMPUTER_TEST_SERVICE_IMAGE` to one from `Dockerfile.service` to run the service itself as a container, with `AGENTCOMPUTER_TEST_ROOT` naming a folder Docker can mount if the temporary one isn't. After changing `openapi.yaml`, `npm run generate` writes what comes from it; CI fails if that changes anything. Set `AGENTCOMPUTER_BROWSER_PATH` to a browser program to run the real one too.
+`npm test` runs the built service through the official MCP client, and one scenario through HTTP, MCP, the SDK and the CLI that fails if any operation in the schema isn't reached by each. Set `AGENTCOMPUTER_TEST_IMAGE` to a built image (`npm run build`, then `docker build .`) to run the same suite on containers, and `AGENTCOMPUTER_TEST_SERVICE_IMAGE` to one from `Dockerfile.service` to run the service itself as a container, with `AGENTCOMPUTER_TEST_ROOT` naming a folder Docker can mount if the temporary one isn't. After changing `openapi.yaml`, `npm run generate` writes what comes from it; CI fails if that changes anything. Set `AGENTCOMPUTER_BROWSER_PATH` to a Chromium program, such as Playwright's headless shell, to run the browser tests that are skipped without it.
 
 ## Licence
 
