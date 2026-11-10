@@ -133,7 +133,7 @@ async function main() {
       profile: values.profile ?? "",
       channel: values.channel,
       executable: values.executable,
-      sandbox: values["no-sandbox"] !== true,
+      sandbox: values["no-sandbox"] ? false : undefined,
     });
   // The image's command, not for a person to run.
   if (command === "inside")

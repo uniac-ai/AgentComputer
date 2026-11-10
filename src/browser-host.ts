@@ -11,8 +11,16 @@ export interface HostOptions {
   /** Playwright's browser channel, such as "chrome", when no program is named. */
   channel?: string | undefined;
   executable?: string | undefined;
-  sandbox: boolean;
+  /** Chrome's own sandbox. Unset, it's decided as Playwright MCP decides it. */
+  sandbox?: boolean | undefined;
 }
+
+/** On Linux only branded Chrome gets its sandbox by default, as Playwright MCP has it. */
+const sandboxFor = (options: HostOptions) =>
+  options.sandbox ??
+  (process.platform !== "linux" ||
+    (!options.executable &&
+      !["chromium", "chrome-for-testing"].includes(options.channel ?? "chrome")));
 
 export async function hostBrowser(options: HostOptions) {
   // Playwright puts the socket under XDG_RUNTIME_DIR. A directory of our own, made fresh and
@@ -21,7 +29,7 @@ export async function hostBrowser(options: HostOptions) {
   process.env.XDG_RUNTIME_DIR = run;
   const context = await playwright().chromium.launchPersistentContext(options.profile, {
     headless: true,
-    chromiumSandbox: options.sandbox,
+    chromiumSandbox: sandboxFor(options),
     ...(options.executable
       ? { executablePath: options.executable }
       : { channel: options.channel ?? "chrome" }),
