@@ -2,7 +2,6 @@
 // makes it available on a Unix socket, which the agent's tools and the live viewer both connect
 // to. There is no debug port, so no page can reach the browser's protocol.
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { playwright } from "./playwright.ts";
 
@@ -23,10 +22,15 @@ const sandboxFor = (options: HostOptions) =>
       !["chromium", "chrome-for-testing"].includes(options.channel ?? "chrome")));
 
 export async function hostBrowser(options: HostOptions) {
-  // Playwright puts the socket under XDG_RUNTIME_DIR. A directory of our own, made fresh and
-  // readable by its owner alone, keeps anyone else from reaching it or putting one there first.
-  const run = mkdtempSync(join(tmpdir(), "agentcomputer-"));
+  // Playwright puts the socket under XDG_RUNTIME_DIR, or under the temporary folder when that
+  // path would be too long for a socket. A folder of our own, made fresh and readable by its owner
+  // alone, keeps anyone else from reaching it or putting one there first. It's under /tmp, which
+  // macOS and Linux both have, because a socket's path is limited to about 104 bytes and macOS's
+  // temporary folder for a user takes half of that. Both settings point into it, so neither way
+  // can leave it.
+  const run = mkdtempSync(join("/tmp", "agentcomputer-"));
   process.env.XDG_RUNTIME_DIR = run;
+  process.env.TMPDIR = run;
   const context = await playwright().chromium.launchPersistentContext(options.profile, {
     headless: true,
     chromiumSandbox: sandboxFor(options),

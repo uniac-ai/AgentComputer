@@ -57,6 +57,8 @@ async function setup(t: test.TestContext, extra: string[]) {
         PATH: process.env.PATH ?? "",
         HOME: root,
         SHELL: "/bin/bash",
+        // As a person's shell has it: on macOS a long per-user folder.
+        ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}),
         ...(process.env.DOCKER_HOST ? { DOCKER_HOST: process.env.DOCKER_HOST } : {}),
       },
       stdio: ["ignore", "pipe", "inherit"],
