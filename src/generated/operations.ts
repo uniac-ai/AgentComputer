@@ -324,7 +324,7 @@ export const OPENAPI = {
       "post": {
         "operationId": "createLiveSession",
         "x-mcp-tool": "computer_live",
-        "summary": "A one-time ticket to watch or operate one of its surfaces live: its terminals, its files, or its browser. Open its url as a WebSocket within 60 seconds.",
+        "summary": "A one-time ticket to watch or operate one of its surfaces live: its terminals, its files, its browser, or its load. Open its url as a WebSocket within 60 seconds.",
         "requestBody": {
           "required": true,
           "content": {
@@ -665,9 +665,10 @@ export const OPENAPI = {
         "enum": [
           "terminal",
           "files",
-          "browser"
+          "browser",
+          "load"
         ],
-        "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
+        "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes. load: how busy it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later. One that can't be taken is left out, and a socket that hasn't read the one before is not sent the next. Nothing is read while nobody watches."
       },
       "LiveMode": {
         "type": "string",
@@ -1321,6 +1322,54 @@ export const OPENAPI = {
             }
           }
         ]
+      },
+      "LoadReading": {
+        "description": "What the service sends on a metrics@1 socket, as JSON text. What a socket sends is dropped.",
+        "type": "object",
+        "required": [
+          "type",
+          "scope",
+          "cpuUsedPct",
+          "memUsed",
+          "memTotal",
+          "diskUsed",
+          "diskTotal"
+        ],
+        "properties": {
+          "type": {
+            "const": "reading"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "computer",
+              "machine"
+            ],
+            "description": "Whose numbers these are. computer: this computer's own, which a container's are. machine: the whole machine's, which a computer with no isolation shares with whatever else runs there, so every computer of that service reads the same; and a container's where it can't read its own."
+          },
+          "cpuUsedPct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Of all the machine's CPUs, since the reading before. One decimal."
+          },
+          "memUsed": {
+            "type": "integer",
+            "description": "Bytes in use."
+          },
+          "memTotal": {
+            "type": "integer",
+            "description": "Bytes the machine has: no computer has a limit."
+          },
+          "diskUsed": {
+            "type": "integer",
+            "description": "Bytes used on the volume its workspace is on, or its own folder where it has no workspace. The volume's, not the workspace's own size."
+          },
+          "diskTotal": {
+            "type": "integer",
+            "description": "Bytes on that volume."
+          }
+        }
       },
       "FilesRequest": {
         "description": "What a socket sends on files@1, as JSON text. Each has an id of its own choosing, which the answer repeats; answers come as they are ready, in any order, and ids aren't checked for repeats. A request still unanswered when the socket closes gets no answer. A path is from the workspace, with / between its parts, or absolute inside it, and nothing outside the workspace is reached. A binary message that follows no write closes the socket, and so does any message over 1,048,576 bytes.",
@@ -2193,9 +2242,10 @@ export const OPERATIONS: Operation[] = [
                     "enum": [
                       "terminal",
                       "files",
-                      "browser"
+                      "browser",
+                      "load"
                     ],
-                    "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
+                    "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes. load: how busy it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later. One that can't be taken is left out, and a socket that hasn't read the one before is not sent the next. Nothing is read while nobody watches."
                   },
                   "protocol": {
                     "type": "string"
@@ -2711,7 +2761,7 @@ export const OPERATIONS: Operation[] = [
     "method": "POST",
     "path": "/v1/computers/{computerID}/live",
     "tool": "computer_live",
-    "summary": "A one-time ticket to watch or operate one of its surfaces live: its terminals, its files, or its browser. Open its url as a WebSocket within 60 seconds.",
+    "summary": "A one-time ticket to watch or operate one of its surfaces live: its terminals, its files, its browser, or its load. Open its url as a WebSocket within 60 seconds.",
     "status": 201,
     "hasBody": true,
     "pathParameters": [
@@ -2732,9 +2782,10 @@ export const OPERATIONS: Operation[] = [
           "enum": [
             "terminal",
             "files",
-            "browser"
+            "browser",
+            "load"
           ],
-          "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
+          "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes. load: how busy it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later. One that can't be taken is left out, and a socket that hasn't read the one before is not sent the next. Nothing is read while nobody watches."
         },
         "mode": {
           "allOf": [
@@ -2778,9 +2829,10 @@ export const OPERATIONS: Operation[] = [
           "enum": [
             "terminal",
             "files",
-            "browser"
+            "browser",
+            "load"
           ],
-          "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
+          "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes. load: how busy it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later. One that can't be taken is left out, and a socket that hasn't read the one before is not sent the next. Nothing is read while nobody watches."
         },
         "mode": {
           "type": "string",

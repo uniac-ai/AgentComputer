@@ -1,9 +1,18 @@
-// Live sessions: one-time tickets, the Origin rule, and every terminal on one socket, the agent's
-// commands and a person's shells alike, the same with and without isolation.
+// Live sessions: one-time tickets, the Origin rule, every terminal on one socket, the agent's
+// commands and a person's shells alike, and a computer's load, the same with and without isolation.
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -11,10 +20,11 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import WebSocket from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 
 type Sdk = typeof import("../src/sdk.ts");
 type TerminalEvent = import("../src/sdk.ts").TerminalEvent;
+type Reading = import("../src/generated/schema.js").components["schemas"]["LoadReading"];
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");
@@ -93,8 +103,36 @@ const attempt = (url: string, origin?: string) =>
     ws.on("error", (error) => done(`error ${error.message}`));
   });
 
+/** Open a load socket, and give its first reading once it has one. */
+async function watch(url: string) {
+  const ws = new WebSocket(url);
+  const first = new Promise<Reading>((done) =>
+    ws.once("message", (data: Buffer) => done(JSON.parse(data.toString()) as Reading)),
+  );
+  await once(ws, "open");
+  return { ws, first };
+}
+
 for (const [isolation, extra] of ISOLATIONS) {
   const options = { timeout: 120_000 };
+
+  test(`isolation ${isolation}: its load, to watch and not to operate`, options, async (t) => {
+    const { Computer, to, workspace } = await setup(t, extra);
+    const computer = await Computer.create({ ...to, access: "read", workspace });
+    t.after(() => computer.close());
+    await assert.rejects(computer.liveSession("load", "operate"), /watched, not operated/);
+    const watcher = await watch((await computer.liveSession("load")).url);
+    t.after(() => watcher.ws.close());
+    watcher.ws.send("dropped");
+    const { type, scope, cpuUsedPct, ...bytes } = await watcher.first;
+    assert.equal(type, "reading");
+    assert.equal(scope, isolation === "none" ? "machine" : "computer");
+    assert.ok(cpuUsedPct >= 0 && cpuUsedPct <= 100, `CPU ${cpuUsedPct}`);
+    assert.deepEqual(Object.keys(bytes).sort(), ["diskTotal", "diskUsed", "memTotal", "memUsed"]);
+    for (const count of Object.values(bytes))
+      assert.ok(Number.isSafeInteger(count) && count > 0, `${count} bytes`);
+    assert.ok(bytes.memUsed < bytes.memTotal && bytes.diskUsed < bytes.diskTotal);
+  });
 
   test(
     `isolation ${isolation}: a ticket opens once, never from a page, and only what it's for`,
@@ -109,6 +147,7 @@ for (const [isolation, extra] of ISOLATIONS) {
         [
           ["terminal", true, null],
           ["files", true, null],
+          ["load", false, null],
         ],
       );
 
@@ -130,7 +169,7 @@ for (const [isolation, extra] of ISOLATIONS) {
       const reader = await Computer.create({ ...to, access: "files", workspace });
       assert.deepEqual(
         (await reader.getInfo()).surfaces.map((one) => one.surface),
-        ["files"],
+        ["files", "load"],
       );
       await assert.rejects(reader.liveSession("terminal"), /no terminal to open/);
     },
@@ -349,13 +388,14 @@ test("a shell that can't start is refused or heard ending, and nothing else does
 
 test("where a shell can't run on a terminal device, opening one is refused with why", async (t) => {
   const { Live } = await import("../src/live.ts");
+  const { LoadLive } = await import("../src/load-live.ts");
   const { createAgentExec } = await import("@agentorg/exec");
   const workspace = realpathSync(mkdtempSync(join(tmpdir(), "ac-")));
   const pty = () => {
     throw new Error("there is no device here.");
   };
   const exec = createAgentExec({ workspace, level: "terminal", pty });
-  const live = new Live(exec, "terminal");
+  const live = new Live(exec, "terminal", new LoadLive(workspace, false));
   const server = createServer().on("upgrade", (request, socket, head) =>
     live.open("terminal", "operate", request, socket, head),
   );
@@ -380,6 +420,7 @@ test("where a shell can't run on a terminal device, opening one is refused with 
 
 test("a viewer more than 4 MiB behind is closed, and one that opens is shown all", async (t) => {
   const { Live } = await import("../src/live.ts");
+  const { LoadLive } = await import("../src/load-live.ts");
   type Exec = import("@agentorg/exec").AgentExec;
   type Heard = Parameters<Parameters<Exec["onCommand"]>[0]>[0];
   const at = new Date().toISOString();
@@ -399,7 +440,7 @@ test("a viewer more than 4 MiB behind is closed, and one that opens is shown all
         })),
     },
   } as unknown as Exec;
-  const live = new Live(exec, "terminal");
+  const live = new Live(exec, "terminal", new LoadLive(tmpdir(), false));
   const server = createServer().on("upgrade", (request, socket, head) =>
     live.open("terminal", "watch", request, socket, head),
   );
@@ -435,4 +476,39 @@ test("a viewer more than 4 MiB behind is closed, and one that opens is shown all
   assert.deepEqual(fresh.heard[0], { type: "start", ...kept });
   const ofLast = fresh.heard.map((e) => (e.type === "output" && e.id === "s_64" ? e.text : ""));
   assert.equal(ofLast.join("").length, 65_536);
+});
+
+test("one who opens later is sent the last reading, and nothing is read unwatched", async (t) => {
+  const { LoadLive } = await import("../src/load-live.ts");
+  // A `df` of the test's own, first on the path, that counts each time the disk is read.
+  const bin = mkdtempSync(join(tmpdir(), "ac-"));
+  const log = join(bin, "log");
+  const real = process.env.PATH;
+  writeFileSync(join(bin, "df"), `#!/bin/sh\necho >> "${log}"\nPATH="${real}" exec df "$@"\n`);
+  chmodSync(join(bin, "df"), 0o755);
+  process.env.PATH = `${bin}:${real}`;
+  const reads = () => (existsSync(log) ? readFileSync(log, "utf8").length : 0);
+  const load = new LoadLive(tmpdir(), false);
+  const sockets = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+  sockets.on("connection", (ws) => load.open(ws));
+  await once(sockets, "listening");
+  t.after(() => {
+    process.env.PATH = real;
+    load.close();
+    sockets.close();
+    rmSync(bin, { recursive: true, force: true });
+  });
+  const url = `ws://127.0.0.1:${(sockets.address() as AddressInfo).port}`;
+  const one = await watch(url);
+  const reading = await one.first;
+  assert.equal(reads(), 2, "The first reading takes two.");
+  const other = await watch(url);
+  assert.deepEqual(await other.first, reading);
+  assert.equal(reads(), 2, "Nothing is read for the one that opens later.");
+  for (const { ws } of [one, other]) {
+    ws.close();
+    await once(ws, "close");
+  }
+  await new Promise((done) => setTimeout(done, 2_500));
+  assert.equal(reads(), 2);
 });

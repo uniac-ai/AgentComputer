@@ -210,7 +210,7 @@ async function scenario(surface: Surface, workspace: string, isolation: string) 
 
   assert.deepEqual(
     detail.surfaces.map((one: { surface: string }) => one.surface),
-    ["terminal", "files"],
+    ["terminal", "files", "load"],
   );
   const ticket = (await call("createLiveSession", { computerID, surface: "terminal" })).value;
   assert.match(ticket.url, /^wss?:\/\/[^/]+\/v1\/live\/l_/);

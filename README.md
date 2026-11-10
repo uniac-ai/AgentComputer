@@ -164,6 +164,13 @@ A computer with `--browser` has another:
   - **A dialog, a file chooser and a list belong to a page.** A dialog is told to the sockets shown its page until someone answers it, you or the agent. Nothing says when the agent answers a file chooser, so when it answers one every open chooser is taken as closed: press again if yours was.
   - **A client written for the earlier `screencast@1` still connects.** Its `release` is ignored and no `driver` event comes: nobody holds the browser any more.
 
+Every running computer has one more, to watch only:
+
+- **`load`** (protocol `metrics@1`): how busy it is. The service sends a reading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later: `{"type":"reading","scope":"machine","cpuUsedPct":37.2,"memUsed":…,"memTotal":…,"diskUsed":…,"diskTotal":…}`, in bytes. `openapi.yaml` has each field, as `LoadReading`.
+  - **`scope` says whose numbers they are.** A computer in a container reads its own (`computer`), against the machine's totals, since a container has no limit of its own. A computer with no isolation has no edge to measure at, so it reads the whole machine's (`machine`), as every other computer of that service does; so does a container that can't read its own.
+  - **The disk is the volume its workspace is on,** not the workspace's own size.
+  - **Nothing depends on it.** Nothing is read while nobody watches, a reading that can't be taken is left out, and a socket that hasn't read the one before is not sent the next.
+
 `POST /v1/computers/{computerID}/live` with `{ "surface": "terminal", "mode": "operate" }` gives a ticket: a `url` to open once within a minute, which needs no token. A request with an `Origin` header is refused unless `serve --allow-origin` names that origin, so a page can't open one. The SDK does the same with `computer.terminals.connect({ onEvent })`, or gives the ticket alone with `computer.liveSession("files")` or `computer.liveSession("browser", "operate")`, and the CLI with `agentcomputer live <id> --surface terminal --mode operate`.
 
 A shell of your own needs [node-pty](https://github.com/microsoft/node-pty), an optional dependency installed beside the program. It comes prebuilt for macOS. On Linux it's compiled at install, which npm only does when told: `npm install -g @agentorg/computer --allow-scripts=node-pty`, with a C++ toolchain. Without it, the agent's commands run and show as ever, and only `open` is refused, saying why. The computer image has it.

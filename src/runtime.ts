@@ -10,6 +10,7 @@ import { Browser, type BrowserConfig } from "./browser.ts";
 import { BrowserLive } from "./browser-live.ts";
 import type { components } from "./generated/schema.js";
 import { Live, type LiveMode, type Surface, type SurfaceInfo } from "./live.ts";
+import { LoadLive } from "./load-live.ts";
 import { privateFolder } from "./store.ts";
 
 export type Access = components["schemas"]["Access"];
@@ -105,9 +106,12 @@ const loadPty = () => {
 export class ProcessRuntime implements Runtime {
   readonly isolation = "none";
   readonly #config: BrowserConfig;
+  readonly #contained: boolean;
 
-  constructor(config: BrowserConfig) {
+  /** `contained` is for inside a container, where load is the computer's own. */
+  constructor(config: BrowserConfig, contained = false) {
     this.#config = config;
+    this.#contained = contained;
   }
 
   async prepare() {}
@@ -151,7 +155,8 @@ export class ProcessRuntime implements Runtime {
       browserLive = new BrowserLive(browser.endpoint);
       browser.gate = browserLive;
     }
-    const live = new Live(exec, spec.access, browserLive);
+    const load = new LoadLive(spec.workspace ?? folder, this.#contained);
+    const live = new Live(exec, spec.access, load, browserLive);
     const surfaces = live.surfaces();
     return {
       browserTools: browser?.tools ?? [],
