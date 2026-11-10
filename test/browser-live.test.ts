@@ -1,5 +1,6 @@
-// The browser live: frames while the agent works, a person's input on the same page, the driver
-// lock the agent's calls wait on, and dialogs, file choosers and lists the person answers.
+// The browser live: frames while the agent works, a person's input beside it with neither waiting
+// for the other, a shown tab that is each socket's own, and dialogs, file choosers and lists the
+// person answers.
 import assert from "node:assert/strict";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -99,20 +100,24 @@ async function setup(t: test.TestContext, extra: string[]) {
     browser: true,
     workspace: join(root, "workspace"),
   });
-  const agent = new Client({ name: "agent", version: "1" });
-  await agent.connect(
-    new StreamableHTTPClientTransport(new URL(computer.getMcpUrl("browser")), {
-      requestInit: { headers: { Authorization: `Bearer ${computer.getMcpToken()}` } },
-    }),
-  );
-  clients.push(agent);
-  const call = async (name: string, args: Record<string, unknown> = {}) => {
-    const result = (await agent.callTool({ name, arguments: args })) as {
-      content: { text?: string }[];
-      isError?: boolean;
+  /** One MCP session on the browser, as one agent holds. */
+  const session = async () => {
+    const agent = new Client({ name: "agent", version: "1" });
+    await agent.connect(
+      new StreamableHTTPClientTransport(new URL(computer.getMcpUrl("browser")), {
+        requestInit: { headers: { Authorization: `Bearer ${computer.getMcpToken()}` } },
+      }),
+    );
+    clients.push(agent);
+    return async (name: string, args: Record<string, unknown> = {}) => {
+      const result = (await agent.callTool({ name, arguments: args })) as {
+        content: { text?: string }[];
+        isError?: boolean;
+      };
+      return { text: result.content.map((b) => b.text ?? "").join(""), isError: !!result.isError };
     };
-    return { text: result.content.map((b) => b.text ?? "").join(""), isError: !!result.isError };
   };
+  const call = await session();
   const state = async () =>
     JSON.parse(
       JSON.parse(
@@ -155,7 +160,7 @@ async function setup(t: test.TestContext, extra: string[]) {
     return { ws, frames, events, send, click, last };
   };
 
-  return { Computer, to, computer, call, state, centre, view, alive: () => !exited };
+  return { Computer, to, computer, call, session, state, centre, view, alive: () => !exited };
 }
 
 for (const [isolation, extra] of ISOLATIONS) {
@@ -169,65 +174,48 @@ for (const [isolation, extra] of ISOLATIONS) {
   };
 
   test(
-    `isolation ${isolation}: a person watches and operates the page the agent works on`,
+    `isolation ${isolation}: a person and the agent use the browser at once, each socket shown its own tab`,
     options,
     async (t) => {
-      const { computer, call, state, centre, view, alive } = await setup(t, extra as string[]);
+      const { computer, call, session, state, centre, view, alive } = await setup(
+        t,
+        extra as string[],
+      );
       assert.ok((await computer.getInfo()).surfaces.some((one) => one.surface === "browser"));
       await call("browser_navigate", { url: "about:blank" });
       await call("browser_evaluate", {
         function: `() => { document.open(); document.write(${JSON.stringify(PAGE)}); document.close(); }`,
       });
+      const shown = (viewer: { last(type: string): Event | undefined }) =>
+        viewer.last("tabs")?.shown as number | undefined;
+      const ids = (viewer: { last(type: string): Event | undefined }) =>
+        (viewer.last("tabs")?.tabs ?? []).map((tab: { id: number }) => tab.id) as number[];
 
       const watcher = await view("watch");
       const person = await view("operate");
-
-      // Opening to operate takes the browser at once: the agent's call waits until it's let go.
-      await until(() => person.last("driver")?.you === true, "holding it on open");
-      const held = Date.now();
-      const blocked = call("browser_snapshot");
-      await until(() => person.last("driver")?.agentWaiting === true, "the agent waiting on open");
-      person.send({ type: "release" });
-      const firstAnswer = await blocked;
-      assert.equal(firstAnswer.isError, true);
-      assert.match(firstAnswer.text, /A person used the browser/);
-      assert.ok(Date.now() - held < 20_000);
       await until(() => person.frames.length > 0 && watcher.frames.length > 0, "frames");
       const frame = person.frames.at(-1) as Buffer;
       assert.deepEqual([...frame.subarray(0, 2)], [0xff, 0xd8], "a JPEG");
       await until(() => Boolean(person.last("tabs")), "the tabs");
       assert.equal(person.last("tabs")?.tabs.length, 1);
 
-      // The agent works while frames arrive.
+      // Nobody waits: the agent's calls run while a person has the page open and is using it.
       const before = person.frames.length;
-      assert.equal((await call("browser_snapshot")).isError, false);
+      person.send({ type: "mouse", action: "move", x: 5, y: 5 });
+      person.send({ type: "key", action: "down", key: "Shift" });
+      const working = await call("browser_snapshot");
+      person.send({ type: "key", action: "up", key: "Shift" });
+      assert.equal(working.isError, false, working.text.slice(0, 300));
+      assert.match(working.text, /button "count"/);
       await until(() => person.frames.length > before, "frames while the agent works");
 
-      // A watcher's input is dropped; the person's lands on the agent's page.
+      // A watcher's input is dropped; the person's lands on the page.
       const count = await centre("#count");
       await watcher.click(count);
       await person.click(count);
-      person.send({ type: "release" });
-      await until(() => Boolean(person.last("driver")), "the driver");
+      await until(() => person.frames.length > before + 1, "the page changing");
       await new Promise((done) => setTimeout(done, 300));
       assert.equal((await state()).count, 1);
-
-      // While the person drives, the agent's call waits, then says what happened.
-      person.send({ type: "mouse", action: "move", x: 5, y: 5 });
-      await until(() => (person.last("driver") as { you?: boolean })?.you === true, "holding it");
-      const started = Date.now();
-      const waiting = call("browser_snapshot");
-      await until(
-        () => (person.last("driver") as { agentWaiting?: boolean })?.agentWaiting === true,
-        "the agent waiting",
-      );
-      await new Promise((done) => setTimeout(done, 500));
-      person.send({ type: "release" });
-      const answered = await waiting;
-      assert.equal(answered.isError, true);
-      assert.match(answered.text, /A person used the browser/);
-      assert.ok(Date.now() - started >= 500);
-      assert.equal((await call("browser_snapshot")).isError, false);
 
       // A dialog the agent opened, answered by the person.
       const ref = /button "dialog" \[ref=(e\d+)\]/.exec((await call("browser_snapshot")).text)?.[1];
@@ -235,12 +223,16 @@ for (const [isolation, extra] of ISOLATIONS) {
       assert.match(opened.text, /Modal state/);
       await until(() => (person.last("dialog") as { open?: boolean })?.open === true, "the dialog");
       assert.equal((person.last("dialog") as { message?: string }).message, "sure?");
+      assert.equal((watcher.last("dialog") as { open?: boolean })?.open, true);
       person.send({ type: "dialog", accept: true });
-      person.send({ type: "release" });
+      await until(() => watcher.last("dialog")?.open === false, "the watcher told it closed");
       await new Promise((done) => setTimeout(done, 300));
       assert.equal((await state()).confirmed, true);
 
-      // A file chooser the person opened and answered, leaving the agent free to go on.
+      // A file chooser the person opened and answered, leaving every session of the agent's free
+      // to go on: a second one, on the same page, as well as the first.
+      const other = await session();
+      assert.equal((await other("browser_snapshot")).isError, false);
       await person.click(await centre("#file"));
       await until(
         () => (person.last("file-chooser") as { open?: boolean })?.open === true,
@@ -252,13 +244,15 @@ for (const [isolation, extra] of ISOLATIONS) {
           { name: "notes.txt", mimeType: "text/plain", data: Buffer.from("hi").toString("base64") },
         ],
       });
-      person.send({ type: "release" });
       await new Promise((done) => setTimeout(done, 300));
-      const after = await call("browser_snapshot");
-      assert.equal(after.isError, false, after.text.slice(0, 300));
+      for (const one of [call, other]) {
+        const after = await one("browser_snapshot");
+        assert.equal(after.isError, false, after.text.slice(0, 300));
+        assert.doesNotMatch(after.text, /Modal state/);
+      }
       assert.equal((await state()).file, "notes.txt");
 
-      // A list, which isn't in the frames, offered as a choice.
+      // A list, which isn't in the frames, offered as a choice to the one who pressed it.
       const [sx, sy] = await centre("#sel");
       person.send({ type: "mouse", action: "down", x: sx, y: sy });
       person.send({ type: "mouse", action: "up", x: sx, y: sy });
@@ -267,8 +261,8 @@ for (const [isolation, extra] of ISOLATIONS) {
         person.last("choice")?.options.map((o: { value: string }) => o.value),
         ["a", "b"],
       );
+      assert.equal(watcher.last("choice"), undefined);
       person.send({ type: "choice", values: ["b"] });
-      person.send({ type: "release" });
       await new Promise((done) => setTimeout(done, 300));
       assert.equal((await state()).choice, "b");
 
@@ -282,15 +276,53 @@ for (const [isolation, extra] of ISOLATIONS) {
         "the new title",
       );
 
-      // A tab the person opens is one the agent sees.
-      person.send({ type: "tab", action: "open", url: "about:blank" });
-      person.send({ type: "release" });
+      // A tab the agent opens is shown to every socket that hasn't chosen one of its own.
+      const first = shown(person) as number;
+      assert.equal(shown(watcher), first);
+      await call("browser_tabs", { action: "new", url: "about:blank" });
+      await until(() => ids(person).length === 2 && shown(person) !== first, "following the agent");
+      const second = shown(person) as number;
+      await until(() => shown(watcher) === second, "the watcher following too");
+
+      // Once a socket picks a tab, that tab is its own: the agent's next one doesn't move it.
+      person.send({ type: "tab", action: "show", id: first });
+      await until(() => shown(person) === first, "its own tab");
+      const framesOfFirst = person.frames.length;
+      await call("browser_tabs", { action: "new", url: "about:blank" });
       await until(
-        () => ((person.last("tabs") as { tabs?: unknown[] })?.tabs?.length ?? 0) === 2,
-        "two tabs",
+        () => ids(watcher).length === 3 && shown(watcher) !== second,
+        "the watcher moving on",
       );
+      const third = shown(watcher) as number;
+      assert.notEqual(third, first);
+      await until(() => ids(person).length === 3, "the person told of the tab");
+      assert.equal(shown(person), first);
+
+      // The person works in its tab while the agent works in another: both land, neither moves.
+      await call("browser_evaluate", { function: "() => { window.name = 'the agent tab' }" });
+      await person.click(count);
+      await until(() => person.frames.length > framesOfFirst, "frames of its own tab");
+      await new Promise((done) => setTimeout(done, 300));
+      const named = await call("browser_evaluate", { function: "() => window.name" });
+      assert.match(named.text, /the agent tab/);
+      assert.equal(shown(watcher), third);
+      await call("browser_tabs", { action: "select", index: 0 });
+      assert.equal((await state()).count, 2);
+      assert.equal(shown(person), first);
+      assert.equal(shown(watcher), third);
+
+      // A tab the person opens is its own too, and the agent sees it without being moved to it.
+      person.send({ type: "tab", action: "open", url: "about:blank" });
+      await until(() => ids(person).length === 4 && shown(person) !== first, "its new tab");
+      const fourth = shown(person) as number;
       const tabs = (await call("browser_tabs", { action: "list" })).text;
-      assert.equal(tabs.split("\n").filter((line) => /^- \d/.test(line)).length, 2);
+      assert.equal(tabs.split("\n").filter((line) => /^- \d/.test(line)).length, 4);
+      assert.match(tabs, /- 0: \(current\)/);
+
+      // When a socket's page closes, it is shown the newest that is left.
+      person.send({ type: "tab", action: "close", id: fourth });
+      await until(() => ids(person).length === 3 && shown(person) === third, "falling back");
+      assert.equal(person.last("driver"), undefined, "no one holds the browser");
 
       // Its socket is where only its user can reach it.
       const shared = (await computer.getLogs())
@@ -316,15 +348,6 @@ for (const [isolation, extra] of ISOLATIONS) {
         ]);
         assert.equal(other.stdout.trim(), "EACCES");
       }
-
-      // Closing an operate socket lets go as well.
-      const another = await view("operate");
-      await until(() => another.last("driver")?.you === true, "the second one holding it");
-      const waits = call("browser_snapshot");
-      await until(() => another.last("driver")?.agentWaiting === true, "the agent waiting again");
-      another.ws.close();
-      assert.match((await waits).text, /A person used the browser/);
-      assert.equal((await call("browser_snapshot")).isError, false);
 
       // Killing it closes the viewers and nothing else.
       await computer.kill();

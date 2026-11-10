@@ -33,12 +33,10 @@ export interface BrowserConfig {
   sandbox?: boolean | undefined;
 }
 
-/** What the agent's browser tools ask before they run, while a person may have the browser. */
+/** What the proxy asks of the live view, where a person may answer what a page asks. */
 export interface BrowserGate {
-  /** An answer to give in place of running the call, if a person has or had the browser. */
-  wait(): Promise<string | undefined>;
-  /** Whether the agent's session still waits on a file chooser a person already answered. */
-  takeAnsweredChooser(): boolean;
+  /** Whether this session of the agent's may still wait on a file chooser a person answered. */
+  takeAnsweredChooser(session: string): boolean;
   /** The agent answered a dialog or a file chooser itself. */
   agentAnswered(): void;
 }
@@ -213,22 +211,15 @@ export class Browser {
       // Not JSON: the server answers that itself.
     }
     const tool = message.method === "tools/call" ? String(message.params?.name) : undefined;
-    const refuse = (text: string, code = -32000) => {
+    if (tool && this.#hidden.has(tool)) {
       response.writeHead(200, { "Content-Type": "application/json" });
-      response.end(
+      return void response.end(
         JSON.stringify({
           jsonrpc: "2.0",
           id: message.id ?? null,
-          ...(code === -32602
-            ? { error: { code, message: text } }
-            : { result: { content: [{ type: "text", text }], isError: true } }),
+          error: { code: -32602, message: `Unknown tool: ${tool}` },
         }),
       );
-    };
-    if (tool && this.#hidden.has(tool)) return refuse(`Unknown tool: ${tool}`, -32602);
-    if (tool && this.gate) {
-      const answer = await this.gate.wait();
-      if (answer) return refuse(answer);
     }
     const headers: Record<string, string> = {};
     for (const name of FORWARDED) {
@@ -237,7 +228,7 @@ export class Browser {
     }
     // A person answered a file chooser the agent's session still waits on: close it there first,
     // which leaves what the person chose in place.
-    if (tool && this.gate?.takeAnsweredChooser())
+    if (tool && this.gate?.takeAnsweredChooser(headers["mcp-session-id"] ?? ""))
       await fetch(`${origin}/mcp`, {
         method: "POST",
         headers,
