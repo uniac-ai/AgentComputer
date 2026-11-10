@@ -179,8 +179,19 @@ for (const [isolation, extra] of ISOLATIONS) {
         function: `() => { document.open(); document.write(${JSON.stringify(PAGE)}); document.close(); }`,
       });
 
-      const person = await view("operate");
       const watcher = await view("watch");
+      const person = await view("operate");
+
+      // Opening to operate takes the browser at once: the agent's call waits until it's let go.
+      await until(() => person.last("driver")?.you === true, "holding it on open");
+      const held = Date.now();
+      const blocked = call("browser_snapshot");
+      await until(() => person.last("driver")?.agentWaiting === true, "the agent waiting on open");
+      person.send({ type: "release" });
+      const firstAnswer = await blocked;
+      assert.equal(firstAnswer.isError, true);
+      assert.match(firstAnswer.text, /A person used the browser/);
+      assert.ok(Date.now() - held < 20_000);
       await until(() => person.frames.length > 0 && watcher.frames.length > 0, "frames");
       const frame = person.frames.at(-1) as Buffer;
       assert.deepEqual([...frame.subarray(0, 2)], [0xff, 0xd8], "a JPEG");
@@ -261,6 +272,16 @@ for (const [isolation, extra] of ISOLATIONS) {
       await new Promise((done) => setTimeout(done, 300));
       assert.equal((await state()).choice, "b");
 
+      // A title the page changes itself reaches the tab strip.
+      await call("browser_evaluate", { function: "() => { document.title = 'Renamed in place' }" });
+      await until(
+        () =>
+          person
+            .last("tabs")
+            ?.tabs.some((tab: { title: string }) => tab.title === "Renamed in place"),
+        "the new title",
+      );
+
       // A tab the person opens is one the agent sees.
       person.send({ type: "tab", action: "open", url: "about:blank" });
       person.send({ type: "release" });
@@ -295,6 +316,15 @@ for (const [isolation, extra] of ISOLATIONS) {
         ]);
         assert.equal(other.stdout.trim(), "EACCES");
       }
+
+      // Closing an operate socket lets go as well.
+      const another = await view("operate");
+      await until(() => another.last("driver")?.you === true, "the second one holding it");
+      const waits = call("browser_snapshot");
+      await until(() => another.last("driver")?.agentWaiting === true, "the agent waiting again");
+      another.ws.close();
+      assert.match((await waits).text, /A person used the browser/);
+      assert.equal((await call("browser_snapshot")).isError, false);
 
       // Killing it closes the viewers and nothing else.
       await computer.kill();
