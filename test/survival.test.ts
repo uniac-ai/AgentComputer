@@ -149,13 +149,11 @@ for (const [isolation, given] of ISOLATIONS) {
       const { Computer, to, workspace, connect, survived } = await setup(t, extra);
       const other = await Computer.create({ ...to, access: "files", workspace });
       t.after(() => other.close());
-      const computer = await Computer.create({
-        ...to,
-        access: "terminal",
-        browser: true,
-        timeoutMs: 1500,
-      });
+      const computer = await Computer.create({ ...to, access: "terminal", browser: true });
       await connect(computer.getMcpUrl("browser"), computer.getMcpToken());
+      // Timed from here, with the client connected: a timeout given at creation also counts the
+      // time its browser takes to start, and can run out before a client is on it.
+      await computer.setTimeout(1000);
       await settle();
       await survived(other);
       assert.equal(await computer.isRunning(), false);
