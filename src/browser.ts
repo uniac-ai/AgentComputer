@@ -144,7 +144,7 @@ export class Browser {
           if (this.#stopping) return failed(new Error("It stopped."));
           const mcp = spawn(
             process.execPath,
-            [self, "browser-mcp", "--endpoint", endpoint, "--output-dir", join(folder, "output")],
+            [self, "browser-mcp", "--endpoint", endpoint, "--output", join(folder, "output")],
             // Its own limit on which files it touches is the folder it starts in.
             { cwd, stdio: ["ignore", "pipe", "pipe"] },
           );

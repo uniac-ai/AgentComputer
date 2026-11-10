@@ -5,7 +5,12 @@
 // server, with a backend that only disconnects.
 //
 // It is built from the parts Playwright MCP's own program is built from, which are not a public
-// interface: a test checks they are there at the version this is pinned to.
+// interface. A test checks that they are there and that the server starts and lists its tools.
+//
+// When @playwright/mcp and playwright-core move, read this beside that program again: the action
+// of `decorateMCPCommand`, in packages/playwright-core/src/tools/mcp/program.ts. What to compare:
+// the factory's fields, what BrowserBackend is given, what `sharedBrowserContext` decides (the
+// close tool refusing, and nothing else here), and the "Listening on" line that browser.ts reads.
 import { createRequire } from "node:module";
 import type { Browser, BrowserContext } from "playwright-core";
 import { playwright } from "./playwright.ts";
@@ -32,7 +37,7 @@ export interface McpParts {
   ) => unknown;
   start(factory: Record<string, unknown>, server: unknown): Promise<void>;
 }
-export const mcpParts = (): McpParts =>
+const mcpParts = (): McpParts =>
   (require("playwright-core/lib/coreBundle") as { tools: McpParts }).tools;
 
 export interface McpOptions {
@@ -57,7 +62,8 @@ export async function serveBrowserMcp(options: McpOptions) {
     {
       name: "Playwright",
       nameInConfig: "playwright",
-      version: (require("@playwright/mcp/package.json") as { version: string }).version,
+      // playwright-core's, as Playwright MCP's program gives it.
+      version: (require("playwright-core/package.json") as { version: string }).version,
       toolSchemas: tools.map((tool) => tool.schema),
       ignoreRoots: config.ignoreRoots,
       /** One for each client's session: a connection of its own to the one browser. */

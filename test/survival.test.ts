@@ -215,9 +215,29 @@ for (const [isolation, given] of ISOLATIONS)
     const second = await stillThere();
 
     // Its only client goes without a word, as an app does that is restarted: after a few
-    // seconds unanswered its session is closed for it.
+    // seconds unanswered its session is closed for it, which is waited for here.
+    const gone = second.transport.sessionId as string;
     await second.client.close();
-    await new Promise((done) => setTimeout(done, 12_000));
+    const asked = async () => {
+      const answer = await fetch(computer.getMcpUrl("browser"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${computer.getMcpToken()}`,
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          "Mcp-Session-Id": gone,
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      });
+      await answer.arrayBuffer();
+      return answer.status;
+    };
+    assert.equal(await asked(), 200);
+    const deadline = Date.now() + 60_000;
+    while ((await asked()) !== 404) {
+      assert.ok(Date.now() < deadline, "Waited too long for the silent session to be closed.");
+      await new Promise((done) => setTimeout(done, 500));
+    }
     const third = await stillThere();
 
     // The tool that closes the browser is refused: the browser is the computer's.
@@ -230,9 +250,12 @@ for (const [isolation, given] of ISOLATIONS)
 
     // When its browser does stop, here by the agent's own code at terminal access, what can be
     // opened live says so.
-    await third.call("browser_run_code_unsafe", {
-      code: "async (page) => { await page.context().close(); }",
-    });
+    // Its answer may not get back out of a container that ends with its browser.
+    await third
+      .call("browser_run_code_unsafe", {
+        code: "async (page) => { await page.context().close(); }",
+      })
+      .catch(() => {});
     await settle();
     const stopped = await computer.getInfo();
     assert.equal(stopped.state, "failed");

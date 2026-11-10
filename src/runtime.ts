@@ -118,7 +118,10 @@ export class ProcessRuntime implements Runtime {
       get surfaces() {
         return surfaces.map((one) =>
           one.surface === "browser" && browserDown
-            ? { ...one, unavailable: "Its browser has stopped. Stop it and start it again." }
+            ? {
+                ...one,
+                unavailable: "Its browser has stopped. Stop the computer and start it again.",
+              }
             : one,
         );
       },

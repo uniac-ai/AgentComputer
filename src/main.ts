@@ -88,7 +88,7 @@ async function main() {
       executable: { type: "string" },
       "no-sandbox": { type: "boolean" },
       endpoint: { type: "string" },
-      "output-dir": { type: "string" },
+      output: { type: "string" },
       access: { type: "string" },
       workspace: { type: "string" },
       name: { type: "string" },
@@ -142,7 +142,7 @@ async function main() {
   if (command === "browser-mcp")
     return serveBrowserMcp({
       endpoint: values.endpoint ?? "",
-      outputDir: values["output-dir"] ?? "",
+      outputDir: values.output ?? "",
     });
   // The image's command, not for a person to run.
   if (command === "inside")

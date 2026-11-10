@@ -262,7 +262,7 @@ export interface components {
             protocol: string;
             /** @description Whether it can be operated */
             operate: boolean;
-            /** @description Why it can't be opened here */
+            /** @description Why it can't be opened now, if it can't. */
             unavailable?: string;
         };
         NewLiveSession: {

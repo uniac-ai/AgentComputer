@@ -192,7 +192,10 @@ export class ContainerRuntime implements Runtime {
       get surfaces() {
         return ready.surfaces.map((one) =>
           ended
-            ? { ...one, unavailable: "Its container has stopped. Stop it and start it again." }
+            ? {
+                ...one,
+                unavailable: "Its container has stopped. Stop the computer and start it again.",
+              }
             : one,
         );
       },
