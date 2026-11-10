@@ -18,3 +18,15 @@ test("playwright-core is the version @playwright/mcp brings, as named and as ins
   assert.equal(ours, theirs);
   assert.equal(read(require.resolve("playwright-core/package.json")).version, theirs);
 });
+
+test("the parts of Playwright MCP that the browser's server is built from are there", () => {
+  const { tools } = require("playwright-core/lib/coreBundle") as { tools: Record<string, unknown> };
+  for (const part of [
+    "setupExitWatchdog",
+    "resolveCLIConfigForMCP",
+    "filteredTools",
+    "BrowserBackend",
+    "start",
+  ])
+    assert.equal(typeof tools[part], "function", part);
+});

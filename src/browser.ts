@@ -3,8 +3,7 @@
 // computer's path, so one address and one token cover both of its endpoints.
 import { type ChildProcess, spawn } from "node:child_process";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { pipeline, Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
@@ -55,9 +54,7 @@ export function sendAnswer(upstream: Response, response: ServerResponse) {
   pipeline(Readable.fromWeb(upstream.body as never), response, () => {});
 }
 
-const mcpCli = () =>
-  join(dirname(createRequire(import.meta.url).resolve("@playwright/mcp/package.json")), "cli.js");
-/** This program, which also runs the browser host. */
+/** This program, which also runs the browser host and the browser's MCP server. */
 const self = fileURLToPath(import.meta.url);
 
 type Message = { id?: unknown; method?: string; params?: { name?: unknown } };
@@ -147,17 +144,7 @@ export class Browser {
           if (this.#stopping) return failed(new Error("It stopped."));
           const mcp = spawn(
             process.execPath,
-            [
-              mcpCli(),
-              "--host",
-              "127.0.0.1",
-              "--port",
-              "0",
-              "--endpoint",
-              endpoint,
-              "--output-dir",
-              join(folder, "output"),
-            ],
+            [self, "browser-mcp", "--endpoint", endpoint, "--output-dir", join(folder, "output")],
             // Its own limit on which files it touches is the folder it starts in.
             { cwd, stdio: ["ignore", "pipe", "pipe"] },
           );

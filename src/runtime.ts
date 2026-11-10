@@ -111,9 +111,17 @@ export class ProcessRuntime implements Runtime {
       browser.gate = browserLive;
     }
     const live = new Live(exec, spec.workspace, spec.access, browserLive);
+    const surfaces = await live.surfaces();
     return {
       browserTools: browser?.tools ?? [],
-      surfaces: await live.surfaces(),
+      /** As they are now: a browser that has stopped can't be opened, and says so. */
+      get surfaces() {
+        return surfaces.map((one) =>
+          one.surface === "browser" && browserDown
+            ? { ...one, unavailable: "Its browser has stopped. Stop it and start it again." }
+            : one,
+        );
+      },
       openLive: async (surface, mode, request, socket, head) =>
         live.open(surface, mode, request, socket, head),
       handle: async (endpoint, request, response) => {
