@@ -1111,7 +1111,7 @@ export const OPENAPI = {
         ]
       },
       "TerminalEvent": {
-        "description": "What the service sends on a terminal@1 socket, as JSON text, no message over 65,536 bytes. A terminal is a command the agent started or a shell a person opened; its id is the session id the agent's tools use. A new socket is first sent, for each terminal already there, the oldest first, its start, the end of what it wrote (its last 65,536 characters), and its exit if it has ended; then each event as it happens, with nothing to mark where the first ends. The last 64 that ended are among those already there, and one that leaves that list is not told. A character here is a UTF-16 unit.",
+        "description": "What the service sends on a terminal@1 socket, as JSON text, no message over 65,536 bytes. A terminal is a command the agent started or a shell a person opened; its id is the session id the agent's tools use. A new socket is first sent, for each terminal already there, the oldest first, its start, the end of what it wrote (its last 65,536 characters), and its exit if it has ended; then each event as it happens, with nothing to mark where the first ends. The last 64 that ended are among those already there, and one that leaves that list is not told. A character here is a UTF-16 unit. A socket with more than 4 MiB still to be sent to it is closed, with no close frame (1006): one that has stopped reading, or one that is reading while a terminal writes tens of megabytes at once. It isn't an error. Opened again, it is sent every terminal afresh, with the last 65,536 characters each wrote, in place of whatever it held.",
         "oneOf": [
           {
             "type": "object",

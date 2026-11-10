@@ -377,3 +377,53 @@ test("where a shell can't run on a terminal device, opening one is refused with 
   ]);
   ws.close();
 });
+
+test("a viewer more than 4 MiB behind is closed, and one that opens is shown all", async (t) => {
+  const { Live } = await import("../src/live.ts");
+  type Exec = import("@agentorg/exec").AgentExec;
+  type Heard = Parameters<Parameters<Exec["onCommand"]>[0]>[0];
+  const at = new Date().toISOString();
+  const kept = { id: "s_1", by: "agent", cmd: "yes", workdir: "/", tty: false, at } as const;
+  let hear: (event: Heard) => void = () => {};
+  const exec = {
+    onCommand: (listener: typeof hear) => {
+      hear = listener;
+    },
+    terminals: { list: () => [{ ...kept, output: "y\n".repeat(32_768) }] },
+  } as unknown as Exec;
+  const live = new Live(exec, "terminal");
+  const server = createServer().on("upgrade", (request, socket, head) =>
+    live.open("terminal", "watch", request, socket, head),
+  );
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  t.after(() => {
+    live.close();
+    server.close();
+  });
+  const view = async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${(server.address() as AddressInfo).port}`);
+    const heard: TerminalEvent[] = [];
+    ws.on("message", (data: Buffer) => heard.push(JSON.parse(data.toString()) as TerminalEvent));
+    await once(ws, "open");
+    return { ws, heard };
+  };
+
+  // All of this is written before the viewer can read any of it: 64 MB, then the end.
+  const behind = await view();
+  let code: number | undefined;
+  behind.ws.on("close", (closed: number) => {
+    code = closed;
+  });
+  for (let sent = 0; sent < 64; sent += 1)
+    hear({ type: "output", id: "s_1", stream: "stdout", text: "y\n".repeat(524_288) });
+  hear({ type: "exit", id: "s_1", exitCode: 0, at });
+  await until(() => code !== undefined, "the viewer being closed");
+  assert.equal(code, 1006);
+  assert.ok(!behind.heard.some((e) => e.type === "exit"));
+
+  const fresh = await view();
+  t.after(() => fresh.ws.close());
+  await until(() => fresh.heard.length === 8, "what a new viewer is first sent");
+  assert.deepEqual(fresh.heard[0], { type: "start", ...kept });
+  assert.equal(fresh.heard.map((e) => (e.type === "output" ? e.text : "")).join("").length, 65_536);
+});

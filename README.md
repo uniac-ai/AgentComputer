@@ -143,6 +143,7 @@ A computer at `--access terminal` has a surface you can open live, as a WebSocke
   - **A command isn't on a terminal device** (`tty` is false): it echoes nothing you type, Enter is a line feed, and it has no size. In it Ctrl-C (U+0003) interrupts and Ctrl-D (U+0004) ends its input. A shell is on one, and what the agent types into it goes in as keys. Its size is the last `resize` anyone sent, and nothing tells it.
   - **What can't be done is answered with `refused`,** with why in `message`, only to the socket that asked: input or a size for a terminal that has ended or isn't there, a size for a command or out of range, a shell past the 64 terminals that may run at once, or a message that is none of these. What was done is answered by its event. Stopping a terminal that has ended does nothing.
   - No message is over 65,536 bytes: a longer piece of output comes as several messages, and a larger message from you closes the socket, so send a long text as several inputs.
+  - **A socket with more than 4 MiB still to be sent to it is closed,** with no close frame (your side sees 1006). That is a viewer that has stopped reading, and it can be one that is reading while a terminal writes tens of megabytes at once. It isn't an error: open the surface again, drop what you held of every terminal, and take what you are sent, which is each terminal afresh with the last 65,536 characters it wrote.
 
 A computer at `--access read` or above has another, and at `read` it is the only one:
 

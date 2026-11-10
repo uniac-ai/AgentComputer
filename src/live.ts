@@ -23,6 +23,16 @@ export const PROTOCOLS: Record<Surface, string> = {
 
 /** No terminal@1 message is larger, either way. A larger one closes its socket. */
 const MAX_MESSAGE = 64 * 1024;
+/**
+ * A viewer with more than this still to be sent to it has fallen too far behind, and is closed.
+ * What it missed can't be left out as a frame can, so it opens again and is shown each terminal
+ * afresh. It is cut off and not told: a close frame would wait behind what it hasn't read.
+ */
+const MAX_BUFFERED = 4 * 1024 * 1024;
+const deliver = (ws: WebSocket, message: TerminalEvent) => {
+  if (ws.bufferedAmount > MAX_BUFFERED) ws.terminate();
+  else ws.send(JSON.stringify(message));
+};
 /** The most of its command and of its folder that a terminal's start carries. */
 const MAX_CMD = 8_000;
 const MAX_WORKDIR = 2_000;
@@ -61,8 +71,7 @@ export class Live {
     if (exec && access === "terminal") {
       this.#terminals = exec.terminals;
       exec.onCommand((event) => {
-        for (const message of messages(event))
-          for (const ws of this.#viewers) ws.send(JSON.stringify(message));
+        for (const message of messages(event)) for (const ws of this.#viewers) deliver(ws, message);
       });
     }
     this.#files = exec && new FilesLive(exec.files);
@@ -106,7 +115,7 @@ export class Live {
    * falls between them.
    */
   #view(ws: WebSocket, mode: LiveMode, terminals: AgentExec["terminals"]) {
-    const send = (message: TerminalEvent) => ws.send(JSON.stringify(message));
+    const send = (message: TerminalEvent) => deliver(ws, message);
     for (const { id, by, cmd, workdir, tty, at, output, exitCode, endedAt } of terminals.list()) {
       const events: CommandEvent[] = [{ type: "start", id, by, cmd, workdir, tty, at }];
       if (output) events.push({ type: "output", id, text: output });
