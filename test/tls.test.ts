@@ -15,7 +15,6 @@ import { promisify } from "node:util";
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = join(here, "..", "..", "dist", "agentcomputer.js");
 const CLIENT = join(here, "..", "..", "test", "fixtures", "tls-client.js");
-const STAND_IN = join(here, "..", "..", "test", "fixtures", "playwright.js");
 const SERVICE_IMAGE = process.env.AGENTCOMPUTER_TEST_SERVICE_IMAGE;
 const COMPUTER_IMAGE = process.env.AGENTCOMPUTER_TEST_IMAGE;
 const run = promisify(execFile);
@@ -56,14 +55,10 @@ async function certificate(root: string, ...names: string[]) {
 }
 
 async function serve(t: test.TestContext, data: string, ...args: string[]) {
-  const child: ChildProcess = spawn(
-    process.execPath,
-    [CLI, "serve", "--data", data, "--playwright-cli", STAND_IN, ...args],
-    {
-      env: { PATH: process.env.PATH ?? "", HOME: data, SHELL: "/bin/bash" },
-      stdio: ["ignore", "pipe", "inherit"],
-    },
-  );
+  const child: ChildProcess = spawn(process.execPath, [CLI, "serve", "--data", data, ...args], {
+    env: { PATH: process.env.PATH ?? "", HOME: data, SHELL: "/bin/bash" },
+    stdio: ["ignore", "pipe", "inherit"],
+  });
   t.after(async () => {
     child.removeAllListeners("exit");
     const gone = once(child, "exit");

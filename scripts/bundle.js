@@ -16,9 +16,10 @@ const bundle = (entry, outfile, banner = "") =>
     metafile: true,
     banner: { js: banner },
     legalComments: "none",
-    // node-pty is a native module installed beside the bundle when it can be; the other two are
-    // optional speed-ups of the WebSocket library.
-    external: ["node-pty", "bufferutil", "utf-8-validate"],
+    // node-pty is a native module installed beside the bundle when it can be, and playwright-core
+    // is installed beside it at the version @playwright/mcp brings; the other two are optional
+    // speed-ups of the WebSocket library.
+    external: ["node-pty", "playwright-core", "bufferutil", "utf-8-validate"],
   });
 const results = [
   // The WebSocket library is CommonJS, so the program gets a `require` of its own.

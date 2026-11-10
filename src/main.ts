@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { isMainThread } from "node:worker_threads";
+import { hostBrowser } from "./browser-host.ts";
 import { ContainerRuntime } from "./container.ts";
 import { VERSION } from "./handlers.ts";
 import { serveInside } from "./inside.ts";
@@ -81,7 +82,10 @@ async function main() {
       browser: { type: "boolean" },
       "browser-name": { type: "string" },
       "browser-path": { type: "string" },
-      "playwright-cli": { type: "string" },
+      profile: { type: "string" },
+      channel: { type: "string" },
+      executable: { type: "string" },
+      "no-sandbox": { type: "boolean" },
       access: { type: "string" },
       workspace: { type: "string" },
       name: { type: "string" },
@@ -118,12 +122,19 @@ async function main() {
         isolation === "container"
           ? new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`)
           : new ProcessRuntime({
-              cli: values["playwright-cli"],
               browser: values["browser-name"],
               path: values["browser-path"],
             }),
     });
   }
+  // Started by the service for each browser, not for a person to run.
+  if (command === "browser-host")
+    return hostBrowser({
+      profile: values.profile ?? "",
+      channel: values.channel,
+      executable: values.executable,
+      sandbox: values["no-sandbox"] ? false : undefined,
+    });
   // The image's command, not for a person to run.
   if (command === "inside")
     return serveInside({

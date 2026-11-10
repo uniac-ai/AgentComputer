@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Duplex } from "node:stream";
 import { type AgentExec, createAgentExec } from "@agentorg/exec";
 import { Browser, type BrowserConfig } from "./browser.ts";
+import { BrowserLive } from "./browser-live.ts";
 import type { components } from "./generated/schema.js";
 import { Live, type LiveMode, type Surface, type SurfaceInfo } from "./live.ts";
 import { privateFolder } from "./store.ts";
@@ -104,7 +105,12 @@ export class ProcessRuntime implements Runtime {
         throw error;
       }
     }
-    const live = new Live(exec, spec.workspace, spec.access === "terminal");
+    let browserLive: BrowserLive | undefined;
+    if (browser) {
+      browserLive = new BrowserLive(browser.endpoint);
+      browser.gate = browserLive;
+    }
+    const live = new Live(exec, spec.workspace, spec.access === "terminal", browserLive);
     return {
       browserTools: browser?.tools ?? [],
       surfaces: await live.surfaces(),

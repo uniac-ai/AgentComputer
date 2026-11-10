@@ -37,7 +37,7 @@ That prints the computer's `computerID`, its endpoints and its `accessToken`, on
 
 The file tools stay inside the workspace. That's a check, not a boundary. Below `terminal`, the browser's `browser_run_code_unsafe` tool is hidden and refused, because it would otherwise be a terminal. The service enforces all of this, whatever the client does.
 
-`--browser` drives the Google Chrome installed on the machine, in a profile of the computer's own. `serve --browser-name` and `--browser-path` choose another.
+`--browser` drives the Google Chrome installed on the machine, in a profile of the computer's own. `serve --browser-name` and `--browser-path` choose another. The browser has no debug port: a small host process starts it and shares it on a Unix socket in a folder only its user can enter, which the agent's tools and the live view both use.
 
 ## Commands
 
@@ -136,6 +136,10 @@ A computer at `--access terminal` has two surfaces you can open live, as a WebSo
 
 - **`commands`** (protocol `commands@1`): each of the agent's commands as it runs, read-only. Each message is one JSON event: `start` (with `cmd` and `workdir`), `output` (with `stream` and `text`) or `exit` (with `exitCode`). Each carries the command's `id`, which is the `session_id` the agent sees. Those already heard come first.
 - **`terminal`** (protocol `pty@1`): a shell of your own in its workspace, as its user, beside the agent's commands rather than in them. Every socket on it shares one shell, and a new one is sent what it wrote before. Each binary message is one byte of type, then its payload: `0` is output from the shell, or input to it; `1` is a resize, `{"columns":100,"rows":30}`. In `watch` mode what you send is dropped.
+
+A computer with `--browser` has a third:
+
+- **`browser`** (protocol `screencast@1`): its browser, on the same page the agent works on. Binary messages are JPEG frames of the page shown. Text messages are JSON: the service sends `tabs`, `viewport`, `dialog`, `file-chooser`, `choice` and `driver`, and an `operate` socket sends `mouse`, `key`, `text`, `dialog`, `files`, `choice`, `tab`, `navigate` and `release`. `openapi.yaml` has each one's fields. A page's own dialogs, file choosers and select lists aren't in the frames, so they arrive as events for you to show and answer. Operating it makes you the driver: the agent's browser calls wait up to 25 seconds while you are, then answer that a person has or had the browser. You stop being the driver when you send `release`, close the socket, or send nothing for 60 seconds.
 
 `POST /v1/computers/{computerID}/live` with `{ "surface": "terminal", "mode": "operate" }` gives a ticket: a `url` to open once within a minute, which needs no token. A request with an `Origin` header is refused unless `serve --allow-origin` names that origin, so a page can't open one. The SDK does the same with `computer.pty.connect({ onData })` and `computer.commands.watch(onEvent)`, and the CLI with `agentcomputer live <id> --surface terminal --mode operate`.
 

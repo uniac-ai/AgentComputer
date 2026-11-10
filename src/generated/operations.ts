@@ -664,9 +664,10 @@ export const OPENAPI = {
         "type": "string",
         "enum": [
           "commands",
-          "terminal"
+          "terminal",
+          "browser"
         ],
-        "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1."
+        "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Operating it makes you the driver: the agent's browser calls wait up to 25 seconds while you are, then answer that a person has or had it. You stop being the driver when you send release, close the socket, or send nothing for 60 seconds."
       },
       "LiveMode": {
         "type": "string",
@@ -751,6 +752,400 @@ export const OPENAPI = {
             "format": "date-time"
           }
         }
+      },
+      "ScreencastEvent": {
+        "description": "What the service sends on a screencast@1 socket, as JSON text.",
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "The open tabs, and which one the frames are of.",
+            "required": [
+              "type",
+              "tabs",
+              "shown"
+            ],
+            "properties": {
+              "type": {
+                "const": "tabs"
+              },
+              "tabs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "url",
+                    "title"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "shown": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The size of the page in the frames, in the coordinates input uses.",
+            "required": [
+              "type",
+              "width",
+              "height"
+            ],
+            "properties": {
+              "type": {
+                "const": "viewport"
+              },
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A dialog the page opened, which blocks it until it's answered, or that it closed.",
+            "required": [
+              "type",
+              "open"
+            ],
+            "properties": {
+              "type": {
+                "const": "dialog"
+              },
+              "open": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "alert",
+                  "confirm",
+                  "prompt",
+                  "beforeunload"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "defaultValue": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The page asked for files, or stopped asking.",
+            "required": [
+              "type",
+              "open"
+            ],
+            "properties": {
+              "type": {
+                "const": "file-chooser"
+              },
+              "open": {
+                "type": "boolean"
+              },
+              "multiple": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A list to choose from, after a press on one: a page's own list isn't in the frames.",
+            "required": [
+              "type",
+              "multiple",
+              "options"
+            ],
+            "properties": {
+              "type": {
+                "const": "choice"
+              },
+              "multiple": {
+                "type": "boolean"
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "value",
+                    "label",
+                    "selected"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "selected": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Who holds the browser, and whether the agent is waiting for it.",
+            "required": [
+              "type",
+              "you",
+              "held",
+              "agentWaiting"
+            ],
+            "properties": {
+              "type": {
+                "const": "driver"
+              },
+              "you": {
+                "type": "boolean"
+              },
+              "held": {
+                "type": "boolean"
+              },
+              "agentWaiting": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
+      },
+      "ScreencastInput": {
+        "description": "What an operate socket sends on screencast@1, as JSON text. A watch socket's is dropped.",
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "action",
+              "x",
+              "y"
+            ],
+            "properties": {
+              "type": {
+                "const": "mouse"
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "move",
+                  "down",
+                  "up",
+                  "wheel"
+                ]
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "button": {
+                "type": "string",
+                "enum": [
+                  "left",
+                  "right",
+                  "middle"
+                ]
+              },
+              "deltaX": {
+                "type": "number"
+              },
+              "deltaY": {
+                "type": "number"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "action",
+              "key"
+            ],
+            "properties": {
+              "type": {
+                "const": "key"
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "down",
+                  "up"
+                ]
+              },
+              "key": {
+                "type": "string",
+                "description": "A key name",
+                "as Playwright's keyboard takes it.": null
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "text"
+            ],
+            "properties": {
+              "type": {
+                "const": "text"
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "accept"
+            ],
+            "properties": {
+              "type": {
+                "const": "dialog"
+              },
+              "accept": {
+                "type": "boolean"
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The files for an open file chooser. None cancels it.",
+            "required": [
+              "type",
+              "files"
+            ],
+            "properties": {
+              "type": {
+                "const": "files"
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "data"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "string",
+                      "description": "Base64."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "values"
+            ],
+            "properties": {
+              "type": {
+                "const": "choice"
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "action"
+            ],
+            "properties": {
+              "type": {
+                "const": "tab"
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "show",
+                  "open",
+                  "close"
+                ]
+              },
+              "id": {
+                "type": "integer"
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "to"
+            ],
+            "properties": {
+              "type": {
+                "const": "navigate"
+              },
+              "to": {
+                "type": "string",
+                "description": "A URL",
+                "or back": null,
+                "forward or reload.": null
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "release"
+              }
+            }
+          }
+        ]
       },
       "ComputerLogs": {
         "type": "object",
@@ -1308,9 +1703,10 @@ export const OPERATIONS: Operation[] = [
                     "type": "string",
                     "enum": [
                       "commands",
-                      "terminal"
+                      "terminal",
+                      "browser"
                     ],
-                    "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1."
+                    "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Operating it makes you the driver: the agent's browser calls wait up to 25 seconds while you are, then answer that a person has or had it. You stop being the driver when you send release, close the socket, or send nothing for 60 seconds."
                   },
                   "protocol": {
                     "type": "string"
@@ -1847,9 +2243,10 @@ export const OPERATIONS: Operation[] = [
           "type": "string",
           "enum": [
             "commands",
-            "terminal"
+            "terminal",
+            "browser"
           ],
-          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1."
+          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Operating it makes you the driver: the agent's browser calls wait up to 25 seconds while you are, then answer that a person has or had it. You stop being the driver when you send release, close the socket, or send nothing for 60 seconds."
         },
         "mode": {
           "allOf": [
@@ -1892,9 +2289,10 @@ export const OPERATIONS: Operation[] = [
           "type": "string",
           "enum": [
             "commands",
-            "terminal"
+            "terminal",
+            "browser"
           ],
-          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1."
+          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Operating it makes you the driver: the agent's browser calls wait up to 25 seconds while you are, then answer that a person has or had it. You stop being the driver when you send release, close the socket, or send nothing for 60 seconds."
         },
         "mode": {
           "type": "string",
