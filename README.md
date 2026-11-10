@@ -72,6 +72,7 @@ The data folder is `--data`, else `$AGENTCOMPUTER_DATA`, else `$XDG_DATA_HOME/ag
 | `POST /v1/computers/{computerID}/stop`    | `computer_stop`        |
 | `POST /v1/computers/{computerID}/start`   | `computer_start`       |
 | `GET /v1/computers/{computerID}/logs`     | `computer_logs`        |
+| `POST /v1/computers/{computerID}/live`    | `computer_live`        |
 
 These take the control token, kept in the data folder. A computer's own endpoints take its `accessToken`, and neither token works for the other:
 
@@ -154,7 +155,7 @@ The terminal needs [node-pty](https://github.com/microsoft/node-pty), an optiona
 
 ## Tests
 
-`npm test` runs the built service through the official MCP client, with a stand-in for Playwright, and one scenario through HTTP, MCP, the SDK and the CLI that fails if any operation in the schema isn't reached by each. Set `AGENTCOMPUTER_TEST_IMAGE` to a built image (`npm run build`, then `docker build .`) to run the same suite on containers, and `AGENTCOMPUTER_TEST_SERVICE_IMAGE` to one from `Dockerfile.service` to run the service itself as a container, with `AGENTCOMPUTER_TEST_ROOT` naming a folder Docker can mount if the temporary one isn't. After changing `openapi.yaml`, `npm run generate` writes what comes from it; CI fails if that changes anything. Set `AGENTCOMPUTER_BROWSER_PATH` to a browser program to run the real one too.
+`npm test` runs the built service through the official MCP client, and one scenario through HTTP, MCP, the SDK and the CLI that fails if any operation in the schema isn't reached by each. Set `AGENTCOMPUTER_TEST_IMAGE` to a built image (`npm run build`, then `docker build .`) to run the same suite on containers, and `AGENTCOMPUTER_TEST_SERVICE_IMAGE` to one from `Dockerfile.service` to run the service itself as a container, with `AGENTCOMPUTER_TEST_ROOT` naming a folder Docker can mount if the temporary one isn't. After changing `openapi.yaml`, `npm run generate` writes what comes from it; CI fails if that changes anything. Some browser tests are skipped unless `AGENTCOMPUTER_BROWSER_PATH` names a browser program, such as Playwright's headless shell.
 
 ## Licence
 

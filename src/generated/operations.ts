@@ -324,7 +324,7 @@ export const OPENAPI = {
       "post": {
         "operationId": "createLiveSession",
         "x-mcp-tool": "computer_live",
-        "summary": "A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, or a shell of your own. Open its url as a WebSocket within 60 seconds.",
+        "summary": "A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, a shell of your own, or its browser. Open its url as a WebSocket within 60 seconds.",
         "requestBody": {
           "required": true,
           "content": {
@@ -2223,7 +2223,7 @@ export const OPERATIONS: Operation[] = [
     "method": "POST",
     "path": "/v1/computers/{computerID}/live",
     "tool": "computer_live",
-    "summary": "A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, or a shell of your own. Open its url as a WebSocket within 60 seconds.",
+    "summary": "A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, a shell of your own, or its browser. Open its url as a WebSocket within 60 seconds.",
     "status": 201,
     "hasBody": true,
     "pathParameters": [
