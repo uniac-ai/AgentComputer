@@ -187,7 +187,18 @@ export class ContainerRuntime implements Runtime {
     }
 
     return {
-      ...ready,
+      browserTools: ready.browserTools,
+      /** As they are now: nothing of a container that has stopped can be opened. */
+      get surfaces() {
+        return ready.surfaces.map((one) =>
+          ended
+            ? {
+                ...one,
+                unavailable: "Its container has stopped. Stop the computer and start it again.",
+              }
+            : one,
+        );
+      },
       stop,
       openLive: async (surface, mode, request, socket, head) =>
         pipeUpgrade(

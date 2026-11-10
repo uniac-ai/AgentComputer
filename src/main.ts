@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { isMainThread } from "node:worker_threads";
 import { hostBrowser } from "./browser-host.ts";
+import { serveBrowserMcp } from "./browser-mcp.ts";
 import { ContainerRuntime } from "./container.ts";
 import { VERSION } from "./handlers.ts";
 import { serveInside } from "./inside.ts";
@@ -86,6 +87,8 @@ async function main() {
       channel: { type: "string" },
       executable: { type: "string" },
       "no-sandbox": { type: "boolean" },
+      endpoint: { type: "string" },
+      output: { type: "string" },
       access: { type: "string" },
       workspace: { type: "string" },
       name: { type: "string" },
@@ -134,6 +137,12 @@ async function main() {
       channel: values.channel,
       executable: values.executable,
       sandbox: values["no-sandbox"] ? false : undefined,
+    });
+  // Started by the service beside each browser host, not for a person to run.
+  if (command === "browser-mcp")
+    return serveBrowserMcp({
+      endpoint: values.endpoint ?? "",
+      outputDir: values.output ?? "",
     });
   // The image's command, not for a person to run.
   if (command === "inside")

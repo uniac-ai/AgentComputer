@@ -177,5 +177,8 @@ test("isolation container: a container dying with a client connected", {
   await connect(computer.getMcpUrl("browser"), computer.getMcpToken());
   await docker("docker", ["kill", `agentcomputer-${computer.computerID}`]);
   await survived(other);
-  assert.equal((await computer.getInfo()).state, "failed");
+  const dead = await computer.getInfo();
+  assert.equal(dead.state, "failed");
+  assert.ok(dead.surfaces.length > 0);
+  for (const one of dead.surfaces) assert.match(one.unavailable ?? "", /container has stopped/);
 });

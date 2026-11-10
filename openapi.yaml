@@ -354,7 +354,7 @@ components:
         surface: { $ref: "#/components/schemas/Surface" }
         protocol: { type: string }
         operate: { type: boolean, description: Whether it can be operated, not only watched. }
-        unavailable: { type: string, description: Why it can't be opened here, if it can't. }
+        unavailable: { type: string, description: "Why it can't be opened now, if it can't." }
     NewLiveSession:
       type: object
       additionalProperties: false
@@ -401,7 +401,8 @@ components:
             width: { type: integer }
             height: { type: integer }
         - type: object
-          description: A dialog the page opened, which blocks it until it's answered, or that it closed.
+          description: >-
+            A dialog the page opened, which blocks it until it's answered, or that it closed.
           required: [type, open]
           properties:
             type: { const: dialog }
@@ -433,7 +434,8 @@ components:
                   label: { type: string }
                   selected: { type: boolean }
     ScreencastInput:
-      description: What an operate socket sends on screencast@1, as JSON text. A watch socket's is dropped.
+      description: >-
+        What an operate socket sends on screencast@1, as JSON text. A watch socket's is dropped.
       oneOf:
         - type: object
           required: [type, action, x, y]
@@ -539,10 +541,10 @@ components:
           description: >-
             The next part of a file, on an operate socket, followed by one binary message of
             exactly length bytes, with no message between them. The part at offset 0 starts the
-            file, or starts it again, and each one after starts where the last ended. Nothing is at the path until the part marked last, which puts the
-            file there whole, over any that was there, and is answered with written. Only that
-            part, and a part that is refused, is answered. It makes no folders. A file not finished
-            when the socket closes is given up.
+            file, or starts it again, and each one after starts where the last ended. Nothing is at
+            the path until the part marked last, which puts the file there whole, over any that was
+            there, and is answered with written. Only that part, and a part that is refused, is
+            answered. It makes no folders. A file not finished when the socket closes is given up.
           required: [type, id, path, offset, length, last]
           properties:
             type: { const: write }

@@ -699,8 +699,7 @@ export const OPENAPI = {
           },
           "unavailable": {
             "type": "string",
-            "description": "Why it can't be opened here",
-            "if it can't.": null
+            "description": "Why it can't be opened now, if it can't."
           }
         }
       },
@@ -1998,8 +1997,7 @@ export const OPERATIONS: Operation[] = [
                   },
                   "unavailable": {
                     "type": "string",
-                    "description": "Why it can't be opened here",
-                    "if it can't.": null
+                    "description": "Why it can't be opened now, if it can't."
                   }
                 }
               }
