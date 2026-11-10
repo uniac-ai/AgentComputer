@@ -23,7 +23,7 @@ jobs:
       - name: Install
         run: npm ci
       - name: Install the headless browser
-        run: npx playwright install --with-deps --only-shell chromium
+        run: npx playwright-core install --with-deps --only-shell chromium
       - name: Lint
         run: npm run check
       - name: Generated code matches the schema
@@ -54,7 +54,7 @@ jobs:
       - name: Install
         run: npm ci
       - name: Install the headless browser
-        run: npx playwright install --only-shell chromium
+        run: npx playwright-core install --only-shell chromium
       - name: Build and test the browser
         run: |
           export AGENTCOMPUTER_BROWSER_PATH="$(ls -d ~/Library/Caches/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell)"
