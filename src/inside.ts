@@ -59,7 +59,7 @@ export async function serveInside(options: { access: Access; browser: boolean })
     socket.on("error", () => socket.destroy());
     const given = /^Bearer (\S+)$/.exec(request.headers.authorization ?? "")?.[1];
     const url = new URL(request.url ?? "/", "http://localhost");
-    const surface = /^\/live\/(commands|terminal|browser)$/.exec(url.pathname)?.[1];
+    const surface = /^\/live\/(commands|terminal|files|browser)$/.exec(url.pathname)?.[1];
     const mode = url.searchParams.get("mode");
     if (!given || !sameToken(given, digest) || !surface || (mode !== "watch" && mode !== "operate"))
       return void socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");

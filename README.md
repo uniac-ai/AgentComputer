@@ -139,7 +139,17 @@ A computer at `--access terminal` has two surfaces you can open live, as a WebSo
 - **`commands`** (protocol `commands@1`): each of the agent's commands as it runs, read-only. Each message is one JSON event: `start` (with `cmd` and `workdir`), `output` (with `stream` and `text`) or `exit` (with `exitCode`). Each carries the command's `id`, which is the `session_id` the agent sees. Those already heard come first.
 - **`terminal`** (protocol `pty@1`): a shell of your own in its workspace, as its user, beside the agent's commands rather than in them. Every socket on it shares one shell, and a new one is sent what it wrote before. Each binary message is one byte of type, then its payload: `0` is output from the shell, or input to it; `1` is a resize, `{"columns":100,"rows":30}`. In `watch` mode what you send is dropped.
 
-A computer with `--browser` has a third:
+A computer at `--access read` or above has one more, and at `read` it is the only one:
+
+- **`files`** (protocol `files@1`): its workspace's files, for a file window. Text messages are JSON, and each request has an `id` of your choosing, which its answer repeats. `openapi.yaml` has each one's fields.
+  - **`list`** is answered with `entries`: a folder's entries with their kind, size and date, folders first, the first thousand.
+  - **`read`** is answered with `data` and then one binary message, a range of a file's bytes. A file larger than one range is read by asking again from where the last ended.
+  - **`changed`** is answered with `changes`: the files modified after a time, the newest thousand, the newest first. It skips what `.gitignore` files ignore, `.git`, `node_modules` and links, and a file that was removed isn't one of them. Each one asked walks the workspace once, a computer walks for one at a time, and nothing is walked that wasn't asked for.
+  - **`write`**, on an `operate` socket, puts a file there a part at a time, each followed at once by one binary message, its bytes. Nothing is at the path until the part marked `last`, which puts the file there whole and is answered with `written`; the parts before it are answered only if one is refused. It makes no folders, and nothing removes or renames a file. A file not finished when the socket closes is given up.
+  - **`refused`**, with why, answers whatever it won't do. Answers come as they are ready, in any order.
+  - No message is over 1,048,576 bytes: a larger one closes the socket, as do bytes that follow no `write`. Paths are from the workspace, with `/` between their parts, and nothing outside it is reached. A `watch` socket lists and reads and can't write, and a computer at `--access read` offers `files` to watch only.
+
+A computer with `--browser` has another:
 
 - **`browser`** (protocol `screencast@1`): its browser, the one the agent works in. Binary messages are JPEG frames of the page shown. Text messages are JSON: the service sends `tabs`, `viewport`, `dialog`, `file-chooser` and `choice`, and an `operate` socket sends `mouse`, `key`, `text`, `dialog`, `files`, `choice`, `tab` and `navigate`. `openapi.yaml` has each one's fields. A page's own dialogs, file choosers and select lists aren't in the frames, so they arrive as events for you to show and answer.
   - **Nobody waits for anybody.** The agent's tools and your input act on the same browser at once. Nothing holds the agent off while you type, and nothing tells it you touched a page. On a page you both use, your input and its actions interleave, so open a tab to work apart from it.
@@ -148,7 +158,7 @@ A computer with `--browser` has a third:
   - **A dialog, a file chooser and a list belong to a page.** A dialog is told to the sockets shown its page until someone answers it, you or the agent. Nothing says when the agent answers a file chooser, so when it answers one every open chooser is taken as closed: press again if yours was.
   - **A client written for the earlier `screencast@1` still connects.** Its `release` is ignored and no `driver` event comes: nobody holds the browser any more.
 
-`POST /v1/computers/{computerID}/live` with `{ "surface": "terminal", "mode": "operate" }` gives a ticket: a `url` to open once within a minute, which needs no token. A request with an `Origin` header is refused unless `serve --allow-origin` names that origin, so a page can't open one. The SDK does the same with `computer.pty.connect({ onData })` and `computer.commands.watch(onEvent)`, or gives the ticket alone with `computer.liveSession("browser", "operate")`, and the CLI with `agentcomputer live <id> --surface terminal --mode operate`.
+`POST /v1/computers/{computerID}/live` with `{ "surface": "terminal", "mode": "operate" }` gives a ticket: a `url` to open once within a minute, which needs no token. A request with an `Origin` header is refused unless `serve --allow-origin` names that origin, so a page can't open one. The SDK does the same with `computer.pty.connect({ onData })` and `computer.commands.watch(onEvent)`, or gives the ticket alone with `computer.liveSession("files")` or `computer.liveSession("browser", "operate")`, and the CLI with `agentcomputer live <id> --surface terminal --mode operate`.
 
 The terminal needs [node-pty](https://github.com/microsoft/node-pty), an optional dependency installed beside the program. It comes prebuilt for macOS. On Linux it's compiled at install, which npm only does when told: `npm install -g @agentorg/computer --allow-scripts=node-pty`, with a C++ toolchain. Without it, the computer's `surfaces` say why the terminal isn't there. The computer image has it.
 
@@ -158,6 +168,7 @@ The terminal needs [node-pty](https://github.com/microsoft/node-pty), an optiona
 - A container has no CPU or memory limit, and its network is Docker's default, so it reaches the internet and anything else Docker's network does.
 - In a container the browser runs without its own sandbox, which needs privileges a computer doesn't have. The container is the boundary.
 - A browser that stops, or a container that ends by itself, shows the computer as `failed`. Stop it and start it again.
+- A file being written through the `files` surface sits beside its path as `.agentexec-…` until its last part, where a listing, and the agent, can see it. It stays if the service dies meanwhile.
 
 ## Tests
 

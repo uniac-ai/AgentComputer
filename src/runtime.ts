@@ -110,7 +110,7 @@ export class ProcessRuntime implements Runtime {
       browserLive = new BrowserLive(browser.endpoint);
       browser.gate = browserLive;
     }
-    const live = new Live(exec, spec.workspace, spec.access === "terminal", browserLive);
+    const live = new Live(exec, spec.workspace, spec.access, browserLive);
     return {
       browserTools: browser?.tools ?? [],
       surfaces: await live.surfaces(),
