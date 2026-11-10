@@ -667,7 +667,7 @@ export const OPENAPI = {
           "terminal",
           "browser"
         ],
-        "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Operating it makes you the driver: the agent's browser calls wait up to 25 seconds while you are, then answer that a person has or had it. You stop being the driver when you send release, close the socket, or send nothing for 60 seconds."
+        "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Opening it to operate makes you the driver: the agent's browser calls wait up to 25 seconds while you are, then answer that a person has or had it. You stop being the driver when you send release, close the socket, or send nothing for 60 seconds, and sending input takes it again."
       },
       "LiveMode": {
         "type": "string",
@@ -758,7 +758,7 @@ export const OPENAPI = {
         "oneOf": [
           {
             "type": "object",
-            "description": "The open tabs, and which one the frames are of.",
+            "description": "The open tabs, and which one the frames are of, sent again whenever a tab opens, closes, navigates or changes its title.",
             "required": [
               "type",
               "tabs",
@@ -1706,7 +1706,7 @@ export const OPERATIONS: Operation[] = [
                       "terminal",
                       "browser"
                     ],
-                    "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Operating it makes you the driver: the agent's browser calls wait up to 25 seconds while you are, then answer that a person has or had it. You stop being the driver when you send release, close the socket, or send nothing for 60 seconds."
+                    "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Opening it to operate makes you the driver: the agent's browser calls wait up to 25 seconds while you are, then answer that a person has or had it. You stop being the driver when you send release, close the socket, or send nothing for 60 seconds, and sending input takes it again."
                   },
                   "protocol": {
                     "type": "string"
@@ -2246,7 +2246,7 @@ export const OPERATIONS: Operation[] = [
             "terminal",
             "browser"
           ],
-          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Operating it makes you the driver: the agent's browser calls wait up to 25 seconds while you are, then answer that a person has or had it. You stop being the driver when you send release, close the socket, or send nothing for 60 seconds."
+          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Opening it to operate makes you the driver: the agent's browser calls wait up to 25 seconds while you are, then answer that a person has or had it. You stop being the driver when you send release, close the socket, or send nothing for 60 seconds, and sending input takes it again."
         },
         "mode": {
           "allOf": [
@@ -2292,7 +2292,7 @@ export const OPERATIONS: Operation[] = [
             "terminal",
             "browser"
           ],
-          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Operating it makes you the driver: the agent's browser calls wait up to 25 seconds while you are, then answer that a person has or had it. You stop being the driver when you send release, close the socket, or send nothing for 60 seconds."
+          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Opening it to operate makes you the driver: the agent's browser calls wait up to 25 seconds while you are, then answer that a person has or had it. You stop being the driver when you send release, close the socket, or send nothing for 60 seconds, and sending input takes it again."
         },
         "mode": {
           "type": "string",

@@ -23,6 +23,8 @@ type Mode = Schemas["LiveMode"];
 /** How long an agent's call waits for a person to let go, then how long until they're let go. */
 const WAIT_MS = 25_000;
 const IDLE_MS = 60_000;
+/** How often the tabs' titles are read while anyone watches. */
+const TITLE_CHECK_MS = 1_000;
 /** One input step can't hold up the rest for longer, as a dialog would. */
 const STEP_MS = 2_000;
 /** A socket further behind than this misses frames until it catches up. */
@@ -59,6 +61,10 @@ export class BrowserLive implements BrowserGate {
   #lastInput = 0;
   #agentWaiting = 0;
   #answeredChooser = false;
+  /** The tabs last sent, to send them again only when something about them changed. */
+  #lastTabs = "";
+  #titles: NodeJS.Timeout | undefined;
+  #checking = false;
   #steps: Promise<unknown> = Promise.resolve();
 
   constructor(endpoint: Promise<string>) {
@@ -100,6 +106,11 @@ export class BrowserLive implements BrowserGate {
 
   open(ws: WebSocket, mode: Mode) {
     this.#sockets.set(ws, mode);
+    // Opening it to operate is taking the browser: the agent's calls wait from now.
+    if (mode === "operate") {
+      this.#driver = ws;
+      this.#lastInput = Date.now();
+    }
     ws.on("close", () => this.#left(ws));
     ws.on("message", (data: Buffer, binary: boolean) => {
       if (binary || this.#sockets.get(ws) !== "operate") return;
@@ -155,6 +166,8 @@ export class BrowserLive implements BrowserGate {
         void this.#show(page);
       });
       await this.#show(context.pages().at(-1) ?? (await context.newPage()));
+      // A page can change its title without navigating, and nothing says so but asking.
+      this.#titles = setInterval(() => void this.#checkTabs(), TITLE_CHECK_MS);
       return viewer;
     })();
     await this.#viewer;
@@ -163,6 +176,9 @@ export class BrowserLive implements BrowserGate {
   async #end() {
     const viewer = this.#viewer;
     this.#viewer = undefined;
+    clearInterval(this.#titles);
+    this.#titles = undefined;
+    this.#lastTabs = "";
     await this.#stopCast?.();
     this.#stopCast = undefined;
     this.#shown = undefined;
@@ -241,7 +257,7 @@ export class BrowserLive implements BrowserGate {
     await this.#tabs();
   }
 
-  async #tabs(only?: WebSocket) {
+  async #tabList(): Promise<ServerMessage> {
     const tabs = await Promise.all(
       [...this.#ids].map(async ([page, id]) => ({
         id,
@@ -249,13 +265,29 @@ export class BrowserLive implements BrowserGate {
         title: (await within(page.title(), STEP_MS).catch(() => undefined)) ?? "",
       })),
     );
-    const message: ServerMessage = {
-      type: "tabs",
-      tabs,
-      shown: (this.#shown && this.#ids.get(this.#shown)) ?? null,
-    };
+    return { type: "tabs", tabs, shown: (this.#shown && this.#ids.get(this.#shown)) ?? null };
+  }
+
+  async #tabs(only?: WebSocket) {
+    const message = await this.#tabList();
+    this.#lastTabs = JSON.stringify(message);
     if (only) this.#send(only, message);
     else this.#broadcast(message);
+  }
+
+  /** Send the tabs again if anything about them changed, such as a title. */
+  async #checkTabs() {
+    if (this.#checking) return;
+    this.#checking = true;
+    try {
+      const message = await this.#tabList();
+      const text = JSON.stringify(message);
+      if (text === this.#lastTabs) return;
+      this.#lastTabs = text;
+      this.#broadcast(message);
+    } finally {
+      this.#checking = false;
+    }
   }
 
   /** Each step in order, none waiting on another for long: a dialog blocks the page's input. */
