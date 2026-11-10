@@ -33,6 +33,8 @@ jobs:
       - name: Build and test
         run: |
           export AGENTCOMPUTER_BROWSER_PATH="$(ls -d ~/.cache/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell)"
+          # Without it the browser tests would be skipped, not run.
+          test -x "$AGENTCOMPUTER_BROWSER_PATH"
           npm run build
           docker build -t agentcomputer-computer:test .
           docker build -f Dockerfile.service -t agentcomputer-service:test .
@@ -56,5 +58,7 @@ jobs:
       - name: Build and test the browser
         run: |
           export AGENTCOMPUTER_BROWSER_PATH="$(ls -d ~/Library/Caches/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell)"
+          # Without it the browser tests would be skipped, not run.
+          test -x "$AGENTCOMPUTER_BROWSER_PATH"
           npm run build
           node --test --test-timeout=180000 out/test/browser-host.test.js out/test/browser-live.test.js

@@ -164,7 +164,7 @@ for (const [isolation, given] of ISOLATIONS) {
 }
 
 test("isolation container: a container dying with a client connected", {
-  skip: !IMAGE,
+  skip: !IMAGE && "needs AGENTCOMPUTER_TEST_IMAGE",
   timeout: 120_000,
 }, async (t) => {
   const { Computer, to, workspace, connect, survived } = await setup(t, [
