@@ -26,7 +26,9 @@ const MAX_MESSAGE = 64 * 1024;
 /**
  * A viewer with more than this still to be sent to it has fallen too far behind, and is closed.
  * What it missed can't be left out as a frame can, so it opens again and is shown each terminal
- * afresh. It is cut off and not told: a close frame would wait behind what it hasn't read.
+ * afresh. It is cut off and not told: a close frame would wait behind what it hasn't read. What a
+ * new viewer is first sent isn't held to this: it is every terminal's start, output and exit,
+ * which can be more. The next event is.
  */
 const MAX_BUFFERED = 4 * 1024 * 1024;
 const deliver = (ws: WebSocket, message: TerminalEvent) => {
@@ -115,19 +117,20 @@ export class Live {
    * falls between them.
    */
   #view(ws: WebSocket, mode: LiveMode, terminals: AgentExec["terminals"]) {
-    const send = (message: TerminalEvent) => deliver(ws, message);
     for (const { id, by, cmd, workdir, tty, at, output, exitCode, endedAt } of terminals.list()) {
       const events: CommandEvent[] = [{ type: "start", id, by, cmd, workdir, tty, at }];
       if (output) events.push({ type: "output", id, text: output });
       if (exitCode !== undefined && endedAt)
         events.push({ type: "exit", id, exitCode, at: endedAt });
-      for (const event of events) for (const message of messages(event)) send(message);
+      // Not through deliver: this is sent whole, however much it is.
+      for (const event of events)
+        for (const message of messages(event)) ws.send(JSON.stringify(message));
     }
     this.#viewers.add(ws);
     ws.on("close", () => this.#viewers.delete(ws));
     if (mode !== "operate") return;
     // What can't be done is answered to the socket that asked, with why.
-    const refuse = (why: unknown) => send({ type: "refused", message: reason(why) });
+    const refuse = (why: unknown) => deliver(ws, { type: "refused", message: reason(why) });
     ws.on("message", (data: Buffer) => {
       try {
         // The terminals take their types as given, and check a size themselves: the rest is
