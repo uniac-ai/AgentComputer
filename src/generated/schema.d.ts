@@ -146,7 +146,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, a shell of your own, or its browser. Open its url as a WebSocket within 60 seconds. */
+        /** A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, a shell of your own, its files, or its browser. Open its url as a WebSocket within 60 seconds. */
         post: operations["createLiveSession"];
         delete?: never;
         options?: never;
@@ -248,10 +248,10 @@ export interface components {
             };
         };
         /**
-         * @description commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes.
+         * @description commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes.
          * @enum {string}
          */
-        Surface: "commands" | "terminal" | "browser";
+        Surface: "commands" | "terminal" | "files" | "browser";
         /**
          * @description In watch, what you send is dropped.
          * @enum {string}
@@ -370,6 +370,88 @@ export interface components {
             type: "navigate";
             /** @description A URL */
             to: string;
+        };
+        /** @description What a socket sends on files@1, as JSON text. Each has an id of its own choosing, which the answer repeats. Paths are from the workspace, and nothing outside it is reached. */
+        FilesRequest: {
+            /** @constant */
+            type: "list";
+            id: string;
+            /** @description The workspace itself */
+            path?: string;
+        } | {
+            /** @constant */
+            type: "read";
+            id: string;
+            path: string;
+            offset: number;
+            length: number;
+        } | {
+            /** @constant */
+            type: "changed";
+            id: string;
+            /** Format: date-time */
+            since: string;
+        } | {
+            /** @constant */
+            type: "write";
+            id: string;
+            path: string;
+            offset: number;
+            length: number;
+            last: boolean;
+        };
+        /** @description What the service sends on files@1, as JSON text, each with the id it answers. */
+        FilesAnswer: {
+            /** @constant */
+            type: "entries";
+            id: string;
+            path: string;
+            entries: {
+                name: string;
+                /** @enum {string} */
+                kind: "file" | "folder" | "link";
+                size: number;
+                /** Format: date-time */
+                modifiedAt: string;
+            }[];
+            /** @description Whether the folder has more than these. */
+            more: boolean;
+        } | {
+            /** @constant */
+            type: "data";
+            id: string;
+            path: string;
+            offset: number;
+            /** @description How many bytes follow. */
+            length: number;
+            size: number;
+            /** Format: date-time */
+            modifiedAt: string;
+        } | {
+            /** @constant */
+            type: "changes";
+            id: string;
+            /** Format: date-time */
+            since: string;
+            changes: {
+                path: string;
+                size: number;
+                /** Format: date-time */
+                modifiedAt: string;
+            }[];
+            /** @description Whether more than these changed. */
+            more: boolean;
+        } | {
+            /** @constant */
+            type: "written";
+            id: string;
+            path: string;
+            size: number;
+        } | {
+            /** @constant */
+            type: "refused";
+            id: string;
+            message: string;
         };
         ComputerLogs: {
             logs: {

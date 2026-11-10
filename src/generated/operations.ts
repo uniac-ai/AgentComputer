@@ -324,7 +324,7 @@ export const OPENAPI = {
       "post": {
         "operationId": "createLiveSession",
         "x-mcp-tool": "computer_live",
-        "summary": "A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, a shell of your own, or its browser. Open its url as a WebSocket within 60 seconds.",
+        "summary": "A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, a shell of your own, its files, or its browser. Open its url as a WebSocket within 60 seconds.",
         "requestBody": {
           "required": true,
           "content": {
@@ -665,9 +665,10 @@ export const OPENAPI = {
         "enum": [
           "commands",
           "terminal",
+          "files",
           "browser"
         ],
-        "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
+        "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
       },
       "LiveMode": {
         "type": "string",
@@ -1108,6 +1109,321 @@ export const OPENAPI = {
                 "description": "A URL",
                 "or back": null,
                 "forward or reload.": null
+              }
+            }
+          }
+        ]
+      },
+      "FilesRequest": {
+        "description": "What a socket sends on files@1, as JSON text. Each has an id of its own choosing, which the answer repeats. Paths are from the workspace, and nothing outside it is reached.",
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "A folder's entries, folders first, the first thousand.",
+            "required": [
+              "type",
+              "id"
+            ],
+            "properties": {
+              "type": {
+                "const": "list"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "path": {
+                "type": "string",
+                "description": "The workspace itself",
+                "if left out.": null
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Bytes of a file from an offset. The answer is a data message and then one binary message, the bytes: fewer than asked for at the file's end, and none past it.",
+            "required": [
+              "type",
+              "id",
+              "path",
+              "offset",
+              "length"
+            ],
+            "properties": {
+              "type": {
+                "const": "read"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "path": {
+                "type": "string"
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1048576
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The files modified after a time, in whole milliseconds: the newest thousand, the newest first. It skips what .gitignore files ignore, .git, node_modules and links, and a file that was removed isn't one of them. Each one asked walks the workspace once, and a computer walks for one at a time. Nothing is walked that wasn't asked for.",
+            "required": [
+              "type",
+              "id",
+              "since"
+            ],
+            "properties": {
+              "type": {
+                "const": "changed"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "since": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The next part of a file, on an operate socket, followed by one binary message of exactly length bytes. The part at offset 0 starts the file, and each one after starts where the last ended. Nothing is at the path until the part marked last, which puts the file there whole, over any that was there, and is answered with written. Only that part, and a part that is refused, is answered. It makes no folders. A file not finished when the socket closes is given up.",
+            "required": [
+              "type",
+              "id",
+              "path",
+              "offset",
+              "length",
+              "last"
+            ],
+            "properties": {
+              "type": {
+                "const": "write"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "path": {
+                "type": "string"
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1048576
+              },
+              "last": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
+      },
+      "FilesAnswer": {
+        "description": "What the service sends on files@1, as JSON text, each with the id it answers.",
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "id",
+              "path",
+              "entries",
+              "more"
+            ],
+            "properties": {
+              "type": {
+                "const": "entries"
+              },
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "description": "A link is not followed, and its size and date are its own.",
+                  "required": [
+                    "name",
+                    "kind",
+                    "size",
+                    "modifiedAt"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "file",
+                        "folder",
+                        "link"
+                      ]
+                    },
+                    "size": {
+                      "type": "integer"
+                    },
+                    "modifiedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              },
+              "more": {
+                "type": "boolean",
+                "description": "Whether the folder has more than these."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "What the binary message after it is, and the file's whole size and date.",
+            "required": [
+              "type",
+              "id",
+              "path",
+              "offset",
+              "length",
+              "size",
+              "modifiedAt"
+            ],
+            "properties": {
+              "type": {
+                "const": "data"
+              },
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "offset": {
+                "type": "integer"
+              },
+              "length": {
+                "type": "integer",
+                "description": "How many bytes follow."
+              },
+              "size": {
+                "type": "integer"
+              },
+              "modifiedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "id",
+              "since",
+              "changes",
+              "more"
+            ],
+            "properties": {
+              "type": {
+                "const": "changes"
+              },
+              "id": {
+                "type": "string"
+              },
+              "since": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "path",
+                    "size",
+                    "modifiedAt"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "integer"
+                    },
+                    "modifiedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              },
+              "more": {
+                "type": "boolean",
+                "description": "Whether more than these changed."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The file is in place.",
+            "required": [
+              "type",
+              "id",
+              "path",
+              "size"
+            ],
+            "properties": {
+              "type": {
+                "const": "written"
+              },
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "It wasn't done, and why. The id is empty when what was sent had none to repeat.",
+            "required": [
+              "type",
+              "id",
+              "message"
+            ],
+            "properties": {
+              "type": {
+                "const": "refused"
+              },
+              "id": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
               }
             }
           }
@@ -1670,9 +1986,10 @@ export const OPERATIONS: Operation[] = [
                     "enum": [
                       "commands",
                       "terminal",
+                      "files",
                       "browser"
                     ],
-                    "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
+                    "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
                   },
                   "protocol": {
                     "type": "string"
@@ -2189,7 +2506,7 @@ export const OPERATIONS: Operation[] = [
     "method": "POST",
     "path": "/v1/computers/{computerID}/live",
     "tool": "computer_live",
-    "summary": "A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, a shell of your own, or its browser. Open its url as a WebSocket within 60 seconds.",
+    "summary": "A one-time ticket to watch or operate one of its surfaces live: the agent's commands as they run, a shell of your own, its files, or its browser. Open its url as a WebSocket within 60 seconds.",
     "status": 201,
     "hasBody": true,
     "pathParameters": [
@@ -2210,9 +2527,10 @@ export const OPERATIONS: Operation[] = [
           "enum": [
             "commands",
             "terminal",
+            "files",
             "browser"
           ],
-          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
+          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
         },
         "mode": {
           "allOf": [
@@ -2256,9 +2574,10 @@ export const OPERATIONS: Operation[] = [
           "enum": [
             "commands",
             "terminal",
+            "files",
             "browser"
           ],
-          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
+          "description": "commands: the agent's commands as they run, read-only, in commands@1. terminal: a shell of your own in its workspace, as its user, in pty@1. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes."
         },
         "mode": {
           "type": "string",

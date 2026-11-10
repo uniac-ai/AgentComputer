@@ -107,6 +107,7 @@ for (const [isolation, extra] of ISOLATIONS) {
         [
           ["commands", false, null],
           ["terminal", true, null],
+          ["files", true, null],
         ],
       );
 
@@ -126,7 +127,10 @@ for (const [isolation, extra] of ISOLATIONS) {
       assert.equal((await fetch(`${url}/v1/live/anything`)).status, 426);
 
       const reader = await Computer.create({ ...to, access: "files", workspace });
-      assert.deepEqual((await reader.getInfo()).surfaces, []);
+      assert.deepEqual(
+        (await reader.getInfo()).surfaces.map((one) => one.surface),
+        ["files"],
+      );
       await assert.rejects(reader.liveSession("terminal"), /no terminal to open/);
     },
   );

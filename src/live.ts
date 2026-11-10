@@ -1,6 +1,6 @@
 // A computer's live surfaces, where its processes run: the agent's commands as they happen, a shell
-// of the person's own, and its browser, which browser-live.ts holds. Each is a WebSocket in a small
-// protocol of its own.
+// of the person's own, its files, which files-live.ts holds, and its browser, which browser-live.ts
+// holds. Each is a WebSocket in a small protocol of its own.
 
 import { chmodSync, existsSync, statSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
@@ -11,6 +11,7 @@ import type { AgentExec, CommandEvent } from "@agentorg/exec";
 import type { IPty } from "node-pty";
 import { type WebSocket, WebSocketServer } from "ws";
 import type { BrowserLive } from "./browser-live.ts";
+import { FilesLive, MAX_PART } from "./files-live.ts";
 import type { components } from "./generated/schema.js";
 
 type Schemas = components["schemas"];
@@ -20,6 +21,7 @@ export type SurfaceInfo = Schemas["SurfaceInfo"];
 export const PROTOCOLS: Record<Surface, string> = {
   commands: "commands@1",
   terminal: "pty@1",
+  files: "files@1",
   browser: "screencast@1",
 };
 
@@ -32,6 +34,8 @@ const INPUT = 0x30;
 const RESIZE = 0x31;
 
 const sockets = new WebSocketServer({ noServer: true });
+/** A files@1 message is a part of a file at most, or a little JSON. */
+const fileSockets = new WebSocketServer({ noServer: true, maxPayload: MAX_PART + 64 * 1024 });
 
 /** node-pty, or why the terminal can't be offered here. */
 let pty: Promise<typeof import("node-pty") | string> | undefined;
@@ -70,15 +74,20 @@ export class Live {
   #scrollback = "";
 
   readonly #browser: BrowserLive | undefined;
+  readonly #files: FilesLive | undefined;
+  /** Whether a person may write files here: not where the agent can only read them. */
+  readonly #writes: boolean;
 
   constructor(
     exec: AgentExec | undefined,
     workspace: string | undefined,
-    terminal: boolean,
+    access: Schemas["Access"],
     browser?: BrowserLive,
   ) {
     this.#workspace = workspace;
-    this.#terminal = terminal && exec !== undefined;
+    this.#terminal = access === "terminal" && exec !== undefined;
+    this.#files = exec && new FilesLive(exec.files);
+    this.#writes = access !== "read";
     this.#browser = browser;
     exec?.onCommand((event) => this.#heard(event));
   }
@@ -97,6 +106,8 @@ export class Live {
         },
       );
     }
+    if (this.#files)
+      surfaces.push({ surface: "files", protocol: PROTOCOLS.files, operate: this.#writes });
     if (this.#browser)
       surfaces.push({ surface: "browser", protocol: PROTOCOLS.browser, operate: true });
     return surfaces;
@@ -105,9 +116,11 @@ export class Live {
   /** Take an upgraded request as a socket on one surface. */
   open(surface: Surface, mode: LiveMode, request: IncomingMessage, socket: Duplex, head: Buffer) {
     socket.on("error", () => socket.destroy());
-    sockets.handleUpgrade(request, socket, head, (ws) => {
+    const server = surface === "files" ? fileSockets : sockets;
+    server.handleUpgrade(request, socket, head, (ws) => {
       ws.on("error", () => ws.terminate());
       if (surface === "commands") this.#watch(ws);
+      else if (surface === "files" && this.#files) this.#files.open(ws, mode);
       else if (surface === "browser" && this.#browser) this.#browser.open(ws, mode);
       else if (surface === "terminal") this.#attach(ws, mode).catch(() => ws.terminate());
       else ws.close(1011, `There's no ${surface} here.`);
