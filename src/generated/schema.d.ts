@@ -487,8 +487,8 @@ export interface components {
             /** @constant */
             type: "entries";
             id: string;
-            /** @description What the workspace is called: its folder's own name, and nothing of where it is. Every entries answer has it, whichever folder was asked for, so that with path it names the folder. It is `workspace` for one the service made, and empty for one at the top of a disk. A computer in a container made before this was added sends none. */
-            workspace: string;
+            /** @description What the workspace is called: its folder's own name, and nothing of where it is. It comes with every entries answer, whichever folder was asked for, so that with path it names the folder. A computer in a container made before `workspace` was added sends none, and there path alone names the folder. It is `workspace` for a workspace the service made, and empty for one at the top of a disk. */
+            workspace?: string;
             /** @description The folder as it was asked for: `.` for the workspace itself. */
             path: string;
             entries: {
