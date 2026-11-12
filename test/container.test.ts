@@ -20,6 +20,7 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { z } from "zod";
 
 type Sdk = typeof import("../src/sdk.ts");
 const here = dirname(fileURLToPath(import.meta.url));
@@ -115,6 +116,7 @@ async function setup(t: test.TestContext) {
 const docker = async (...args: string[]) => (await run("docker", args)).stdout.trim();
 const running = async (id: string) =>
   (await docker("inspect", "--format", "{{.State.Running}}", `agentcomputer-${id}`)) === "true";
+const Stopped = z.object({ stopped: z.number() });
 const textOf = (result: unknown) =>
   (result as { content: { text?: string }[] }).content.map((block) => block.text ?? "").join("");
 
@@ -122,7 +124,7 @@ test(
   "a command has its own container, and of this machine's files only the workspace",
   options,
   async (t) => {
-    const { Computer, to, root, workspace } = await setup(t);
+    const { Computer, to, root, workspace, mcp } = await setup(t);
     writeFileSync(join(root, "secret.txt"), "not for it");
     writeFileSync(join(workspace, "here.txt"), "for it");
     const computer = await Computer.create({ ...to(), access: "terminal", workspace });
@@ -142,6 +144,20 @@ test(
 
     await sh("echo made > made.txt");
     assert.equal(readFileSync(join(workspace, "made.txt"), "utf8"), "made\n");
+
+    // What calls its tools ends a group of its commands together, in the container as outside.
+    // The stop answers once they have ended, so their exit codes are there to read.
+    const tools = await mcp(computer.getMcpUrl(), computer.getMcpToken());
+    const sleep100 = { name: "exec_command", arguments: { cmd: "sleep 100", yield_time_ms: 250 } };
+    await tools.callTool({ ...sleep100, _meta: { "agentexec/group": "a" } });
+    await tools.callTool({ ...sleep100, arguments: { ...sleep100.arguments, cmd: "sleep 101" } });
+    assert.deepEqual(
+      await tools.request({ method: "agentexec/group/stop", params: { group: "a" } }, Stopped),
+      { stopped: 1 },
+    );
+    const sessions = textOf(await tools.callTool({ name: "list_sessions", arguments: {} }));
+    assert.match(sessions, /exit_code: 130\ncmd: sleep 100/);
+    assert.match(sessions, /exit_code: running\ncmd: sleep 101/);
   },
 );
 
