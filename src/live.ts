@@ -7,7 +7,7 @@ import type { Duplex } from "node:stream";
 import type { AgentExec, CommandEvent } from "@agentorg/exec";
 import { type WebSocket, WebSocketServer } from "ws";
 import type { BrowserLive } from "./browser-live.ts";
-import { FilesLive, MAX_PART, reason } from "./files-live.ts";
+import { type FilesLive, MAX_PART, reason } from "./files-live.ts";
 import type { components } from "./generated/schema.js";
 import type { LoadLive } from "./load-live.ts";
 import { pieces } from "./text.ts";
@@ -79,6 +79,7 @@ export class Live {
     exec: AgentExec | undefined,
     access: Schemas["Access"],
     load: LoadLive,
+    files?: FilesLive,
     browser?: BrowserLive,
   ) {
     this.#load = load;
@@ -88,7 +89,7 @@ export class Live {
         for (const message of messages(event)) for (const ws of this.#viewers) deliver(ws, message);
       });
     }
-    this.#files = exec && new FilesLive(exec.files);
+    this.#files = files;
     this.#writes = access !== "read";
     this.#browser = browser;
   }

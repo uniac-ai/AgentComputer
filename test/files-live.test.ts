@@ -51,7 +51,8 @@ async function setup(t: test.TestContext, extra: string[]) {
     mkdtempSync(join(process.env.AGENTCOMPUTER_TEST_ROOT ?? tmpdir(), "ac-")),
   );
   const data = join(root, "data");
-  const workspace = join(root, "workspace");
+  // A name no other folder in this test has, so an answer can only have it from this one.
+  const workspace = join(root, "Research notes");
   mkdirSync(workspace);
   const child: ChildProcess = spawn(
     process.execPath,
@@ -171,6 +172,7 @@ for (const [isolation, extra] of ISOLATIONS) {
       const listed = await ask({ type: "list" });
       assert.equal(listed.type, "entries");
       assert.equal(listed.more, false);
+      assert.deepEqual([listed.workspace, listed.path], ["Research notes", "."]);
       assert.deepEqual(
         listed.entries.map((entry: Answer) => [entry.name, entry.kind, entry.size]),
         [
@@ -180,7 +182,13 @@ for (const [isolation, extra] of ISOLATIONS) {
         ],
       );
       const inner = await ask({ type: "list", path: "docs" });
-      assert.equal(inner.path, "docs");
+      assert.deepEqual([inner.workspace, inner.path], ["Research notes", "docs"]);
+      // A workspace the service made is called what its folder is.
+      const made = await Computer.create({ ...to, access: "read" });
+      t.after(() => made.close());
+      const own = await window((await made.liveSession("files")).url);
+      t.after(() => own.ws.close());
+      assert.equal((await own.ask({ type: "list" })).workspace, "workspace");
       assert.equal(inner.entries[0].modifiedAt, old.toISOString());
 
       // A file larger than one message is read by asking for it a range at a time.
