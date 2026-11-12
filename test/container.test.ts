@@ -53,7 +53,7 @@ async function setup(t: test.TestContext) {
   mkdirSync(workspace);
   let child: ChildProcess;
   let url = "";
-  const start = async () => {
+  const start = async (isolation = "container", env: Record<string, string> = {}) => {
     child = spawn(
       process.execPath,
       [
@@ -64,11 +64,11 @@ async function setup(t: test.TestContext) {
         "--data",
         data,
         "--isolation",
-        "container",
+        isolation,
         "--image",
         IMAGE as string,
       ],
-      { env: environment(), stdio: ["ignore", "pipe", "inherit"] },
+      { env: { ...environment(), ...env }, stdio: ["ignore", "pipe", "inherit"] },
     );
     url = await new Promise<string>((done, failed) => {
       child.once("exit", (code) => failed(new Error(`The service exited ${code}.`)));
@@ -106,9 +106,10 @@ async function setup(t: test.TestContext) {
     clients.push(client);
     return client;
   };
-  const restart = async () => {
+  /** Stop it and start it again, making computers this way where one isn't asked for. */
+  const restart = async (isolation?: string, env?: Record<string, string>) => {
     await stop();
-    await start();
+    await start(isolation, env);
   };
   return { Computer, to, root, data, workspace, mcp, restart, control: apiKey };
 }
@@ -357,6 +358,81 @@ test("computers stop with the service and come back with their tokens", options,
   t.after(() => again.close());
   assert.equal((await again.commands.run("echo back")).output, "back\n");
 });
+
+/** Computers made with what is asked for, and how each then says and shows it is isolated. */
+function isolated({ Computer, to, workspace }: Awaited<ReturnType<typeof setup>>) {
+  const info = async () => {
+    const { isolation, isolationsAvailable } = await Computer.serviceInfo(to());
+    return [isolation, isolationsAvailable];
+  };
+  const made = async (isolation?: "none" | "container") => {
+    const computer = await Computer.create({
+      ...to(),
+      access: "terminal",
+      workspace,
+      ...(isolation ? { isolation } : {}),
+    });
+    return { id: computer.computerID, token: computer.getMcpToken() };
+  };
+  // Where its commands run shows it: in a container the folder is mounted at /workspace.
+  const told = async ({ id, token }: { id: string; token: string }) => {
+    const computer = await Computer.connect(id, { ...to(), accessToken: token });
+    const { isolation } = await computer.getInfo();
+    return [isolation, (await computer.commands.run("pwd")).output.trim()];
+  };
+  return { info, made, told };
+}
+
+test(
+  "a computer keeps the isolation it was made in, whatever the service's own is",
+  options,
+  async (t) => {
+    const service = await setup(t);
+    const { info, made, told } = isolated(service);
+    assert.deepEqual(await info(), ["container", ["none", "container"]]);
+    const inside = await made();
+    const outside = await made("none");
+    assert.deepEqual(await told(inside), ["container", "/workspace"]);
+    assert.deepEqual(await told(outside), ["none", service.workspace]);
+
+    // The service comes back making them the other way. Each is still what it was made.
+    await service.restart("none");
+    assert.deepEqual(await info(), ["none", ["none", "container"]]);
+    assert.deepEqual(await told(inside), ["container", "/workspace"]);
+    assert.deepEqual(await told(outside), ["none", service.workspace]);
+    assert.deepEqual(await told(await made()), ["none", service.workspace]);
+    assert.deepEqual(await told(await made("container")), ["container", "/workspace"]);
+  },
+);
+
+test(
+  "where Docker stops answering, a computer in a container is failed and kept, not run without",
+  options,
+  async (t) => {
+    const service = await setup(t);
+    const { Computer, to } = service;
+    const { info, made, told } = isolated(service);
+    const inside = await made();
+    const outside = await made("none");
+    await service.restart("none", { DOCKER_HOST: "unix:///nonexistent/docker.sock" });
+    try {
+      assert.deepEqual(await info(), ["none", ["none"]]);
+      assert.equal((await Computer.getInfo(inside.id, to())).state, "failed");
+      const why = /A container needs Docker, which isn't answering on this machine\.$/;
+      assert.match((await Computer.getLogs(inside.id, to())).at(-1)?.line ?? "", why);
+      assert.deepEqual(await told(outside), ["none", service.workspace]);
+      // Its container can't be removed now, so it isn't forgotten: it is refused, and kept.
+      await assert.rejects(Computer.kill(inside.id, to()), why);
+      assert.equal((await Computer.getInfo(inside.id, to())).state, "stopped");
+      assert.equal(await running(inside.id), false);
+    } finally {
+      // With Docker back, whatever happened above, so that what was made can be removed.
+      await service.restart("none");
+    }
+    await Computer.start(inside.id, to());
+    assert.deepEqual(await told(inside), ["container", "/workspace"]);
+  },
+);
 
 test("serve says so when Docker doesn't answer", options, async (t) => {
   const data = mkdtempSync(join(tmpdir(), "agentcomputer-"));

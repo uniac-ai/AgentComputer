@@ -247,6 +247,10 @@ components:
     ComputerState:
       type: string
       enum: [running, stopped, failed]
+      description: >-
+        failed: it was to be running and isn't, because its browser or container ended by itself,
+        or because it couldn't be brought back when the service started. Its logs say why. Stop
+        it and start it again.
     Timeout:
       type: integer
       minimum: 1
@@ -273,8 +277,19 @@ components:
           description: >-
             The full path of a folder that exists, on the service's machine. With none, the service
             makes a folder, which goes when the computer is killed. A folder named here never does.
+        isolation:
+          $ref: "#/components/schemas/Isolation"
+          description: >-
+            How it is isolated, which it keeps for as long as it exists. Left out, it is the
+            service's own, the `isolation` that `getInfo` answers.
         timeout: { $ref: "#/components/schemas/Timeout" }
         metadata: { $ref: "#/components/schemas/Metadata" }
+    Isolation:
+      type: string
+      enum: [none, container]
+      description: >-
+        none: processes of whoever started the service. container: a container of its own, which
+        needs Docker on the service's machine.
     Endpoints:
       type: object
       required: [computer, browser]
@@ -285,12 +300,25 @@ components:
     Computer:
       type: object
       required:
-        [computerID, name, state, access, browser, workspace, startedAt, endAt, metadata, endpoints]
+        - computerID
+        - name
+        - state
+        - access
+        - isolation
+        - browser
+        - workspace
+        - startedAt
+        - endAt
+        - metadata
+        - endpoints
       properties:
         computerID: { type: string }
         name: { type: string }
         state: { $ref: "#/components/schemas/ComputerState" }
         access: { $ref: "#/components/schemas/Access" }
+        isolation:
+          $ref: "#/components/schemas/Isolation"
+          description: The isolation it was made in. It is never run in another.
         browser: { type: boolean }
         workspace: { type: [string, "null"] }
         startedAt: { type: string, format: date-time, description: When it last started. }
@@ -787,10 +815,20 @@ components:
               line: { type: string }
     ServiceInfo:
       type: object
-      required: [version, isolation]
+      required: [version, isolation, isolationsAvailable]
       properties:
         version: { type: string }
         isolation:
-          type: string
-          enum: [none, container]
-          description: How this service isolates its computers, chosen when it is started.
+          $ref: "#/components/schemas/Isolation"
+          description: >-
+            The isolation of a computer made without saying which, chosen when the service is
+            started.
+        isolationsAvailable:
+          type: array
+          items: { $ref: "#/components/schemas/Isolation" }
+          description: >-
+            The isolations a computer can be made in now, `none` first. `container` is among them
+            while Docker answers on the service's machine. It is what to offer, not a promise:
+            Docker is asked for a second here and for ten when a container is made, so one that
+            is slow can be missing here and still be made. If `isolation` itself is missing, a
+            computer made without saying which is refused with 409.

@@ -25,16 +25,17 @@ execFileSync(
   { stdio: ["ignore", "ignore", "inherit"] },
 );
 
-/** A copy with every `$ref` replaced by what it names. */
+/** A copy with every `$ref` replaced by what it names, under what stands beside it. */
 function inlined(value) {
   if (Array.isArray(value)) return value.map(inlined);
   if (typeof value !== "object" || value === null) return value;
   if (typeof value.$ref === "string") {
-    const target = value.$ref
+    const { $ref, ...beside } = value;
+    const target = $ref
       .slice(2)
       .split("/")
       .reduce((at, key) => at[key], spec);
-    return inlined(target);
+    return { ...inlined(target), ...inlined(beside) };
   }
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, inlined(item)]));
 }

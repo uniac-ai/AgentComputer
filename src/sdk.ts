@@ -42,6 +42,8 @@ export interface ConnectionOpts {
 export interface CreateOpts extends ConnectionOpts {
   access: Schemas["Access"];
   browser?: boolean;
+  /** How it is isolated. By default, as the service was started to make them. */
+  isolation?: Schemas["Isolation"];
   workspace?: string;
   name?: string;
   /** How long until it stops, in milliseconds. By default it doesn't. */
@@ -336,13 +338,15 @@ export class Computer {
   }
 
   static async create(opts: CreateOpts): Promise<Computer> {
-    const { access, browser, workspace, name, timeoutMs, metadata, apiKey, apiUrl } = opts;
+    const { access, browser, isolation, workspace, name, timeoutMs, metadata, apiKey, apiUrl } =
+      opts;
     const connection = { ...(apiKey ? { apiKey } : {}), ...(apiUrl ? { apiUrl } : {}) };
     const created = answered(
       await apiOf(connection).POST("/v1/computers", {
         body: {
           access,
           browser: browser ?? false,
+          ...(isolation === undefined ? {} : { isolation }),
           ...(workspace === undefined ? {} : { workspace }),
           ...(name === undefined ? {} : { name }),
           ...(timeoutMs === undefined ? {} : { timeout: seconds(timeoutMs) }),

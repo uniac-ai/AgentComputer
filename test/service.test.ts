@@ -37,12 +37,17 @@ const run = promisify(execFile);
 interface Created {
   computerID: string;
   state: string;
+  isolation: string;
   accessToken: string;
   workspace: string | null;
   endpoints: { computer: string | null; browser: string | null };
 }
 
-async function setup(t: test.TestContext, extra: string[] = BROWSER_ARGS) {
+async function setup(
+  t: test.TestContext,
+  extra: string[] = BROWSER_ARGS,
+  env: Record<string, string> = {},
+) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "agentcomputer-")));
   const data = join(root, "data");
   const workspace = join(root, "workspace");
@@ -54,7 +59,7 @@ async function setup(t: test.TestContext, extra: string[] = BROWSER_ARGS) {
       process.execPath,
       [CLI, "serve", "--listen", "127.0.0.1:0", "--data", data, ...extra],
       {
-        env: { PATH: process.env.PATH ?? "", HOME: root, SHELL: "/bin/bash" },
+        env: { PATH: process.env.PATH ?? "", HOME: root, SHELL: "/bin/bash", ...env },
         stdio: ["ignore", "pipe", "inherit"],
       },
     );
@@ -110,8 +115,10 @@ async function setup(t: test.TestContext, extra: string[] = BROWSER_ARGS) {
     };
     return { names, call, client };
   };
-  const restart = async () => {
+  /** Stop it and start it again, doing this to its data folder in between. */
+  const restart = async (between: () => void = () => {}) => {
     await stop();
+    between();
     await start();
   };
   return { root, data, workspace, cli, create, control, api, mcp, restart, url: () => url };
@@ -436,16 +443,24 @@ test(
   "computers and tokens come back when the service restarts, and logs say what happened",
   withBrowser,
   async (t) => {
-    const { create, restart, cli, url, workspace } = await setup(t);
+    const { create, restart, cli, url, workspace, data } = await setup(t);
     const made = await create("--access", "read", "--browser", "--workspace", workspace);
+    assert.equal(made.isolation, "none");
     const before = new URL(made.endpoints.computer as string).pathname;
-    await restart();
+    // Its record is left as an earlier version wrote it, which kept no isolation: it comes back
+    // with the service's own.
+    await restart(() => {
+      const file = join(data, "computers.json");
+      const records = JSON.parse(readFileSync(file, "utf8")) as { isolation?: string }[];
+      for (const record of records) delete record.isolation;
+      writeFileSync(file, JSON.stringify(records));
+    });
     assert.equal((await raw(`${url()}${before}`, made.accessToken)).status, 200);
     assert.match(await cli("logs", made.computerID), /POST mcp\/computer/);
-    const listed = JSON.parse(await cli("list")) as { computerID: string; state: string }[];
+    const listed = JSON.parse(await cli("list")) as Created[];
     assert.deepEqual(
-      listed.map((one) => [one.computerID, one.state]),
-      [[made.computerID, "running"]],
+      listed.map((one) => [one.computerID, one.state, one.isolation]),
+      [[made.computerID, "running", "none"]],
     );
   },
 );
@@ -459,6 +474,48 @@ for (const [why, args] of [
     t.after(() => rmSync(data, { recursive: true, force: true }));
     await assert.rejects(run(process.execPath, [CLI, "serve", ...args, "--data", data]));
   });
+
+test("where Docker doesn't answer, a computer is made with no isolation only", async (t) => {
+  const { cli, create, api, workspace } = await setup(t, BROWSER_ARGS, {
+    DOCKER_HOST: "unix:///nonexistent/docker.sock",
+  });
+  const { isolation, isolationsAvailable } = JSON.parse(await cli("info")) as Record<
+    string,
+    unknown
+  >;
+  assert.deepEqual([isolation, isolationsAvailable], ["none", ["none"]]);
+  const refused = (words: RegExp) => (error: Error & { stderr: string }) =>
+    words.test(error.stderr);
+  const asked = ["--access", "read", "--workspace", workspace, "--isolation"];
+  const needsDocker = "A container needs Docker, which isn't answering on this machine.";
+  await assert.rejects(create(...asked, "container"), refused(new RegExp(needsDocker)));
+  const answer = await api("", {
+    method: "POST",
+    body: JSON.stringify({ access: "read", workspace, isolation: "container" }),
+  });
+  assert.deepEqual(
+    [answer.status, await answer.json()],
+    [409, { code: 409, message: needsDocker }],
+  );
+  await assert.rejects(create(...asked, "vm"), refused(/--isolation is none or container\./));
+  assert.equal((await create(...asked, "none")).isolation, "none");
+  assert.deepEqual(
+    (JSON.parse(await cli("list")) as Created[]).map((one) => one.isolation),
+    ["none"],
+  );
+});
+
+test("info doesn't wait on a Docker that hangs", async (t) => {
+  // A `docker` that never answers, first on the service's PATH.
+  const bin = mkdtempSync(join(tmpdir(), "agentcomputer-bin-"));
+  t.after(() => rmSync(bin, { recursive: true, force: true }));
+  writeFileSync(join(bin, "docker"), "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 });
+  const { cli } = await setup(t, BROWSER_ARGS, { PATH: `${bin}:${process.env.PATH ?? ""}` });
+  const asked = Date.now();
+  const { isolationsAvailable } = JSON.parse(await cli("info")) as Record<string, unknown>;
+  assert.deepEqual(isolationsAvailable, ["none"]);
+  assert.ok(Date.now() - asked < 3_000);
+});
 
 test("a command with no service running says how to start one", async () => {
   const data = mkdtempSync(join(tmpdir(), "agentcomputer-"));

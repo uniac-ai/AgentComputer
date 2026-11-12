@@ -15,14 +15,21 @@ agentcomputer create --access terminal --browser --workspace ~/some/folder
 
 That prints the computer's `computerID`, its endpoints and its `accessToken`, once. Give an MCP client the `computer` and `browser` URLs, with the token as `Authorization: Bearer <token>`.
 
-**By default a computer has no isolation.** It's processes of whoever started the service, and with `--access terminal` it can reach everything that user can. Use `--isolation container` wherever that isn't safe.
+**By default a computer has no isolation.** It's processes of whoever started the service, and with `--access terminal` it can reach everything that user can. Make it with `--isolation container` wherever that isn't safe, or start the service with that to have it for every computer that doesn't say.
 
 ## Isolation
 
-`agentcomputer serve --isolation container` makes each computer a container of its own, which needs Docker on the same machine. The service follows your `DOCKER_HOST` or current context and never changes them.
+Isolation is chosen for each computer when it is made, and it keeps it until it is killed: `create --isolation none`, processes of whoever started the service, or `create --isolation container`, a container of its own. `serve --isolation` only sets what a computer gets when none is asked for, and is `none` unless you say otherwise. A container needs Docker on the service's machine. The service follows your `DOCKER_HOST` or current context and never changes them.
 
-- The image holds AgentExec, Playwright MCP and a headless Chromium. It is `ghcr.io/uniac-ai/agentcomputer/computer` at the service's version; `--image` names another.
+- `info` answers the service's own as `isolation`, and as `isolationsAvailable` the ones a computer can be made in now: `container` is among them while Docker answers. Asked for where it doesn't, a container is refused with 409: `A container needs Docker, which isn't answering on this machine.` The service itself comes up without Docker, unless its own isolation is `container`.
+- A computer is never run in an isolation it wasn't made in, whatever the service is started with later. One in a container isn't started where Docker doesn't answer, and isn't killed there either, since its container couldn't be removed: both are refused with the same words, and it is kept.
+- **Upgrading:** a computer recorded by an earlier version kept no isolation, and is given the one the service is started with. So start the service the first time as it was last started, with the same `--isolation`.
+
+A computer in a container:
+
+- Its image holds AgentExec, Playwright MCP and a headless Chromium. It is `ghcr.io/uniac-ai/agentcomputer/computer` at the service's version; `--image` names another.
 - `--workspace` is mounted at `/workspace`, read-only at `--access read`, and nothing else of the machine is visible. The computer is told that folder's path on the machine and the machine's name, which `about` answers. Docker has to be able to share that folder. Without `--workspace`, the service makes one.
+- The image is fetched the first time it is needed, which can take minutes: when the service starts if its own isolation is `container`, and otherwise when the first computer in a container is made, a call that then waits for it. `docker pull` it beforehand to spare that wait.
 - It runs as the user who started the service, with no capabilities.
 - `stop` stops the container and keeps it, so what was installed in it is there at `start`. `kill` removes it. Starting a stopped computer uses the image it was made from.
 
@@ -61,17 +68,17 @@ The file tools stay inside the workspace. That's a check, not a boundary. Below 
 
 ## Commands
 
-|                                           |                                                                                                        |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `serve`                                   | Run the service: `--listen` (127.0.0.1:7878), `--data`                                                 |
-| `up`, `down`, `status`                    | Run the service in the background, stop it, say where it is running                                    |
-| `info`                                    | The service's version and isolation                                                                    |
-| `create`                                  | Make a computer: `--access`, `--browser`, `--workspace`, `--name`, `--timeout`, `--metadata KEY=VALUE` |
-| `list [--state]`, `get <id>`, `logs <id>` | Look at them                                                                                           |
-| `timeout <id> <seconds>`                  | It now stops this long from now                                                                        |
-| `stop <id>`, `start <id> [--timeout]`     | Stop it, keeping its folder and token; start it again                                                  |
-| `live <id> --surface [--mode]`            | A one-time ticket to open one of its surfaces live; see [Live sessions](#live-sessions)                |
-| `kill <id>`                               | Stop it and remove what the service made                                                               |
+|                                           |                                                                                                                       |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `serve`                                   | Run the service: `--listen` (127.0.0.1:7878), `--data`                                                                |
+| `up`, `down`, `status`                    | Run the service in the background, stop it, say where it is running                                                   |
+| `info`                                    | The service's version, its own isolation, and the isolations it can make now                                          |
+| `create`                                  | Make a computer: `--access`, `--browser`, `--isolation`, `--workspace`, `--name`, `--timeout`, `--metadata KEY=VALUE` |
+| `list [--state]`, `get <id>`, `logs <id>` | Look at them                                                                                                          |
+| `timeout <id> <seconds>`                  | It now stops this long from now                                                                                       |
+| `stop <id>`, `start <id> [--timeout]`     | Stop it, keeping its folder and token; start it again                                                                 |
+| `live <id> --surface [--mode]`            | A one-time ticket to open one of its surfaces live; see [Live sessions](#live-sessions)                               |
+| `kill <id>`                               | Stop it and remove what the service made                                                                              |
 
 **In the background.** `up` takes what `serve` takes, runs the service in the background for you, and returns once it answers, printing its `url`, `pid`, version and isolation. If one is already running for the data folder it prints that one and starts nothing, so whatever starts it, there is one. `status` prints the same, or exits 1 with none running. `down` ends it and says nothing; its computers stop with it, and start again when it next does. `serve` won't run beside a service that has the same data folder. `--version` prints the program's version, with no service.
 
@@ -208,7 +215,7 @@ A shell of your own needs [node-pty](https://github.com/microsoft/node-pty), an 
 - With no isolation, each browser's Playwright MCP listens on a loopback port with no token of its own, so another user on the same machine could reach it directly. Don't run that on a machine you share.
 - A container has no CPU or memory limit, and its network is Docker's default, so it reaches the internet and anything else Docker's network does.
 - In a container the browser runs without its own sandbox, which needs privileges a computer doesn't have. The container is the boundary.
-- A browser that stops, or a container that ends by itself, shows the computer as `failed`, and what can no longer be opened live says so in `surfaces`. Stop the computer and start it again.
+- A browser that stops, or a container that ends by itself, shows the computer as `failed`, and what can no longer be opened live says so in `surfaces`. So does a computer that couldn't be brought back when the service started, for one in a container because Docker didn't answer; its `logs` say why. Stop the computer and start it again.
 - A file being written through the `files` surface sits beside its path as `.agentexec-…` until its last part, where a listing, and the agent, can see it. It stays if the service dies meanwhile.
 
 ## Tests
