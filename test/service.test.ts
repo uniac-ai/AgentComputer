@@ -361,7 +361,7 @@ test("a command with no service running says how to start one", async () => {
   const data = mkdtempSync(join(tmpdir(), "agentcomputer-"));
   await assert.rejects(
     run(process.execPath, [CLI, "list", "--data", data]),
-    (error: Error & { stderr: string }) => /agentcomputer serve/.test(error.stderr),
+    (error: Error & { stderr: string }) => /Start one: agentcomputer up/.test(error.stderr),
   );
   rmSync(data, { recursive: true, force: true });
 });
