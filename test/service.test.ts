@@ -18,9 +18,11 @@ import { hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { z } from "zod";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = join(here, "..", "..", "dist", "agentcomputer.js");
@@ -106,7 +108,7 @@ async function setup(t: test.TestContext, extra: string[] = BROWSER_ARGS) {
         images: content.filter((b) => b.type === "image"),
       };
     };
-    return { names, call };
+    return { names, call, client };
   };
   const restart = async () => {
     await stop();
@@ -157,6 +159,40 @@ test("agentcomputer create gives endpoints a hand-run MCP client uses", withBrow
   });
   assert.match(typed.text, /text:\nx\n$/);
   await computer.call("write_stdin", { session_id, chars: "\u0004", yield_time_ms: 5000 });
+
+  // What calls its tools puts the commands it starts in a group, and ends that group together.
+  // A command's call that is given up while it waits leaves the command running; the stop ends
+  // it, answering once it has ended, and never touches a command in no group.
+  const givenUp = new AbortController();
+  const waiting = computer.client
+    .callTool(
+      {
+        name: "exec_command",
+        arguments: { cmd: "sleep 100", yield_time_ms: 30_000 },
+        _meta: { "agentexec/group": "a" },
+      },
+      { signal: givenUp.signal },
+    )
+    .catch((error: Error) => error.message);
+  await computer.call("exec_command", { cmd: "sleep 101", yield_time_ms: 250 });
+  const sessions = async () => (await computer.call("list_sessions")).text;
+  for (let tries = 0; !(await sessions()).includes("cmd: sleep 100"); tries++) {
+    assert.ok(tries < 200, "The command never became a session.");
+    await sleep(50);
+  }
+  givenUp.abort(new Error("Given up."));
+  assert.match(String(await waiting), /Given up\.$/);
+  assert.match(await sessions(), /exit_code: running\ncmd: sleep 100/);
+  assert.deepEqual(
+    await computer.client.request(
+      { method: "agentexec/group/stop", params: { group: "a" } },
+      z.object({ stopped: z.number() }),
+    ),
+    { stopped: 1 },
+  );
+  const after = await sessions();
+  assert.match(after, /exit_code: 130\ncmd: sleep 100/);
+  assert.match(after, /exit_code: running\ncmd: sleep 101/);
 
   const browser = await mcp(made.endpoints.browser as string, made.accessToken);
   assert.ok((await browser.names()).includes("browser_navigate"));
