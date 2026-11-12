@@ -14,6 +14,8 @@ const RUNS_CODE = "browser_run_code_unsafe";
 const MAX_BODY = 8 * 1024 * 1024;
 const START_MS = 30_000;
 const STOP_MS = 2_000;
+const ONE_REQUEST =
+  "A body is one JSON-RPC request, as a JSON object: send each request in its own POST.";
 /** What passes between a client and the browser's server, in both directions. */
 const FORWARDED = [
   "accept",
@@ -191,19 +193,32 @@ export class Browser {
       chunks.push(chunk as Buffer);
     }
     const body = Buffer.concat(chunks);
-    let message: Message = {};
+    // Only what is read here as one request is passed on, and as it was read. A batch, or a body
+    // the browser's server can read and this can't, would carry a call by every check made below.
+    let message: Message | undefined;
     try {
-      if (body.length > 0) message = JSON.parse(body.toString("utf8")) as Message;
+      const read: unknown = body.length > 0 ? JSON.parse(body.toString("utf8")) : undefined;
+      if (typeof read === "object" && read !== null && !Array.isArray(read)) message = read;
     } catch {
-      // Not JSON: the server answers that itself.
+      // Refused with whatever else isn't one request.
     }
-    const tool = message.method === "tools/call" ? String(message.params?.name) : undefined;
+    if (body.length > 0 && !message) {
+      response.writeHead(400, { "Content-Type": "application/json" });
+      return void response.end(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32600, message: ONE_REQUEST },
+        }),
+      );
+    }
+    const tool = message?.method === "tools/call" ? String(message.params?.name) : undefined;
     if (tool && this.#hidden.has(tool)) {
       response.writeHead(200, { "Content-Type": "application/json" });
       return void response.end(
         JSON.stringify({
           jsonrpc: "2.0",
-          id: message.id ?? null,
+          id: message?.id ?? null,
           error: { code: -32602, message: `Unknown tool: ${tool}` },
         }),
       );
@@ -232,12 +247,13 @@ export class Browser {
         .then((answer) => answer.text())
         .catch(() => {});
     if (tool === "browser_file_upload") this.gate?.agentAnsweredChooser();
+    if (message) headers["content-type"] = "application/json";
     const upstream = await fetch(`${origin}/mcp`, {
       method: request.method as string,
       headers,
-      ...(body.length > 0 ? { body } : {}),
+      ...(message ? { body: JSON.stringify(message) } : {}),
     });
-    if (message.method === "tools/list" && this.#hidden.size > 0) {
+    if (message?.method === "tools/list" && this.#hidden.size > 0) {
       const text = withoutHidden(await upstream.text(), this.#hidden);
       return sendAnswer(new Response(text, upstream), response);
     }
