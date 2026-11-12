@@ -455,7 +455,7 @@ export const OPENAPI = {
           "files",
           "terminal"
         ],
-        "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+        "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
       },
       "ComputerState": {
         "type": "string",
@@ -668,7 +668,7 @@ export const OPENAPI = {
           "browser",
           "load"
         ],
-        "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes. load: how busy it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later. One that can't be taken is left out, and a socket that hasn't read the one before is not sent the next. Nothing is read while nobody watches."
+        "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes. load: how busy it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later. One that can't be taken is left out, and a socket that hasn't read the one before is not sent the next. Nothing is read while nobody watches or asks."
       },
       "LiveMode": {
         "type": "string",
@@ -1862,7 +1862,7 @@ export const OPERATIONS: Operation[] = [
               "files",
               "terminal"
             ],
-            "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+            "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
           },
           "browser": {
             "type": "boolean"
@@ -1951,7 +1951,7 @@ export const OPERATIONS: Operation[] = [
             "files",
             "terminal"
           ],
-          "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+          "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
         },
         "browser": {
           "type": "boolean",
@@ -2021,7 +2021,7 @@ export const OPERATIONS: Operation[] = [
                 "files",
                 "terminal"
               ],
-              "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+              "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
             },
             "browser": {
               "type": "boolean"
@@ -2161,7 +2161,7 @@ export const OPERATIONS: Operation[] = [
                 "files",
                 "terminal"
               ],
-              "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+              "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
             },
             "browser": {
               "type": "boolean"
@@ -2250,7 +2250,7 @@ export const OPERATIONS: Operation[] = [
                       "browser",
                       "load"
                     ],
-                    "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes. load: how busy it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later. One that can't be taken is left out, and a socket that hasn't read the one before is not sent the next. Nothing is read while nobody watches."
+                    "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes. load: how busy it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later. One that can't be taken is left out, and a socket that hasn't read the one before is not sent the next. Nothing is read while nobody watches or asks."
                   },
                   "protocol": {
                     "type": "string"
@@ -2392,7 +2392,7 @@ export const OPERATIONS: Operation[] = [
             "files",
             "terminal"
           ],
-          "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+          "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
         },
         "browser": {
           "type": "boolean"
@@ -2516,7 +2516,7 @@ export const OPERATIONS: Operation[] = [
             "files",
             "terminal"
           ],
-          "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+          "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
         },
         "browser": {
           "type": "boolean"
@@ -2645,7 +2645,7 @@ export const OPERATIONS: Operation[] = [
             "files",
             "terminal"
           ],
-          "description": "How far it reaches into files and commands, each level containing the one before: `read` has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+          "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
         },
         "browser": {
           "type": "boolean"
@@ -2790,7 +2790,7 @@ export const OPERATIONS: Operation[] = [
             "browser",
             "load"
           ],
-          "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes. load: how busy it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later. One that can't be taken is left out, and a socket that hasn't read the one before is not sent the next. Nothing is read while nobody watches."
+          "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes. load: how busy it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later. One that can't be taken is left out, and a socket that hasn't read the one before is not sent the next. Nothing is read while nobody watches or asks."
         },
         "mode": {
           "allOf": [
@@ -2837,7 +2837,7 @@ export const OPERATIONS: Operation[] = [
             "browser",
             "load"
           ],
-          "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes. load: how busy it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later. One that can't be taken is left out, and a socket that hasn't read the one before is not sent the next. Nothing is read while nobody watches."
+          "description": "terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes. load: how busy it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later. One that can't be taken is left out, and a socket that hasn't read the one before is not sent the next. Nothing is read while nobody watches or asks."
         },
         "mode": {
           "type": "string",

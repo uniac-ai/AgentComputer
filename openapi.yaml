@@ -242,8 +242,8 @@ components:
       enum: [none, read, files, terminal]
       description: >-
         How far it reaches into files and commands, each level containing the one before: `read`
-        has read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin
-        and list_sessions. Below terminal, the browser's code-running tool is hidden.
+        has about, read, list and search; `files` adds edit; `terminal` adds exec_command,
+        write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden.
     ComputerState:
       type: string
       enum: [running, stopped, failed]
@@ -345,7 +345,7 @@ components:
         it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is
         open, the first two seconds after the first socket opens, and the last one at once to a
         socket that opens later. One that can't be taken is left out, and a socket that hasn't
-        read the one before is not sent the next. Nothing is read while nobody watches.
+        read the one before is not sent the next. Nothing is read while nobody watches or asks.
     LiveMode:
       type: string
       enum: [watch, operate]

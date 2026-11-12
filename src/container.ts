@@ -5,12 +5,18 @@ import { execFile, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { connect } from "node:net";
-import { basename, join } from "node:path";
+import { hostname } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { type Duplex, Readable } from "node:stream";
 import { promisify } from "node:util";
 import { sendAnswer } from "./browser.ts";
-import { INNER_PORT, INNER_TOKEN_VARIABLE, WORKSPACE_NAME_VARIABLE } from "./inside.ts";
+import {
+  INNER_PORT,
+  INNER_TOKEN_VARIABLE,
+  OUTSIDE_MACHINE_VARIABLE,
+  OUTSIDE_WORKSPACE_VARIABLE,
+} from "./inside.ts";
 import type { SurfaceInfo } from "./live.ts";
 import {
   ApiError,
@@ -98,6 +104,14 @@ export class ContainerRuntime implements Runtime {
 
   async #create(name: string, spec: ComputerSpec, token: string) {
     const uid = process.getuid?.();
+    // What the program inside is told: its token, and what its workspace and its machine are
+    // outside, which in there are only /workspace and the container.
+    const told = {
+      [INNER_TOKEN_VARIABLE]: token,
+      ...(spec.workspace
+        ? { [OUTSIDE_WORKSPACE_VARIABLE]: spec.workspace, [OUTSIDE_MACHINE_VARIABLE]: hostname() }
+        : {}),
+    };
     await docker(
       [
         "create",
@@ -112,12 +126,8 @@ export class ContainerRuntime implements Runtime {
         "no-new-privileges",
         "--publish",
         `127.0.0.1::${INNER_PORT}`,
-        // By name, so the value stays out of the command line other users can see.
-        "--env",
-        INNER_TOKEN_VARIABLE,
-        // What its workspace is called, which in there is only /workspace. An image from before
-        // this was told leaves it.
-        ...(spec.workspace ? ["--env", WORKSPACE_NAME_VARIABLE] : []),
+        // By name, so the values stay out of the command line other users can see.
+        ...Object.keys(told).flatMap((name) => ["--env", name]),
         // Files it writes in the workspace belong to whoever runs the service.
         ...(uid ? ["--user", `${uid}:${process.getgid?.()}`] : []),
         ...(spec.workspace
@@ -132,11 +142,7 @@ export class ContainerRuntime implements Runtime {
         spec.access,
         ...(spec.browser ? ["--browser"] : []),
       ],
-      {
-        ...process.env,
-        [INNER_TOKEN_VARIABLE]: token,
-        ...(spec.workspace ? { [WORKSPACE_NAME_VARIABLE]: basename(spec.workspace) } : {}),
-      },
+      { ...process.env, ...told },
     );
   }
 

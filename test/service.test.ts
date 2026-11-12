@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
@@ -190,9 +190,12 @@ test("the control token and each computer's token reach only their own", async (
 });
 
 for (const [access, tools] of [
-  ["read", ["list", "read", "search"]],
-  ["files", ["edit", "list", "read", "search"]],
-  ["terminal", ["edit", "exec_command", "list", "list_sessions", "read", "search", "write_stdin"]],
+  ["read", ["about", "list", "read", "search"]],
+  ["files", ["about", "edit", "list", "read", "search"]],
+  [
+    "terminal",
+    ["about", "edit", "exec_command", "list", "list_sessions", "read", "search", "write_stdin"],
+  ],
 ] as const)
   test(`at ${access} the service lists only its tools`, async (t) => {
     const { create, mcp, workspace, api } = await setup(t);
@@ -206,6 +209,26 @@ for (const [access, tools] of [
     };
     assert.deepEqual([...got.tools.computer].sort(), tools);
   });
+
+test("about tells the agent what a person reads of its computer", async (t) => {
+  const { create, mcp, workspace } = await setup(t);
+  const made = await create("--access", "files", "--workspace", workspace);
+  const computer = await mcp(made.endpoints.computer as string, made.accessToken);
+  const { text, isError } = await computer.call("about");
+  assert.equal(isError, false);
+  const { rows } = JSON.parse(text) as { rows: Record<string, unknown>[] };
+  assert.deepEqual(rows.slice(0, 4), [
+    { label: "Where", value: hostname() },
+    { label: "Folder", value: workspace, path: true },
+    { label: "Reaches", value: "Files" },
+    { label: "Isolation", value: "None: it acts as you", caution: true },
+  ]);
+  const [cpu, memory, disk] = rows.slice(4).map((row) => `${row.label}: ${row.value}`);
+  assert.match(cpu ?? "", /^CPU: \d+%$/);
+  assert.match(memory ?? "", /^Memory: [\d.]+ of [\d.]+ GB$/);
+  assert.match(disk ?? "", /^Disk: \d+ of \d+ GB$/);
+  assert.equal(rows.length, 7);
+});
 
 test(
   "below terminal the tool that runs code is hidden and refused, at terminal it's there",
@@ -224,6 +247,15 @@ test(
         "browser_run_code_unsafe",
       ),
     );
+    // What each reaches is told to its agent as a person reads it.
+    for (const [made, reaches] of [
+      [below, "Files, Browser"],
+      [full, "Files and terminal, Browser"],
+    ] as const) {
+      const computer = await mcp(made.endpoints.computer as string, made.accessToken);
+      const { rows } = JSON.parse((await computer.call("about")).text) as { rows: unknown[] };
+      assert.deepEqual(rows[2], { label: "Reaches", value: reaches });
+    }
   },
 );
 

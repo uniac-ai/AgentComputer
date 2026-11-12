@@ -200,7 +200,7 @@ async function scenario(surface: Surface, workspace: string, isolation: string) 
   assert.ok(!(await ids("stopped")).includes(computerID));
 
   const detail = (await call("getComputer", { computerID })).value;
-  assert.deepEqual([...detail.tools.computer].sort().at(0), "edit");
+  assert.deepEqual([...detail.tools.computer].sort().slice(0, 2), ["about", "edit"]);
   assert.ok(!("accessToken" in detail));
 
   const longer = (await call("setComputerTimeout", { computerID, timeout: 9000 })).value;

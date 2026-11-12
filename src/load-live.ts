@@ -1,5 +1,5 @@
 // A computer's load, as readings on its `load` surface in metrics@1: how busy its CPUs are, and
-// how much of its memory and of its disk is used. Nothing is read while nobody watches.
+// how much of its memory and of its disk is used. Nothing is read while nobody watches or asks.
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { availableParallelism, cpus, freemem, totalmem } from "node:os";
@@ -20,6 +20,8 @@ interface Sample {
 }
 
 const EVERY_MS = 2_000;
+/** How long a reading that is asked for once is taken over. */
+const ONCE_MS = 500;
 const run = promisify(execFile);
 
 /** One number of a text of `name value` lines. It isn't a number where the name isn't there. */
@@ -76,6 +78,21 @@ async function cgroup(): Promise<Sample> {
   };
 }
 
+/** A reading from two samples, or none where a number of it is missing. */
+function readingOf(before: Cpu, sample: Sample, volume: Pick<Reading, "diskUsed" | "diskTotal">) {
+  // No time between two samples is no share of it.
+  const share = (sample.cpu.used - before.used) / (sample.cpu.total - before.total) || 0;
+  const reading: Reading = {
+    type: "reading",
+    scope: sample.scope,
+    cpuUsedPct: Math.round(Math.min(Math.max(share, 0), 1) * 1_000) / 10,
+    memUsed: sample.memUsed,
+    memTotal: totalmem(),
+    ...volume,
+  };
+  return Number.isFinite(reading.cpuUsedPct + reading.memUsed) ? reading : undefined;
+}
+
 export class LoadLive {
   readonly #folder: string;
   readonly #contained: boolean;
@@ -114,30 +131,36 @@ export class LoadLive {
     for (const ws of this.#sockets) ws.close(1001, "It stopped.");
   }
 
+  /** Its own, inside a container that can read it; else the machine's. */
+  #sample() {
+    return this.#contained ? cgroup().catch(machine) : machine();
+  }
+
+  /** One reading for whoever asks once, taken over half a second. None where it can't be. */
+  async now(): Promise<Reading | undefined> {
+    try {
+      const before = await this.#sample();
+      await new Promise((done) => setTimeout(done, ONCE_MS));
+      return readingOf(before.cpu, await this.#sample(), await disk(this.#folder));
+    } catch {
+      return undefined;
+    }
+  }
+
   /** One at a time, and for the watching it began under: a reading taken too late is left. */
   async #read() {
     const timer = this.#timer;
     if (this.#reading) return;
     this.#reading = true;
     try {
-      const sample = await (this.#contained ? cgroup().catch(machine) : machine());
+      const sample = await this.#sample();
       const volume = await disk(this.#folder);
       if (this.#timer !== timer) return;
       const before = this.#before;
       this.#before = sample.cpu;
-      if (!before) return;
-      // No time between two samples is no share of it.
-      const share = (sample.cpu.used - before.used) / (sample.cpu.total - before.total) || 0;
-      const reading: Reading = {
-        type: "reading",
-        scope: sample.scope,
-        cpuUsedPct: Math.round(Math.min(Math.max(share, 0), 1) * 1_000) / 10,
-        memUsed: sample.memUsed,
-        memTotal: totalmem(),
-        ...volume,
-      };
       // A reading with a number missing is left out whole: nothing depends on one.
-      if (!Number.isFinite(reading.cpuUsedPct + reading.memUsed)) return;
+      const reading = before && readingOf(before, sample, volume);
+      if (!reading) return;
       this.#last = JSON.stringify(reading);
       // A reading is replaced by the next, so a socket with one still unsent isn't sent another.
       for (const ws of this.#sockets) if (ws.bufferedAmount === 0) ws.send(this.#last);

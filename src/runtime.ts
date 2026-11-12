@@ -3,9 +3,11 @@
 import { chmodSync, existsSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createRequire } from "node:module";
+import { hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import { type AgentExec, createAgentExec, type PtySpawn } from "@agentorg/exec";
+import { aboutTool } from "./about.ts";
 import { Browser, type BrowserConfig } from "./browser.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { FilesLive } from "./files-live.ts";
@@ -32,8 +34,8 @@ export interface ComputerSpec {
   access: Access;
   browser: boolean;
   workspace?: string | undefined;
-  /** What its workspace is called, where its folder's own name isn't that: inside a container. */
-  workspaceName?: string | undefined;
+  /** Its workspace and its machine as they are outside, where this is inside a container. */
+  outside?: { workspace?: string | undefined; machine?: string | undefined } | undefined;
 }
 
 export interface RuntimeEvents {
@@ -111,7 +113,7 @@ export class ProcessRuntime implements Runtime {
   readonly #config: BrowserConfig;
   readonly #contained: boolean;
 
-  /** `contained` is for inside a container, where load is the computer's own. */
+  /** `contained` is for inside a container, where the computer and its load are its own. */
   constructor(config: BrowserConfig, contained = false) {
     this.#config = config;
     this.#contained = contained;
@@ -124,13 +126,27 @@ export class ProcessRuntime implements Runtime {
   async remove() {}
 
   async start(spec: ComputerSpec, folder: string, events: RuntimeEvents): Promise<Running> {
+    const load = new LoadLive(spec.workspace ?? folder, this.#contained);
     let exec: AgentExec | undefined;
-    if (spec.access !== "none")
+    if (spec.access !== "none") {
+      const workspace = spec.workspace as string;
+      const about = aboutTool(
+        {
+          machine: spec.outside?.machine ?? hostname(),
+          workspace: { outside: spec.outside?.workspace ?? workspace, inside: workspace },
+          access: spec.access,
+          browser: spec.browser,
+          contained: this.#contained,
+        },
+        load,
+      );
       exec = createAgentExec({
-        workspace: spec.workspace as string,
+        workspace,
         level: spec.access,
         pty: await loadPty(),
+        extraTools: [about],
       });
+    }
     let browser: Browser | undefined;
     let browserDown = false;
     if (spec.browser) {
@@ -158,9 +174,9 @@ export class ProcessRuntime implements Runtime {
       browserLive = new BrowserLive(browser.endpoint);
       browser.gate = browserLive;
     }
-    const load = new LoadLive(spec.workspace ?? folder, this.#contained);
     const files =
-      exec && new FilesLive(exec.files, spec.workspaceName ?? basename(spec.workspace as string));
+      exec &&
+      new FilesLive(exec.files, basename(spec.outside?.workspace ?? (spec.workspace as string)));
     const live = new Live(exec, spec.access, load, files, browserLive);
     const surfaces = live.surfaces();
     return {
