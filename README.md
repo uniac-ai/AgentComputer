@@ -23,7 +23,7 @@ Isolation is chosen for each computer when it is made, and it keeps it until it 
 
 - `info` answers the service's own as `isolation`, and as `isolationsAvailable` the ones a computer can be made in now: `container` is among them while Docker answers. Asked for where it doesn't, a container is refused with 409: `A container needs Docker, which isn't answering on this machine.` The service itself comes up without Docker, unless its own isolation is `container`.
 - A computer is never run in an isolation it wasn't made in, whatever the service is started with later. One in a container isn't started where Docker doesn't answer, and isn't killed there either, since its container couldn't be removed: both are refused with the same words, and it is kept.
-- **Upgrading:** a computer recorded by an earlier version kept no isolation, and is given the one the service is started with. So start the service the first time as it was last started, with the same `--isolation`.
+- **Upgrading:** a computer recorded by an earlier version kept no isolation, and is given the one the service is started with. So start the service the first time as it was last started, with the same `--isolation`. A program that starts the service for a person should start it with the same `--isolation` every time.
 
 A computer in a container:
 
@@ -64,6 +64,8 @@ A client that calls a computer's tools can put the commands it starts in a group
 
 The file tools stay inside the workspace. That's a check, not a boundary. Below `terminal`, the browser's `browser_run_code_unsafe` tool is hidden and refused, because it would otherwise be a terminal. The browser's endpoint takes one JSON-RPC request in each POST, as a JSON object, and refuses anything else with 400, a batch among them: it checks each request before passing it on, and passes on only what it read. The service enforces all of this, whatever the client does.
 
+Before 0.0.14 the browser's endpoint passed on a body it couldn't read as one request, unchecked. So on a computer made with `--access none`, `read` or `files` and `--browser`, a caller holding that computer's token could run code in its browser by sending the call in a batch or behind a byte order mark. It needed the computer's own token and a client that sends such a body, which MCP clients don't. 0.0.14 fixes it; a computer in a container made by an earlier version keeps the fault until it is killed and made again.
+
 `--browser` drives the Google Chrome installed on the machine, in a profile of the computer's own. `serve --browser-name` and `--browser-path` choose another. The browser has no debug port: a small host process starts it and shares it on a Unix socket in a folder only its user can enter, which the agent's tools and the live view both use. It lives as long as its computer does: a client that ends its session or goes away leaves the browser and its pages as they are, and the agent's `browser_close` is refused. Only an agent with `--access terminal` can stop it, with `browser_run_code_unsafe` or from its terminal.
 
 ## Commands
@@ -80,7 +82,7 @@ The file tools stay inside the workspace. That's a check, not a boundary. Below 
 | `live <id> --surface [--mode]`            | A one-time ticket to open one of its surfaces live; see [Live sessions](#live-sessions)                               |
 | `kill <id>`                               | Stop it and remove what the service made                                                                              |
 
-**In the background.** `up` takes what `serve` takes, runs the service in the background for you, and returns once it answers, printing its `url`, `pid`, version and isolation. If one is already running for the data folder it prints that one and starts nothing, so whatever starts it, there is one. `status` prints the same, or exits 1 with none running. `down` ends it and says nothing; its computers stop with it, and start again when it next does. `serve` won't run beside a service that has the same data folder. `--version` prints the program's version, with no service.
+**In the background.** `up` takes what `serve` takes, runs the service in the background for you, and returns once it answers, printing its `url`, `pid`, version and isolation. If one already answers for the data folder it prints that one and starts nothing. `status` prints the same, or exits 1 with none running. `down` ends it and says nothing; its computers stop with it, and start again when it next does. `serve` won't run beside a service that already answers for the same data folder. `--version` prints the program's version, with no service.
 
 - What the service writes goes to `service.log` in the data folder, of which `up` keeps the last 1 MiB.
 - It stays when whatever started it goes, and nothing starts it when the machine does. To have it at login, a shell profile can run `agentcomputer up`; a supervisor such as launchd or a systemd user unit is given `agentcomputer serve`, which it keeps in the foreground.
