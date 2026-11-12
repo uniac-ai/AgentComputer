@@ -1499,6 +1499,7 @@ export const OPENAPI = {
             "required": [
               "type",
               "id",
+              "workspace",
               "path",
               "entries",
               "more"
@@ -1510,8 +1511,13 @@ export const OPENAPI = {
               "id": {
                 "type": "string"
               },
+              "workspace": {
+                "type": "string",
+                "description": "What the workspace is called: its folder's own name, and nothing of where it is. Every entries answer has it, whichever folder was asked for, so that with path it names the folder. It is `workspace` for one the service made, and empty for one at the top of a disk. A computer in a container made before this was added sends none."
+              },
               "path": {
-                "type": "string"
+                "type": "string",
+                "description": "The folder as it was asked for: `.` for the workspace itself."
               },
               "entries": {
                 "type": "array",

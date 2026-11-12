@@ -26,14 +26,17 @@ const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 export class FilesLive {
   readonly #files: Files;
+  readonly #workspace: string;
   readonly #sockets = new Set<WebSocket>();
   /** One walk of the workspace at a time, however many ask. */
   #walking: Promise<unknown> = Promise.resolve();
   /** How many files are part written, over every socket. */
   #uploads = 0;
 
-  constructor(files: Files) {
+  /** `workspace` is what the workspace is called: its folder's own name, not where it is. */
+  constructor(files: Files, workspace: string) {
     this.#files = files;
+    this.#workspace = workspace;
   }
 
   close() {
@@ -118,7 +121,13 @@ export class FilesLive {
           const path = request.path ?? ".";
           if (!text(path)) throw new Error("A path is text.");
           return inTurn(async () =>
-            send({ type: "entries", id, path, ...(await this.#files.list(path)) }),
+            send({
+              type: "entries",
+              id,
+              workspace: this.#workspace,
+              path,
+              ...(await this.#files.list(path)),
+            }),
           );
         }
         case "read": {

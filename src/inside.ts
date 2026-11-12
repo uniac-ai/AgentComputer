@@ -10,6 +10,8 @@ import { digestOf, privateFolder, sameToken } from "./store.ts";
 
 export const INNER_PORT = 8000;
 export const INNER_TOKEN_VARIABLE = "AGENTCOMPUTER_INNER_TOKEN";
+/** What the workspace is called outside, where it is more than /workspace. */
+export const WORKSPACE_NAME_VARIABLE = "AGENTCOMPUTER_WORKSPACE_NAME";
 /** Where the image puts its browser. */
 const BROWSER = "/opt/browsers/headless-shell";
 
@@ -23,7 +25,9 @@ export async function serveInside(options: { access: Access; browser: boolean })
     {
       id: "inside",
       ...options,
-      ...(options.access === "none" ? {} : { workspace: "/workspace" }),
+      ...(options.access === "none"
+        ? {}
+        : { workspace: "/workspace", workspaceName: process.env[WORKSPACE_NAME_VARIABLE] }),
     },
     privateFolder(join(homedir(), ".agentcomputer")),
     {

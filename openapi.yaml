@@ -703,11 +703,20 @@ components:
         between a data message and its bytes.
       oneOf:
         - type: object
-          required: [type, id, path, entries, more]
+          required: [type, id, workspace, path, entries, more]
           properties:
             type: { const: entries }
             id: { type: string }
-            path: { type: string }
+            workspace:
+              type: string
+              description: >-
+                What the workspace is called: its folder's own name, and nothing of where it is.
+                Every entries answer has it, whichever folder was asked for, so that with path it
+                names the folder. It is `workspace` for one the service made, and empty for one at
+                the top of a disk. A computer in a container made before this was added sends none.
+            path:
+              type: string
+              description: "The folder as it was asked for: `.` for the workspace itself."
             entries:
               type: array
               items:

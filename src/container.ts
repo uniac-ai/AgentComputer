@@ -5,12 +5,12 @@ import { execFile, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { connect } from "node:net";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
 import { type Duplex, Readable } from "node:stream";
 import { promisify } from "node:util";
 import { sendAnswer } from "./browser.ts";
-import { INNER_PORT, INNER_TOKEN_VARIABLE } from "./inside.ts";
+import { INNER_PORT, INNER_TOKEN_VARIABLE, WORKSPACE_NAME_VARIABLE } from "./inside.ts";
 import type { SurfaceInfo } from "./live.ts";
 import {
   ApiError,
@@ -115,6 +115,9 @@ export class ContainerRuntime implements Runtime {
         // By name, so the value stays out of the command line other users can see.
         "--env",
         INNER_TOKEN_VARIABLE,
+        // What its workspace is called, which in there is only /workspace. An image from before
+        // this was told leaves it.
+        ...(spec.workspace ? ["--env", WORKSPACE_NAME_VARIABLE] : []),
         // Files it writes in the workspace belong to whoever runs the service.
         ...(uid ? ["--user", `${uid}:${process.getgid?.()}`] : []),
         ...(spec.workspace
@@ -129,7 +132,11 @@ export class ContainerRuntime implements Runtime {
         spec.access,
         ...(spec.browser ? ["--browser"] : []),
       ],
-      { ...process.env, [INNER_TOKEN_VARIABLE]: token },
+      {
+        ...process.env,
+        [INNER_TOKEN_VARIABLE]: token,
+        ...(spec.workspace ? { [WORKSPACE_NAME_VARIABLE]: basename(spec.workspace) } : {}),
+      },
     );
   }
 

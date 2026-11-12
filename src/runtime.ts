@@ -3,11 +3,12 @@
 import { chmodSync, existsSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import { type AgentExec, createAgentExec, type PtySpawn } from "@agentorg/exec";
 import { Browser, type BrowserConfig } from "./browser.ts";
 import { BrowserLive } from "./browser-live.ts";
+import { FilesLive } from "./files-live.ts";
 import type { components } from "./generated/schema.js";
 import { Live, type LiveMode, type Surface, type SurfaceInfo } from "./live.ts";
 import { LoadLive } from "./load-live.ts";
@@ -31,6 +32,8 @@ export interface ComputerSpec {
   access: Access;
   browser: boolean;
   workspace?: string | undefined;
+  /** What its workspace is called, where its folder's own name isn't that: inside a container. */
+  workspaceName?: string | undefined;
 }
 
 export interface RuntimeEvents {
@@ -156,7 +159,9 @@ export class ProcessRuntime implements Runtime {
       browser.gate = browserLive;
     }
     const load = new LoadLive(spec.workspace ?? folder, this.#contained);
-    const live = new Live(exec, spec.access, load, browserLive);
+    const files =
+      exec && new FilesLive(exec.files, spec.workspaceName ?? basename(spec.workspace as string));
+    const live = new Live(exec, spec.access, load, files, browserLive);
     const surfaces = live.surfaces();
     return {
       browserTools: browser?.tools ?? [],
