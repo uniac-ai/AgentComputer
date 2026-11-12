@@ -258,6 +258,55 @@ test(
     assert.ok(names.includes("browser_navigate"));
     assert.ok(!names.includes("browser_run_code_unsafe"));
     await assert.rejects(browser.call("browser_run_code_unsafe"), /Unknown tool/);
+    // Nor does it get by in a body that isn't one request read here as the browser's server would
+    // read it: a batch, or one behind a byte order mark, which that server skips. On a session of
+    // its own, each is refused whole and nothing is passed on.
+    const post = (body: string, session?: string) =>
+      fetch(below.endpoints.browser as string, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${below.accessToken}`,
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          ...(session ? { "mcp-session-id": session } : {}),
+        },
+        body,
+      });
+    const hello = await post(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "by-hand", version: "1" },
+        },
+      }),
+    );
+    const session = hello.headers.get("mcp-session-id") as string;
+    await hello.text();
+    const call = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "browser_run_code_unsafe", arguments: { code: "async () => 6 * 7" } },
+    });
+    const list = JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/list" });
+    // The session is a live one: asked plainly, it lists its tools, less the hidden one.
+    const plain = await (await post(list, session)).text();
+    assert.ok(plain.includes("browser_navigate") && !plain.includes("browser_run_code_unsafe"));
+    for (const body of [`[${call}]`, `[${list}]`, `\ufeff${call}`, `\ufeff${list}`, "[]", "null"]) {
+      const refused = await post(body, session);
+      assert.deepEqual(
+        [refused.status, ((await refused.json()) as { error: { message: string } }).error.message],
+        [
+          400,
+          "A body is one JSON-RPC request, as a JSON object: send each request in its own POST.",
+        ],
+        body,
+      );
+    }
     const full = await create("--access", "terminal", "--browser", "--workspace", workspace);
     assert.ok(
       (await (await mcp(full.endpoints.browser as string, full.accessToken)).names()).includes(
