@@ -173,6 +173,24 @@ test("agentcomputer create gives endpoints a hand-run MCP client uses", withBrow
   const read = await computer.call("read", { path: "shot" });
   assert.equal(read.text, "shot: image/png");
   assert.deepEqual(read.images, shots);
+
+  // A long page of noise, which doesn't compress, below a blank screenful: asked for whole it is
+  // refused in words that say how to take a smaller one, and what is on screen is still a picture.
+  const noise =
+    "const c = document.querySelector('canvas'), x = c.getContext('2d');" +
+    "const d = x.createImageData(c.width, c.height);" +
+    "for (let i = 0; i < d.data.length; i++) d.data[i] = Math.random() * 256;" +
+    "x.putImageData(d, 0, 0);";
+  const page = `<div style="height:2000px"></div><canvas width="1200" height="2000"></canvas><script>${noise}</script>`;
+  await browser.call("browser_navigate", { url: `data:text/html,${encodeURIComponent(page)}` });
+  const whole = await browser.call("browser_take_screenshot", { fullPage: true });
+  assert.deepEqual([whole.isError, whole.images], [true, []]);
+  assert.match(
+    whole.text,
+    /^The screenshot is \d+\.\d MiB, and the most a screenshot may be is 3 MiB\. Take it again without fullPage for what is on screen, or with element and target for one part of the page\.$/,
+  );
+  const onScreen = await browser.call("browser_take_screenshot");
+  assert.deepEqual([onScreen.isError, onScreen.images.length], [false, 1]);
 });
 
 test("the control token and each computer's token reach only their own", async (t) => {

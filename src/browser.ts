@@ -11,7 +11,11 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 
 /** Its own README calls this equivalent to remote code execution. */
 const RUNS_CODE = "browser_run_code_unsafe";
-const MAX_BODY = 8 * 1024 * 1024;
+const SCREENSHOT = "browser_take_screenshot";
+const MIB = 1024 * 1024;
+const MAX_BODY = 8 * MIB;
+// The most a screenshot may be and still be passed on: what `read` takes for a picture.
+const MAX_PICTURE = 3 * MIB;
 const START_MS = 30_000;
 const STOP_MS = 2_000;
 const ONE_REQUEST =
@@ -61,16 +65,47 @@ const self = fileURLToPath(import.meta.url);
 
 type Message = { id?: unknown; method?: string; params?: { name?: unknown } };
 
-/** Drop a hidden tool from a `tools/list` answer, whichever way it was sent. */
-function withoutHidden(text: string, hidden: ReadonlySet<string>): string {
-  const clean = (json: string) => {
-    const message = JSON.parse(json) as { result?: { tools?: { name: string }[] } };
-    if (message.result?.tools)
-      message.result.tools = message.result.tools.filter((tool) => !hidden.has(tool.name));
+type Answer = {
+  result?: {
+    tools?: { name: string }[];
+    content?: { type: string; data?: string; text?: string }[];
+    isError?: boolean;
+  };
+};
+
+/** Change each message of an answer, whichever way it was sent. */
+export function changed(text: string, change: (message: Answer) => void): string {
+  const one = (json: string) => {
+    const message = JSON.parse(json) as Answer;
+    change(message);
     return JSON.stringify(message);
   };
-  if (text.trimStart().startsWith("{")) return clean(text);
-  return text.replace(/^data: (\{.*\})$/gm, (_, json: string) => `data: ${clean(json)}`);
+  if (text.trimStart().startsWith("{")) return one(text);
+  return text.replace(/^data: (\{[^\n\r]*\})$/gm, (_, json: string) => `data: ${one(json)}`);
+}
+
+/** Drop the hidden tools from a `tools/list` answer. */
+const withoutHidden = (hidden: ReadonlySet<string>) => (message: Answer) => {
+  if (message.result?.tools)
+    message.result.tools = message.result.tools.filter((tool) => !hidden.has(tool.name));
+};
+
+/**
+ * In place of a screenshot too large to pass on, say how to take a smaller one. The most is in
+ * bytes, the same as for a picture that `read` answers; nothing here looks at its width or height.
+ */
+export function withoutLarge(message: Answer) {
+  const sizes = (message.result?.content ?? []).map((block) =>
+    block.type === "image" ? Buffer.byteLength(block.data ?? "", "base64") : 0,
+  );
+  const size = Math.max(0, ...sizes);
+  if (size <= MAX_PICTURE) return;
+  // Rounded up, so that one just over the most never reads as being it.
+  const text =
+    `The screenshot is ${(Math.ceil((size / MIB) * 10) / 10).toFixed(1)} MiB, and the most a ` +
+    `screenshot may be is ${MAX_PICTURE / MIB} MiB. Take it again without fullPage for what is ` +
+    "on screen, or with element and target for one part of the page.";
+  message.result = { isError: true, content: [{ type: "text", text }] };
 }
 
 /** Ask a process to stop, then make it. */
@@ -253,11 +288,13 @@ export class Browser {
       headers,
       ...(message ? { body: JSON.stringify(message) } : {}),
     });
-    if (message?.method === "tools/list" && this.#hidden.size > 0) {
-      const text = withoutHidden(await upstream.text(), this.#hidden);
-      return sendAnswer(new Response(text, upstream), response);
-    }
-    sendAnswer(upstream, response);
+    let change: ((answer: Answer) => void) | undefined;
+    if (message?.method === "tools/list" && this.#hidden.size > 0)
+      change = withoutHidden(this.#hidden);
+    else if (tool === SCREENSHOT) change = withoutLarge;
+    // Every other answer goes on as it comes; these two are read whole first.
+    if (!change) return sendAnswer(upstream, response);
+    sendAnswer(new Response(changed(await upstream.text(), change), upstream), response);
   }
 
   async stop() {
