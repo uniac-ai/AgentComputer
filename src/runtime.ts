@@ -17,6 +17,7 @@ import { LoadLive } from "./load-live.ts";
 import { privateFolder } from "./store.ts";
 
 export type Access = components["schemas"]["Access"];
+export type Isolation = components["schemas"]["Isolation"];
 export type Endpoint = "computer" | "browser";
 
 /** A refusal of the request, with the HTTP status that says so. */
@@ -62,14 +63,15 @@ export interface Running {
 }
 
 export interface Runtime {
-  readonly isolation: "none" | "container";
-  /** Check what it needs before the service says it's up. */
+  /** Whether a computer can be made this way now. */
+  available(): Promise<boolean>;
+  /** Check what it needs, before a computer is started this way. */
   prepare(): Promise<void>;
   /** Start one, or start it again, its private folder being `folder`. */
   start(spec: ComputerSpec, folder: string, events: RuntimeEvents): Promise<Running>;
-  /** Stop one left going by a service that ended without stopping it. */
+  /** Stop one left going by a service that ended without stopping it, or say why not. */
   stopLeftover(id: string): Promise<void>;
-  /** Remove what running it left behind, apart from its folder. */
+  /** Remove what running it left behind, apart from its folder, or say why that can't be done. */
   remove(id: string): Promise<void>;
 }
 
@@ -109,7 +111,6 @@ const loadPty = () => {
 };
 
 export class ProcessRuntime implements Runtime {
-  readonly isolation = "none";
   readonly #config: BrowserConfig;
   readonly #contained: boolean;
 
@@ -117,6 +118,10 @@ export class ProcessRuntime implements Runtime {
   constructor(config: BrowserConfig, contained = false) {
     this.#config = config;
     this.#contained = contained;
+  }
+
+  async available() {
+    return true;
   }
 
   async prepare() {}

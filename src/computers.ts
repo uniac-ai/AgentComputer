@@ -6,7 +6,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import type { Duplex } from "node:stream";
 import type { components } from "./generated/schema.js";
 import type { LiveMode, Surface } from "./live.ts";
-import { ApiError, type Endpoint, type Running, type Runtime } from "./runtime.ts";
+import { ApiError, type Endpoint, type Isolation, type Running, type Runtime } from "./runtime.ts";
 import { digestOf, newToken, privateFolder, sameToken, writePrivate } from "./store.ts";
 
 type Schemas = components["schemas"];
@@ -27,6 +27,8 @@ interface Stored {
   id: string;
   name: string;
   access: Access;
+  /** How it is isolated, for as long as it exists. */
+  isolation: Isolation;
   browser: boolean;
   workspace?: string;
   metadata: Record<string, string>;
@@ -53,28 +55,44 @@ interface Ticket {
 }
 
 const expiry = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+/** Why it didn't start, as the service answers it. */
+const refusalOf = (error: unknown) =>
+  error instanceof ApiError ? error : new ApiError(500, messageOf(error));
 
 export class Computers {
   readonly #data: string;
   readonly #base: () => string;
-  readonly #runtime: Runtime;
+  readonly #runtimes: Record<Isolation, Runtime>;
+  /** The isolation of a computer made without saying which. */
+  readonly isolation: Isolation;
   readonly #stored = new Map<string, Stored>();
   readonly #live = new Map<string, Live>();
   readonly #tickets = new Map<string, Ticket>();
   readonly #file: string;
 
-  constructor(data: string, base: () => string, runtime: Runtime) {
+  constructor(
+    data: string,
+    base: () => string,
+    runtimes: Record<Isolation, Runtime>,
+    isolation: Isolation,
+  ) {
     this.#data = data;
     this.#base = base;
-    this.#runtime = runtime;
+    this.#runtimes = runtimes;
+    this.isolation = isolation;
     this.#file = join(data, "computers.json");
     if (existsSync(this.#file))
+      // One recorded before computers kept their isolation takes the service's, at this start.
       for (const entry of JSON.parse(readFileSync(this.#file, "utf8")) as Stored[])
-        this.#stored.set(entry.id, entry);
+        this.#stored.set(entry.id, { ...entry, isolation: entry.isolation ?? isolation });
   }
 
-  get isolation() {
-    return this.#runtime.isolation;
+  /** The isolations a computer can be made in now. */
+  async available() {
+    const all = Object.keys(this.#runtimes) as Isolation[];
+    const can = await Promise.all(all.map((one) => this.#runtimes[one].available()));
+    return all.filter((_, index) => can[index]);
   }
 
   /** Bring back what was running when the service last stopped. */
@@ -83,12 +101,21 @@ export class Computers {
       if (stored.state !== "running") continue;
       if (stored.endAt && Date.parse(stored.endAt) <= Date.now()) {
         stored.state = "stopped";
-        await this.#runtime.stopLeftover(stored.id);
+        await this.#runtimes[stored.isolation]
+          .stopLeftover(stored.id)
+          .catch((error: unknown) =>
+            this.#log(stored.id, `What it left running wasn't stopped: ${messageOf(error)}`),
+          );
         continue;
       }
-      await this.#start(stored).catch((error: unknown) =>
-        this.#log(stored.id, `It didn't start again: ${String(error)}`),
-      );
+      await this.#start(stored).catch((error: unknown) => {
+        // It shows as failed, with why in its log, until it is stopped and started again.
+        const live = this.#live.get(stored.id);
+        if (live) live.failed = true;
+        // Its time still runs, so that it ends when it was to.
+        this.#arm(stored);
+        this.#log(stored.id, `It didn't start again: ${messageOf(error)}`);
+      });
     }
     this.#save();
   }
@@ -116,6 +143,7 @@ export class Computers {
       id,
       name: name ?? id,
       access,
+      isolation: input.isolation ?? this.isolation,
       browser,
       ...(workspace ? { workspace } : {}),
       metadata: metadata ?? {},
@@ -135,9 +163,9 @@ export class Computers {
     } catch (error) {
       await this.#halt(id);
       this.#stored.delete(id);
-      await this.#runtime.remove(id);
+      await this.#runtimes[stored.isolation].remove(id).catch(() => {});
       rmSync(this.#folder(id), { recursive: true, force: true });
-      throw new ApiError(500, error instanceof Error ? error.message : String(error));
+      throw refusalOf(error);
     }
     this.#save();
     return { ...this.#describe(stored), accessToken: token };
@@ -203,7 +231,7 @@ export class Computers {
       await this.#halt(id);
       stored.state = "stopped";
       this.#save();
-      throw new ApiError(500, error instanceof Error ? error.message : String(error));
+      throw refusalOf(error);
     }
     this.#save();
     return this.#describe(stored);
@@ -211,9 +239,16 @@ export class Computers {
 
   /** Stop everything and remove what the service made. A folder someone named stays. */
   async kill(id: string) {
-    this.#found(id);
+    const stored = this.#found(id);
     await this.#halt(id);
-    await this.#runtime.remove(id);
+    try {
+      await this.#runtimes[stored.isolation].remove(id);
+    } catch (error) {
+      // What it left can't be removed now. It stays, stopped, to be killed when that can be done.
+      stored.state = "stopped";
+      this.#save();
+      throw refusalOf(error);
+    }
     this.#stored.delete(id);
     this.#save();
     // Its records, logs and browser profile, and the workspace if the service made it there.
@@ -338,6 +373,7 @@ export class Computers {
       name: stored.name,
       state: stored.state === "running" && down ? "failed" : stored.state,
       access: stored.access,
+      isolation: stored.isolation,
       browser: stored.browser,
       workspace: stored.workspace ?? null,
       startedAt: stored.startedAt,
@@ -354,7 +390,10 @@ export class Computers {
     const live: Live = {};
     this.#live.set(stored.id, live);
     stored.startedAt = new Date().toISOString();
-    live.running = await this.#runtime.start(
+    // In the isolation it was made in, and never another.
+    const runtime = this.#runtimes[stored.isolation];
+    await runtime.prepare();
+    live.running = await runtime.start(
       {
         id: stored.id,
         access: stored.access,

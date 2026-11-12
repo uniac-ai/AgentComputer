@@ -186,7 +186,10 @@ export interface components {
          * @enum {string}
          */
         Access: "none" | "read" | "files" | "terminal";
-        /** @enum {string} */
+        /**
+         * @description failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again.
+         * @enum {string}
+         */
         ComputerState: "running" | "stopped" | "failed";
         /** @description Seconds from now until the computer stops. */
         Timeout: number;
@@ -204,9 +207,16 @@ export interface components {
             browser: boolean;
             /** @description The full path of a folder that exists, on the service's machine. With none, the service makes a folder, which goes when the computer is killed. A folder named here never does. */
             workspace?: string;
+            /** @description How it is isolated, which it keeps for as long as it exists. Left out, it is the service's own, the `isolation` that `getInfo` answers. */
+            isolation?: components["schemas"]["Isolation"];
             timeout?: components["schemas"]["Timeout"];
             metadata?: components["schemas"]["Metadata"];
         };
+        /**
+         * @description none: processes of whoever started the service. container: a container of its own, which needs Docker on the service's machine.
+         * @enum {string}
+         */
+        Isolation: "none" | "container";
         /** @description MCP over Streamable HTTP, each taking the computer's access token as a bearer. */
         Endpoints: {
             /** @description The terminal and files. */
@@ -219,6 +229,8 @@ export interface components {
             name: string;
             state: components["schemas"]["ComputerState"];
             access: components["schemas"]["Access"];
+            /** @description The isolation it was made in. It is never run in another. */
+            isolation: components["schemas"]["Isolation"];
             browser: boolean;
             workspace: string | null;
             /**
@@ -547,11 +559,10 @@ export interface components {
         };
         ServiceInfo: {
             version: string;
-            /**
-             * @description How this service isolates its computers, chosen when it is started.
-             * @enum {string}
-             */
-            isolation: "none" | "container";
+            /** @description The isolation of a computer made without saying which, chosen when the service is started. */
+            isolation: components["schemas"]["Isolation"];
+            /** @description The isolations a computer can be made in now, `none` first. `container` is among them while Docker answers on the service's machine. It is what to offer, not a promise: Docker is asked for a second here and for ten when a container is made, so one that is slow can be missing here and still be made. If `isolation` itself is missing, a computer made without saying which is refused with 409. */
+            isolationsAvailable: components["schemas"]["Isolation"][];
         };
     };
     responses: {

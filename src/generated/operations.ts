@@ -463,7 +463,8 @@ export const OPENAPI = {
           "running",
           "stopped",
           "failed"
-        ]
+        ],
+        "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
       },
       "Timeout": {
         "type": "integer",
@@ -504,6 +505,10 @@ export const OPENAPI = {
             "maxLength": 4096,
             "description": "The full path of a folder that exists, on the service's machine. With none, the service makes a folder, which goes when the computer is killed. A folder named here never does."
           },
+          "isolation": {
+            "$ref": "#/components/schemas/Isolation",
+            "description": "How it is isolated, which it keeps for as long as it exists. Left out, it is the service's own, the `isolation` that `getInfo` answers."
+          },
           "timeout": {
             "$ref": "#/components/schemas/Timeout"
           },
@@ -511,6 +516,14 @@ export const OPENAPI = {
             "$ref": "#/components/schemas/Metadata"
           }
         }
+      },
+      "Isolation": {
+        "type": "string",
+        "enum": [
+          "none",
+          "container"
+        ],
+        "description": "none: processes of whoever started the service. container: a container of its own, which needs Docker on the service's machine."
       },
       "Endpoints": {
         "type": "object",
@@ -543,6 +556,7 @@ export const OPENAPI = {
           "name",
           "state",
           "access",
+          "isolation",
           "browser",
           "workspace",
           "startedAt",
@@ -562,6 +576,10 @@ export const OPENAPI = {
           },
           "access": {
             "$ref": "#/components/schemas/Access"
+          },
+          "isolation": {
+            "$ref": "#/components/schemas/Isolation",
+            "description": "The isolation it was made in. It is never run in another."
           },
           "browser": {
             "type": "boolean"
@@ -1721,19 +1739,23 @@ export const OPENAPI = {
         "type": "object",
         "required": [
           "version",
-          "isolation"
+          "isolation",
+          "isolationsAvailable"
         ],
         "properties": {
           "version": {
             "type": "string"
           },
           "isolation": {
-            "type": "string",
-            "enum": [
-              "none",
-              "container"
-            ],
-            "description": "How this service isolates its computers, chosen when it is started."
+            "$ref": "#/components/schemas/Isolation",
+            "description": "The isolation of a computer made without saying which, chosen when the service is started."
+          },
+          "isolationsAvailable": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Isolation"
+            },
+            "description": "The isolations a computer can be made in now, `none` first. `container` is among them while Docker answers on the service's machine. It is what to offer, not a promise: Docker is asked for a second here and for ten when a container is made, so one that is slow can be missing here and still be made. If `isolation` itself is missing, a computer made without saying which is refused with 409."
           }
         }
       }
@@ -1778,7 +1800,8 @@ export const OPERATIONS: Operation[] = [
       "type": "object",
       "required": [
         "version",
-        "isolation"
+        "isolation",
+        "isolationsAvailable"
       ],
       "properties": {
         "version": {
@@ -1790,7 +1813,19 @@ export const OPERATIONS: Operation[] = [
             "none",
             "container"
           ],
-          "description": "How this service isolates its computers, chosen when it is started."
+          "description": "The isolation of a computer made without saying which, chosen when the service is started."
+        },
+        "isolationsAvailable": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "none",
+              "container"
+            ],
+            "description": "none: processes of whoever started the service. container: a container of its own, which needs Docker on the service's machine."
+          },
+          "description": "The isolations a computer can be made in now, `none` first. `container` is among them while Docker answers on the service's machine. It is what to offer, not a promise: Docker is asked for a second here and for ten when a container is made, so one that is slow can be missing here and still be made. If `isolation` itself is missing, a computer made without saying which is refused with 409."
         }
       }
     },
@@ -1818,7 +1853,8 @@ export const OPERATIONS: Operation[] = [
             "running",
             "stopped",
             "failed"
-          ]
+          ],
+          "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
         }
       },
       "required": []
@@ -1832,6 +1868,7 @@ export const OPERATIONS: Operation[] = [
           "name",
           "state",
           "access",
+          "isolation",
           "browser",
           "workspace",
           "startedAt",
@@ -1852,7 +1889,8 @@ export const OPERATIONS: Operation[] = [
               "running",
               "stopped",
               "failed"
-            ]
+            ],
+            "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
           },
           "access": {
             "type": "string",
@@ -1863,6 +1901,14 @@ export const OPERATIONS: Operation[] = [
               "terminal"
             ],
             "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+          },
+          "isolation": {
+            "type": "string",
+            "enum": [
+              "none",
+              "container"
+            ],
+            "description": "The isolation it was made in. It is never run in another."
           },
           "browser": {
             "type": "boolean"
@@ -1963,6 +2009,14 @@ export const OPERATIONS: Operation[] = [
           "maxLength": 4096,
           "description": "The full path of a folder that exists, on the service's machine. With none, the service makes a folder, which goes when the computer is killed. A folder named here never does."
         },
+        "isolation": {
+          "type": "string",
+          "enum": [
+            "none",
+            "container"
+          ],
+          "description": "How it is isolated, which it keeps for as long as it exists. Left out, it is the service's own, the `isolation` that `getInfo` answers."
+        },
         "timeout": {
           "type": "integer",
           "minimum": 1,
@@ -1991,6 +2045,7 @@ export const OPERATIONS: Operation[] = [
             "name",
             "state",
             "access",
+            "isolation",
             "browser",
             "workspace",
             "startedAt",
@@ -2011,7 +2066,8 @@ export const OPERATIONS: Operation[] = [
                 "running",
                 "stopped",
                 "failed"
-              ]
+              ],
+              "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
             },
             "access": {
               "type": "string",
@@ -2022,6 +2078,14 @@ export const OPERATIONS: Operation[] = [
                 "terminal"
               ],
               "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+            },
+            "isolation": {
+              "type": "string",
+              "enum": [
+                "none",
+                "container"
+              ],
+              "description": "The isolation it was made in. It is never run in another."
             },
             "browser": {
               "type": "boolean"
@@ -2131,6 +2195,7 @@ export const OPERATIONS: Operation[] = [
             "name",
             "state",
             "access",
+            "isolation",
             "browser",
             "workspace",
             "startedAt",
@@ -2151,7 +2216,8 @@ export const OPERATIONS: Operation[] = [
                 "running",
                 "stopped",
                 "failed"
-              ]
+              ],
+              "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
             },
             "access": {
               "type": "string",
@@ -2162,6 +2228,14 @@ export const OPERATIONS: Operation[] = [
                 "terminal"
               ],
               "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+            },
+            "isolation": {
+              "type": "string",
+              "enum": [
+                "none",
+                "container"
+              ],
+              "description": "The isolation it was made in. It is never run in another."
             },
             "browser": {
               "type": "boolean"
@@ -2362,6 +2436,7 @@ export const OPERATIONS: Operation[] = [
         "name",
         "state",
         "access",
+        "isolation",
         "browser",
         "workspace",
         "startedAt",
@@ -2382,7 +2457,8 @@ export const OPERATIONS: Operation[] = [
             "running",
             "stopped",
             "failed"
-          ]
+          ],
+          "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
         },
         "access": {
           "type": "string",
@@ -2393,6 +2469,14 @@ export const OPERATIONS: Operation[] = [
             "terminal"
           ],
           "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+        },
+        "isolation": {
+          "type": "string",
+          "enum": [
+            "none",
+            "container"
+          ],
+          "description": "The isolation it was made in. It is never run in another."
         },
         "browser": {
           "type": "boolean"
@@ -2486,6 +2570,7 @@ export const OPERATIONS: Operation[] = [
         "name",
         "state",
         "access",
+        "isolation",
         "browser",
         "workspace",
         "startedAt",
@@ -2506,7 +2591,8 @@ export const OPERATIONS: Operation[] = [
             "running",
             "stopped",
             "failed"
-          ]
+          ],
+          "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
         },
         "access": {
           "type": "string",
@@ -2517,6 +2603,14 @@ export const OPERATIONS: Operation[] = [
             "terminal"
           ],
           "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+        },
+        "isolation": {
+          "type": "string",
+          "enum": [
+            "none",
+            "container"
+          ],
+          "description": "The isolation it was made in. It is never run in another."
         },
         "browser": {
           "type": "boolean"
@@ -2615,6 +2709,7 @@ export const OPERATIONS: Operation[] = [
         "name",
         "state",
         "access",
+        "isolation",
         "browser",
         "workspace",
         "startedAt",
@@ -2635,7 +2730,8 @@ export const OPERATIONS: Operation[] = [
             "running",
             "stopped",
             "failed"
-          ]
+          ],
+          "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
         },
         "access": {
           "type": "string",
@@ -2646,6 +2742,14 @@ export const OPERATIONS: Operation[] = [
             "terminal"
           ],
           "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+        },
+        "isolation": {
+          "type": "string",
+          "enum": [
+            "none",
+            "container"
+          ],
+          "description": "The isolation it was made in. It is never run in another."
         },
         "browser": {
           "type": "boolean"

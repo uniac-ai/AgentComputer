@@ -73,19 +73,35 @@ interface Inspected {
 }
 
 export class ContainerRuntime implements Runtime {
-  readonly isolation = "container";
   readonly #image: string;
 
   constructor(image: string) {
     this.#image = image;
   }
 
-  async prepare() {
+  /** Whether Docker answers, asked for no longer than this. */
+  async #answers(ms: number) {
     try {
-      await docker(["version", "--format", "{{.Server.Version}}"]);
-    } catch (error) {
-      throw new Error(`Container isolation needs Docker, which didn't answer: ${String(error)}`);
+      await run("docker", ["version", "--format", "{{.Server.Version}}"], { timeout: ms });
+      return true;
+    } catch {
+      return false;
     }
+  }
+
+  // Asked each time the service says what it can make, so it doesn't wait on a Docker that hangs.
+  available() {
+    return this.#answers(1_000);
+  }
+
+  /** Docker, or the refusal of what can't be done without it. */
+  async #docker() {
+    if (!(await this.#answers(10_000)))
+      throw new ApiError(409, "A container needs Docker, which isn't answering on this machine.");
+  }
+
+  async prepare() {
+    await this.#docker();
     try {
       await docker(["image", "inspect", "--format", "{{.Id}}", this.#image]);
     } catch {
@@ -245,11 +261,14 @@ export class ContainerRuntime implements Runtime {
     throw new Error("Its container didn't start. Its logs say why.");
   }
 
+  // Neither is said to be done where Docker doesn't answer: the container would be left as it is.
   async stopLeftover(id: string) {
+    await this.#docker();
     await docker(["stop", "--time", STOP_SECONDS, nameOf(id)]).catch(() => {});
   }
 
   async remove(id: string) {
+    await this.#docker();
     await docker(["rm", "--force", nameOf(id)]).catch(() => {});
   }
 }

@@ -24,9 +24,10 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
                                     answers, printing where; one running is left as it is
   down                              stop the service, and its computers with it
   status                            where the service is running, if it is
-  info                              the service's version and isolation
+  info                              the service's version, the isolation it gives a computer
+                                    made without saying, and the ones it can make now
   create --access none|read|files|terminal [--browser] [--workspace DIR] [--name NAME]
-         [--timeout SECONDS] [--metadata KEY=VALUE]...
+         [--isolation none|container] [--timeout SECONDS] [--metadata KEY=VALUE]...
                                     make a computer; prints its endpoints and token, once
   list [--state running|stopped|failed]
                                     the computers
@@ -133,10 +134,10 @@ async function main() {
     return id;
   };
   const milliseconds = (seconds: string) => Number(seconds) * 1000;
+  const { isolation } = values;
+  if (isolation !== undefined && isolation !== "none" && isolation !== "container")
+    throw new UsageError("--isolation is none or container.");
   if (command === "serve") {
-    const isolation = values.isolation ?? "none";
-    if (isolation !== "none" && isolation !== "container")
-      throw new UsageError("--isolation is none or container.");
     const { "tls-cert": cert, "tls-key": key } = values;
     if (Boolean(cert) !== Boolean(key))
       throw new UsageError("--tls-cert and --tls-key go together.");
@@ -147,13 +148,11 @@ async function main() {
       tlsProxy: values["tls-proxy"],
       publicUrl: values["public-url"],
       allowOrigins: values["allow-origin"],
-      runtime:
-        isolation === "container"
-          ? new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`)
-          : new ProcessRuntime({
-              browser: values["browser-name"],
-              path: values["browser-path"],
-            }),
+      isolation: isolation ?? "none",
+      runtimes: {
+        none: new ProcessRuntime({ browser: values["browser-name"], path: values["browser-path"] }),
+        container: new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`),
+      },
     });
   }
   // Started by the service for each browser, not for a person to run.
@@ -186,6 +185,7 @@ async function main() {
         ...connection,
         access: values.access as CreateOpts["access"],
         ...(values.browser ? { browser: true } : {}),
+        ...(isolation ? { isolation } : {}),
         ...(values.workspace ? { workspace: resolve(values.workspace) } : {}),
         ...(values.name ? { name: values.name } : {}),
         ...(values.timeout ? { timeoutMs: milliseconds(values.timeout) } : {}),

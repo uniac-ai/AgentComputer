@@ -17,7 +17,7 @@ import { Computers } from "./computers.ts";
 import { OPENAPI, OPERATIONS, type Operation } from "./generated/operations.ts";
 import { createHandlers, VERSION } from "./handlers.ts";
 import { recordOf, running } from "./running.ts";
-import { ApiError, type Runtime } from "./runtime.ts";
+import { ApiError, type Isolation, type Runtime } from "./runtime.ts";
 import { controlToken, digestOf, privateFolder, sameToken, writePrivate } from "./store.ts";
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -27,7 +27,10 @@ const MAX_BODY = 64 * 1024;
 export interface ServeOptions {
   listen: string;
   data: string;
-  runtime: Runtime;
+  /** How a computer is run, for each isolation it can be made in. */
+  runtimes: Record<Isolation, Runtime>;
+  /** The isolation of a computer made without saying which. */
+  isolation: Isolation;
   /** Files holding the certificate and its key, to terminate TLS here. */
   tls?: { cert: string; key: string } | undefined;
   /** A proxy in front of the service terminates TLS, so it may listen in the clear. */
@@ -96,8 +99,8 @@ export async function serve(options: ServeOptions) {
   if (live)
     throw new Error(`A service is already running with its data in ${data}, at ${live.url}.`);
   let base = "";
-  await options.runtime.prepare();
-  const computers = new Computers(data, () => base, options.runtime);
+  await options.runtimes[options.isolation].prepare();
+  const computers = new Computers(data, () => base, options.runtimes, options.isolation);
   const handlers = createHandlers(computers) as unknown as Record<
     string,
     (input: unknown) => Promise<unknown>
@@ -234,7 +237,7 @@ export async function serve(options: ServeOptions) {
   await computers.resume();
   writePrivate(
     record,
-    JSON.stringify({ url: base, pid: process.pid, isolation: options.runtime.isolation }),
+    JSON.stringify({ url: base, pid: process.pid, isolation: options.isolation }),
   );
   process.stdout.write(`AgentComputer on ${base}, data in ${data}\n`);
 
