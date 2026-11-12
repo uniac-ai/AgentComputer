@@ -7,7 +7,7 @@ npm install -g @agentorg/computer
 agentcomputer serve
 ```
 
-In another terminal:
+In another terminal, or after `agentcomputer up`, which runs it in the background instead:
 
 ```sh
 agentcomputer create --access terminal --browser --workspace ~/some/folder
@@ -62,6 +62,7 @@ The file tools stay inside the workspace. That's a check, not a boundary. Below 
 |                                           |                                                                                                        |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `serve`                                   | Run the service: `--listen` (127.0.0.1:7878), `--data`                                                 |
+| `up`, `down`, `status`                    | Run the service in the background, stop it, say where it is running                                    |
 | `info`                                    | The service's version and isolation                                                                    |
 | `create`                                  | Make a computer: `--access`, `--browser`, `--workspace`, `--name`, `--timeout`, `--metadata KEY=VALUE` |
 | `list [--state]`, `get <id>`, `logs <id>` | Look at them                                                                                           |
@@ -70,11 +71,18 @@ The file tools stay inside the workspace. That's a check, not a boundary. Below 
 | `live <id> --surface [--mode]`            | A one-time ticket to open one of its surfaces live; see [Live sessions](#live-sessions)                |
 | `kill <id>`                               | Stop it and remove what the service made                                                               |
 
+**In the background.** `up` takes what `serve` takes, runs the service in the background for you, and returns once it answers, printing its `url`, `pid`, version and isolation. If one is already running for the data folder it prints that one and starts nothing, so whatever starts it, there is one. `status` prints the same, or exits 1 with none running. `down` ends it and says nothing; its computers stop with it, and start again when it next does. `serve` won't run beside a service that has the same data folder. `--version` prints the program's version, with no service.
+
+- What the service writes goes to `service.log` in the data folder, of which `up` keeps the last 1 MiB.
+- It stays when whatever started it goes, and nothing starts it when the machine does. To have it at login, a shell profile can run `agentcomputer up`; a supervisor such as launchd or a systemd user unit is given `agentcomputer serve`, which it keeps in the foreground.
+- `up`, `down` and `status` are for a service on this machine that this machine can reach at its address.
+- `start` and `stop` are a computer's and take its id. With the id left out they stop nothing, and say so.
+
 With no `--workspace`, the service makes a folder, which goes when the computer is killed. A folder you name is never deleted. A computer with a `--timeout` stops when it runs out, and its folder stays.
 
 The service listens on loopback unless you give it TLS; see [Across a network](#across-a-network).
 
-The data folder is `--data`, else `$AGENTCOMPUTER_DATA`, else `$XDG_DATA_HOME/agentcomputer`, else `~/.local/share/agentcomputer`. It holds `control-token` and `server.json`, which the commands read.
+The data folder is `--data`, else `$AGENTCOMPUTER_DATA`, else `$XDG_DATA_HOME/agentcomputer`, else `~/.local/share/agentcomputer`. It holds `control-token` and `server.json`, which the commands read; a `server.json` left by a service that crashed names nothing, and is seen through.
 
 ## API
 

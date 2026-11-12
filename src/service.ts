@@ -10,13 +10,13 @@ import {
 } from "node:http";
 import { createServer as createTlsServer } from "node:https";
 import type { AddressInfo } from "node:net";
-import { join } from "node:path";
 import type { Duplex } from "node:stream";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { fromJsonSchema, McpServer } from "@modelcontextprotocol/server";
 import { Computers } from "./computers.ts";
 import { OPENAPI, OPERATIONS, type Operation } from "./generated/operations.ts";
 import { createHandlers, VERSION } from "./handlers.ts";
+import { recordOf, running } from "./running.ts";
 import { ApiError, type Runtime } from "./runtime.ts";
 import { controlToken, digestOf, privateFolder, sameToken, writePrivate } from "./store.ts";
 
@@ -91,6 +91,10 @@ export async function serve(options: ServeOptions) {
   checkExposure(host, options);
   const data = privateFolder(options.data);
   const control = digestOf(controlToken(data));
+  // Two services would each take the one folder's computers for their own.
+  const live = await running(data);
+  if (live)
+    throw new Error(`A service is already running with its data in ${data}, at ${live.url}.`);
   let base = "";
   await options.runtime.prepare();
   const computers = new Computers(data, () => base, options.runtime);
@@ -224,8 +228,10 @@ export async function serve(options: ServeOptions) {
   base =
     options.publicUrl?.replace(/\/+$/, "") ??
     `${scheme}://${bound.family === "IPv6" ? `[${bound.address}]` : bound.address}:${bound.port}`;
+  // What one that crashed left names nothing, and at this address would be taken for this one.
+  const record = recordOf(data);
+  rmSync(record, { force: true });
   await computers.resume();
-  const record = join(data, "server.json");
   writePrivate(
     record,
     JSON.stringify({ url: base, pid: process.pid, isolation: options.runtime.isolation }),

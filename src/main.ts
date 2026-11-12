@@ -1,5 +1,4 @@
 // `agentcomputer`: run the service, or ask a running one to do something.
-import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -9,6 +8,7 @@ import { serveBrowserMcp } from "./browser-mcp.ts";
 import { ContainerRuntime } from "./container.ts";
 import { VERSION } from "./handlers.ts";
 import { serveInside } from "./inside.ts";
+import { down, recorded, running, up } from "./running.ts";
 import { ProcessRuntime } from "./runtime.ts";
 import { Computer, type CreateOpts, type LiveMode, type LiveSurface } from "./sdk.ts";
 import { serve } from "./service.ts";
@@ -20,6 +20,10 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
         [--browser-name NAME] [--browser-path PATH]
                                     run the service; 127.0.0.1:7878 by default, and
                                     anywhere else only with TLS
+  up [the options of serve]         run the service in the background and return once it
+                                    answers, printing where; one running is left as it is
+  down                              stop the service, and its computers with it
+  status                            where the service is running, if it is
   info                              the service's version and isolation
   create --access none|read|files|terminal [--browser] [--workspace DIR] [--name NAME]
          [--timeout SECONDS] [--metadata KEY=VALUE]...
@@ -34,6 +38,8 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
   live <id> --surface terminal|files|browser|load [--mode watch|operate]
                                     a one-time ticket to open one live, as a WebSocket
   kill <id>                         stop it and remove what the service made
+
+--version prints this program's version, with no service.
 
 The data folder is --data, else $AGENTCOMPUTER_DATA, else $XDG_DATA_HOME/agentcomputer, else
 ~/.local/share/agentcomputer. Commands find the running service there, with its control token.
@@ -54,21 +60,21 @@ function dataFolder(given?: string) {
   );
 }
 
+const none = (data: string) =>
+  `No service is running with its data in ${data}. Start one: agentcomputer up`;
+
 function connectionTo(data: string) {
-  try {
-    const { url } = JSON.parse(readFileSync(join(data, "server.json"), "utf8")) as { url: string };
-    return { apiUrl: url, apiKey: readFileSync(join(data, "control-token"), "utf8").trim() };
-  } catch {
-    throw new Error(
-      `No service is running with its data in ${data}. Start one: agentcomputer serve`,
-    );
-  }
+  const said = recorded(data);
+  if (!said) throw new Error(none(data));
+  return { apiUrl: said.url, apiKey: said.token };
 }
 
 async function main() {
-  const { values, positionals } = parseArgs({
+  const { values, positionals, tokens } = parseArgs({
     allowPositionals: true,
+    tokens: true,
     options: {
+      version: { type: "boolean" },
       data: { type: "string" },
       listen: { type: "string" },
       isolation: { type: "string" },
@@ -99,9 +105,29 @@ async function main() {
     },
   });
   const [command, id, extra] = positionals;
+  if (values.version) return void process.stdout.write(`${VERSION}\n`);
   if (values.help || !command) return void process.stdout.write(USAGE);
   const data = dataFolder(values.data);
   const out = (value: unknown) => process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+  if (command === "status") {
+    const found = await running(data);
+    if (!found) throw new Error(none(data));
+    return out(found);
+  }
+  if (command === "up") {
+    // `serve` gets the same arguments, less the one word.
+    const given = process.argv.slice(2);
+    given.splice(tokens.find((token) => token.kind === "positional")?.index as number, 1);
+    return out(await up(data, process.argv[1] as string, given));
+  }
+  if (command === "down") return down(data);
+  // These two are a computer's: with its id forgotten they stop nothing and say whose they are.
+  if ((command === "start" || command === "stop") && !id) {
+    const service = command === "start" ? "up" : "down";
+    throw new UsageError(
+      `${command} takes a computer's id. For the service itself: agentcomputer ${service}`,
+    );
+  }
   const idOf = () => {
     if (!id) throw new UsageError(`${command} takes a computer's id.`);
     return id;
