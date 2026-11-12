@@ -66,7 +66,7 @@ The file tools stay inside the workspace. That's a check, not a boundary. Below 
 
 Before 0.0.14 the browser's endpoint passed on a body it couldn't read as one request, unchecked. So on a computer made with `--access none`, `read` or `files` and `--browser`, a caller holding that computer's token could run code in its browser by sending the call in a batch or behind a byte order mark. It needed the computer's own token and a client that sends such a body, which MCP clients don't. 0.0.14 fixes it; a computer in a container made by an earlier version keeps the fault until it is killed and made again.
 
-`--browser` drives the Google Chrome installed on the machine, in a profile of the computer's own. `serve --browser-name` and `--browser-path` choose another. The browser has no debug port: a small host process starts it and shares it on a Unix socket in a folder only its user can enter, which the agent's tools and the live view both use. It lives as long as its computer does: a client that ends its session or goes away leaves the browser and its pages as they are, and the agent's `browser_close` is refused. Only an agent with `--access terminal` can stop it, with `browser_run_code_unsafe` or from its terminal.
+`--browser` drives the Google Chrome installed on the machine, in a profile of the computer's own. `serve --browser-name` and `--browser-path` choose another. The browser has no debug port: a small host process starts it and shares it on a Unix socket in a folder only its user can enter, which the agent's tools and the live view both use. Playwright MCP, which serves the tools, listens on a Unix socket in a second such folder, and no port either. Only the service's user can reach them; callers go through the computer's `browser` endpoint and its token. It lives as long as its computer does: a client that ends its session or goes away leaves the browser and its pages as they are, and the agent's `browser_close` is refused. Only an agent with `--access terminal` can stop it, with `browser_run_code_unsafe` or from its terminal.
 
 ## Commands
 
@@ -214,7 +214,6 @@ A shell of your own needs [node-pty](https://github.com/microsoft/node-pty), an 
 
 ## Known limits
 
-- With no isolation, each browser's Playwright MCP listens on a loopback port with no token of its own, so another user on the same machine could reach it directly. Don't run that on a machine you share.
 - A container has no CPU or memory limit, and its network is Docker's default, so it reaches the internet and anything else Docker's network does.
 - In a container the browser runs without its own sandbox, which needs privileges a computer doesn't have. The container is the boundary.
 - A browser that stops, or a container that ends by itself, shows the computer as `failed`, and what can no longer be opened live says so in `surfaces`. So does a computer that couldn't be brought back when the service started, for one in a container because Docker didn't answer; its `logs` say why. Stop the computer and start it again.
