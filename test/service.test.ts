@@ -10,6 +10,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -95,11 +96,15 @@ async function setup(t: test.TestContext, extra: string[] = BROWSER_ARGS) {
     clients.push(client);
     const names = async () => (await client.listTools()).tools.map((tool) => tool.name).sort();
     const call = async (name: string, args: Record<string, unknown> = {}) => {
-      const result = (await client.callTool({ name, arguments: args })) as {
-        content: { text?: string }[];
+      const { content, isError } = (await client.callTool({ name, arguments: args })) as {
+        content: { type: string; text?: string; mimeType?: string; data?: string }[];
         isError?: boolean;
       };
-      return { text: result.content.map((b) => b.text ?? "").join(""), isError: !!result.isError };
+      return {
+        text: content.map((b) => b.text ?? "").join(""),
+        isError: !!isError,
+        images: content.filter((b) => b.type === "image"),
+      };
     };
     return { names, call };
   };
@@ -156,6 +161,18 @@ test("agentcomputer create gives endpoints a hand-run MCP client uses", withBrow
   const browser = await mcp(made.endpoints.browser as string, made.accessToken);
   assert.ok((await browser.names()).includes("browser_navigate"));
   assert.equal((await browser.call("browser_navigate", { url: "about:blank" })).isError, false);
+
+  // A screenshot of its browser comes back as a picture, and a picture in its folder is read as
+  // one, by its bytes and not its name: both are what a client passes on to a model.
+  const shots = (await browser.call("browser_take_screenshot")).images;
+  assert.deepEqual(
+    shots.map((shot) => shot.mimeType),
+    ["image/png"],
+  );
+  writeFileSync(join(workspace, "shot"), Buffer.from(shots[0]?.data ?? "", "base64"));
+  const read = await computer.call("read", { path: "shot" });
+  assert.equal(read.text, "shot: image/png");
+  assert.deepEqual(read.images, shots);
 });
 
 test("the control token and each computer's token reach only their own", async (t) => {
