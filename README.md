@@ -22,7 +22,7 @@ That prints the computer's `computerID`, its endpoints and its `accessToken`, on
 `agentcomputer serve --isolation container` makes each computer a container of its own, which needs Docker on the same machine. The service follows your `DOCKER_HOST` or current context and never changes them.
 
 - The image holds AgentExec, Playwright MCP and a headless Chromium. It is `ghcr.io/uniac-ai/agentcomputer/computer` at the service's version; `--image` names another.
-- `--workspace` is mounted at `/workspace`, read-only at `--access read`, and nothing else of the machine is visible. Docker has to be able to share that folder. Without `--workspace`, the service makes one.
+- `--workspace` is mounted at `/workspace`, read-only at `--access read`, and nothing else of the machine is visible. The computer is told that folder's path on the machine and the machine's name, which `about` answers. Docker has to be able to share that folder. Without `--workspace`, the service makes one.
 - It runs as the user who started the service, with no capabilities.
 - `stop` stops the container and keeps it, so what was installed in it is there at `start`. `kill` removes it. Starting a stopped computer uses the image it was made from.
 
@@ -30,10 +30,26 @@ That prints the computer's `computerID`, its endpoints and its `accessToken`, on
 
 | `--access` | Tools at the `computer` endpoint                          |
 | ---------- | --------------------------------------------------------- |
-| `read`     | `read`, `list`, `search`                                  |
+| `read`     | `about`, `read`, `list`, `search`                         |
 | `files`    | Those, and `edit`                                         |
 | `terminal` | Those, and `exec_command`, `write_stdin`, `list_sessions` |
 | `none`     | No `computer` endpoint; needs `--browser`                 |
+
+`about` tells the agent what a person looking at the computer reads. It takes nothing and answers JSON text, `{"rows": [...]}`, each row a `label` and a `value`, with `"path": true` on a value that is a path and `"caution": true` on one to be read as a caution; a row that is neither has neither. The rows come in this order:
+
+| `label`     | `value`                                                                                   |
+| ----------- | ----------------------------------------------------------------------------------------- |
+| `Where`     | The machine's own name                                                                    |
+| `Folder`    | The workspace's path on that machine, as a path                                           |
+| `Reaches`   | `Read-only files`, `Files`, or `Files and terminal`; with a browser, `, Browser` after it |
+| `Isolation` | `None: it acts as you`, as a caution, or `A container of its own`                         |
+| `CPU`       | Used, of all the machine's CPUs, as a whole percentage: `37%`                             |
+| `Memory`    | Used of the machine's total, counted in 1024s and written GB: `9.2 of 16 GB`              |
+| `Disk`      | Used of total, of the volume the workspace is on, counted in 1000s: `212 of 494 GB`       |
+
+- **In a container** the agent's commands find the folder somewhere else, so `Folder` says both and is not marked as a path: `/home/me/Research on the machine, mounted at /workspace in it`. CPU and Memory there are the computer's own; with no isolation they are the whole machine's.
+- **The last three** are a reading of its load taken over half a second when it is asked, in the same way the `load` surface reads. They come together, or not at all where a reading can't be taken.
+- **Not every computer has it.** One with no `computer` endpoint has no `about`. One in a container made by an earlier version keeps the program it was made with: `about` is listed among its tools and isn't there until it is killed and made again.
 
 The file tools stay inside the workspace. That's a check, not a boundary. Below `terminal`, the browser's `browser_run_code_unsafe` tool is hidden and refused, because it would otherwise be a terminal. The service enforces all of this, whatever the client does.
 
@@ -169,7 +185,7 @@ Every running computer has one more, to watch only:
 - **`load`** (protocol `metrics@1`): how busy it is. The service sends a reading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later: `{"type":"reading","scope":"machine","cpuUsedPct":37.2,"memUsed":…,"memTotal":…,"diskUsed":…,"diskTotal":…}`, in bytes. `openapi.yaml` has each field, as `LoadReading`.
   - **`scope` says whose numbers they are.** A computer in a container reads its own (`computer`), against the machine's totals, since a container has no limit of its own. A computer with no isolation has no edge to measure at, so it reads the whole machine's (`machine`), as every other computer of that service does; so does a container that can't read its own.
   - **The disk is the volume its workspace is on,** not the workspace's own size.
-  - **Nothing depends on it.** Nothing is read while nobody watches, a reading that can't be taken is left out, and a socket that hasn't read the one before is not sent the next.
+  - **Nothing depends on it.** Nothing is read while nobody watches or asks, a reading that can't be taken is left out, and a socket that hasn't read the one before is not sent the next.
 
 `POST /v1/computers/{computerID}/live` with `{ "surface": "terminal", "mode": "operate" }` gives a ticket: a `url` to open once within a minute, which needs no token. A request with an `Origin` header is refused unless `serve --allow-origin` names that origin, so a page can't open one. The SDK does the same with `computer.terminals.connect({ onEvent })`, or gives the ticket alone with `computer.liveSession("files")` or `computer.liveSession("browser", "operate")`, and the CLI with `agentcomputer live <id> --surface terminal --mode operate`.
 

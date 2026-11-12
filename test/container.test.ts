@@ -13,7 +13,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
@@ -145,6 +145,29 @@ test(
   },
 );
 
+test(
+  "about tells its agent what a person outside reads, and where the folder is inside",
+  options,
+  async (t) => {
+    const { Computer, to, workspace, mcp } = await setup(t);
+    const computer = await Computer.create({ ...to(), access: "read", workspace });
+    t.after(() => computer.close());
+    const client = await mcp(computer.getMcpUrl(), computer.getMcpToken());
+    const told = await client.callTool({ name: "about", arguments: {} });
+    const { rows } = JSON.parse(textOf(told)) as { rows: { label: string }[] };
+    assert.deepEqual(rows.slice(0, 4), [
+      { label: "Where", value: hostname() },
+      { label: "Folder", value: `${workspace} on the machine, mounted at /workspace in it` },
+      { label: "Reaches", value: "Read-only files" },
+      { label: "Isolation", value: "A container of its own" },
+    ]);
+    assert.deepEqual(
+      rows.slice(4).map((row) => row.label),
+      ["CPU", "Memory", "Disk"],
+    );
+  },
+);
+
 test("read access is a read-only mount, and lists only its tools", options, async (t) => {
   const { Computer, to, workspace, mcp } = await setup(t);
   writeFileSync(join(workspace, "here.txt"), "for it");
@@ -160,6 +183,7 @@ test("read access is a read-only mount, and lists only its tools", options, asyn
   assert.equal(mounts, "false");
   const client = await mcp(computer.getMcpUrl(), computer.getMcpToken());
   assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name).sort(), [
+    "about",
     "list",
     "read",
     "search",
