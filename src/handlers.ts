@@ -18,7 +18,7 @@ type Handlers = {
   [K in keyof operations]: (input: Input<K>) => Promise<Success<operations[K]["responses"]>>;
 };
 
-export const VERSION = "0.0.12";
+export const VERSION = "0.0.13";
 
 export function createHandlers(computers: Computers): Handlers {
   return {
