@@ -1,9 +1,10 @@
 // A computer's browser: a host process that starts it and shares it on a Unix socket, and
-// Playwright MCP attached to that socket, on a loopback port of its own, proxied under the
+// Playwright MCP attached to that socket and serving on a second Unix socket, proxied under the
 // computer's path, so one address and one token cover both of its endpoints.
 import { type ChildProcess, spawn } from "node:child_process";
-import type { IncomingMessage, ServerResponse } from "node:http";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
+import { request as ask, type IncomingMessage, type ServerResponse } from "node:http";
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { pipeline, Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
@@ -59,6 +60,52 @@ export function sendAnswer(upstream: Response, response: ServerResponse) {
   if (!upstream.body) return void response.end();
   pipeline(Readable.fromWeb(upstream.body as never), response, () => {});
 }
+
+/**
+ * `fetch`, to a server on a Unix socket: the browser's MCP server, which has no port. Only the
+ * URL's path and query are used. Its body is text or bytes, the only kinds sent to it. It answers
+ * once the headers come, with the body streamed; it follows no redirect and has no time limit.
+ */
+export function socketFetch(socket: string) {
+  return (url: string | URL, init: RequestInit = {}) =>
+    new Promise<Response>((done, failed) => {
+      const { body } = init;
+      if (body != null && typeof body !== "string" && !(body instanceof Uint8Array))
+        return failed(new TypeError("A body to the browser's server is text or bytes."));
+      const { pathname, search } = new URL(url);
+      const headers = Object.fromEntries(new Headers(init.headers));
+      if (body != null) headers["content-length"] = String(Buffer.byteLength(body));
+      const sent = ask(
+        {
+          socketPath: socket,
+          path: pathname + search,
+          method: init.method ?? "GET",
+          headers,
+          signal: init.signal ?? undefined,
+        },
+        (answer) => {
+          const answered = new Headers();
+          for (const [name, value] of Object.entries(answer.headers))
+            for (const one of [value ?? []].flat()) answered.append(name, one);
+          const status = answer.statusCode ?? 502;
+          // A Response can't be given a body with one of these.
+          const none = [204, 205, 304].includes(status);
+          if (none) answer.resume();
+          done(
+            new Response(none ? null : (Readable.toWeb(answer) as ReadableStream), {
+              status,
+              headers: answered,
+            }),
+          );
+        },
+      );
+      sent.on("error", failed);
+      sent.end(body ?? undefined);
+    });
+}
+
+/** The browser's MCP server, as its socket is asked for it. */
+const MCP = "http://localhost/mcp";
 
 /** This program, which also runs the browser host and the browser's MCP server. */
 const self = fileURLToPath(import.meta.url);
@@ -121,7 +168,10 @@ async function end(child: ChildProcess) {
 export class Browser {
   readonly #host: ChildProcess;
   #mcp: ChildProcess | undefined;
-  readonly #origin: Promise<string>;
+  /** Where its server answers, by way of its Unix socket. */
+  readonly #served: Promise<ReturnType<typeof socketFetch>>;
+  /** The folder its server made for its socket. */
+  #socketFolder: string | undefined;
   /** The bound browser's socket, for the live viewer. */
   readonly endpoint: Promise<string>;
   readonly #hidden: ReadonlySet<string>;
@@ -175,9 +225,9 @@ export class Browser {
       createInterface({ input: this.#host.stderr as NodeJS.ReadableStream }).on("line", log);
     });
     this.endpoint.catch(() => {});
-    this.#origin = this.endpoint.then(
+    this.#served = this.endpoint.then(
       (endpoint) =>
-        new Promise<string>((done, failed) => {
+        new Promise<ReturnType<typeof socketFetch>>((done, failed) => {
           if (this.#stopping) return failed(new Error("It stopped."));
           const mcp = spawn(
             process.execPath,
@@ -191,27 +241,32 @@ export class Browser {
             failed(new Error(`The browser's server exited with ${code}.`)),
           );
           mcp.once("exit", ended("The browser's server"));
-          for (const stream of [mcp.stdout, mcp.stderr])
-            createInterface({ input: stream as NodeJS.ReadableStream }).on("line", (line) => {
+          createInterface({ input: mcp.stdout as NodeJS.ReadableStream }).on("line", (line) => {
+            try {
+              const { socket } = JSON.parse(line) as { socket: string };
+              log(`The browser's server is on ${socket}.`);
+              this.#socketFolder = dirname(socket);
+              done(socketFetch(socket));
+            } catch {
               log(line);
-              const listening = /^Listening on (http:\/\/[^/\s]+)/.exec(line);
-              if (listening) done(listening[1] as string);
-            });
+            }
+          });
+          createInterface({ input: mcp.stderr as NodeJS.ReadableStream }).on("line", log);
         }),
     );
-    this.#origin.catch(() => {});
+    this.#served.catch(() => {});
   }
 
   /** Wait until it answers, and read its tools. */
   async ready() {
-    const origin = await Promise.race([
-      this.#origin,
+    const served = await Promise.race([
+      this.#served,
       new Promise<never>((_, failed) =>
         setTimeout(() => failed(new Error("The browser's server didn't start.")), START_MS),
       ),
     ]);
     const client = new Client({ name: "agentcomputer", version: "0" });
-    await client.connect(new StreamableHTTPClientTransport(new URL(`${origin}/mcp`)));
+    await client.connect(new StreamableHTTPClientTransport(new URL(MCP), { fetch: served }));
     const { tools } = await client.listTools();
     await client.close();
     this.tools = tools.map((tool) => tool.name).filter((name) => !this.#hidden.has(name));
@@ -219,7 +274,7 @@ export class Browser {
 
   /** Answer one MCP request by passing it on, enforcing what this computer may not do. */
   async handle(request: IncomingMessage, response: ServerResponse) {
-    const origin = await this.#origin;
+    const served = await this.#served;
     const chunks: Buffer[] = [];
     let size = 0;
     for await (const chunk of request) {
@@ -269,7 +324,7 @@ export class Browser {
     // first, which leaves what the person chose in place. Not before a call that answers a chooser
     // itself, which may be one of the agent's own.
     if (tool && this.gate?.takeAnsweredChooser(session) && tool !== "browser_file_upload")
-      await fetch(`${origin}/mcp`, {
+      await served(MCP, {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -283,7 +338,7 @@ export class Browser {
         .catch(() => {});
     if (tool === "browser_file_upload") this.gate?.agentAnsweredChooser();
     if (message) headers["content-type"] = "application/json";
-    const upstream = await fetch(`${origin}/mcp`, {
+    const upstream = await served(MCP, {
       method: request.method as string,
       headers,
       ...(message ? { body: JSON.stringify(message) } : {}),
@@ -300,5 +355,7 @@ export class Browser {
   async stop() {
     this.#stopping = true;
     await Promise.all([this.#mcp, this.#host].map((child) => (child ? end(child) : undefined)));
+    // Its server removes it as it exits, unless it had to be killed first.
+    if (this.#socketFolder) rmSync(this.#socketFolder, { recursive: true, force: true });
   }
 }
