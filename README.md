@@ -35,6 +35,8 @@ That prints the computer's `computerID`, its endpoints and its `accessToken`, on
 | `terminal` | Those, and `exec_command`, `write_stdin`, `list_sessions` |
 | `none`     | No `computer` endpoint; needs `--browser`                 |
 
+`read` answers a text file as numbered lines, and a PNG, JPEG, GIF or WebP of up to 3 MiB as the picture itself: an image an MCP client can pass on to a model. The browser's `browser_take_screenshot` answers an image too, of whatever size it comes to: a `fullPage` one of a long page can be many megabytes. A container made by an earlier version keeps the program it was made with, and refuses a picture as a binary file until it is killed and made again.
+
 `about` tells the agent what a person looking at the computer reads. It takes nothing and answers JSON text, `{"rows": [...]}`, each row a `label` and a `value`, with `"path": true` on a value that is a path and `"caution": true` on one to be read as a caution; a row that is neither has neither. The rows come in this order:
 
 | `label`     | `value`                                                                                   |

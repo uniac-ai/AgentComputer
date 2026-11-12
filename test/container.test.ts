@@ -217,6 +217,20 @@ test(
       textOf(await browser.callTool({ name: "browser_snapshot", arguments: {} })),
       /button "Pay now"/,
     );
+    // Its screenshot is a picture, and so is that picture read from its folder.
+    const picturesOf = (result: unknown) =>
+      (result as { content: { type: string; mimeType?: string; data?: string }[] }).content.filter(
+        (block) => block.type === "image",
+      );
+    const [shot] = picturesOf(
+      await browser.callTool({ name: "browser_take_screenshot", arguments: {} }),
+    );
+    assert.equal(shot?.mimeType, "image/png");
+    writeFileSync(join(workspace, "shot"), Buffer.from(shot?.data ?? "", "base64"));
+    const computer = await mcp(full.getMcpUrl(), full.getMcpToken());
+    const read = await computer.callTool({ name: "read", arguments: { path: "shot" } });
+    assert.equal(textOf(read), "shot: image/png");
+    assert.deepEqual(picturesOf(read), [shot]);
 
     const below = await Computer.create({ ...to(), access: "files", browser: true, workspace });
     t.after(() => below.close());
