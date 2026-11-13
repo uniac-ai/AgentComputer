@@ -22,6 +22,7 @@ import type { SurfaceInfo } from "./live.ts";
 import {
   ApiError,
   type ComputerSpec,
+  type Offer,
   type Running,
   type Runtime,
   type RuntimeEvents,
@@ -31,6 +32,7 @@ import { newToken, writePrivate } from "./store.ts";
 const run = promisify(execFile);
 const START_MS = 60_000;
 const STOP_SECONDS = "5";
+const NO_DOCKER = "A container needs Docker, which isn't answering on this machine.";
 /** Not passed on: they describe this hop, or carry the client's token. */
 const NOT_FORWARDED = new Set([
   "authorization",
@@ -101,15 +103,23 @@ export class ContainerRuntime implements Runtime {
     }
   }
 
-  // Asked each time the service says what it can make, so it doesn't wait on a Docker that hangs.
-  available() {
-    return this.#answers(1_000);
+  // Docker is asked for a second each time the service says what it offers, so that doesn't wait
+  // on a Docker that hangs. Its image has its own browser.
+  async offer(): Promise<Offer> {
+    return {
+      ...((await this.#answers(1_000)) ? { ready: true } : { ready: false, reason: NO_DOCKER }),
+      capabilities: [
+        { capability: "about", ready: true },
+        { capability: "terminal", ready: true },
+        { capability: "files", ready: true },
+      ],
+      browsers: [{ kind: "headless", ready: true }],
+    };
   }
 
   /** Docker, or the refusal of what can't be done without it. */
   async #docker() {
-    if (!(await this.#answers(10_000)))
-      throw new ApiError(409, "A container needs Docker, which isn't answering on this machine.");
+    if (!(await this.#answers(10_000))) throw new ApiError(409, NO_DOCKER);
   }
 
   async prepare() {

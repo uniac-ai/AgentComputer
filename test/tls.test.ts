@@ -242,8 +242,6 @@ test("the service's image, with the machine's Docker, serves a computer across T
     `${root}:${root}`,
     SERVICE_IMAGE as string,
     "serve",
-    "--isolation",
-    "container",
     "--image",
     COMPUTER_IMAGE as string,
     "--data",

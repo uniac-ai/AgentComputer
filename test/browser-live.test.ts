@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import WebSocket from "ws";
+import { CONTAINER, type Kind, make, named } from "./kinds.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 // biome-ignore lint/suspicious/noExplicitAny: each event is JSON the test reads.
@@ -21,11 +22,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");
 const BROWSER = process.env.AGENTCOMPUTER_BROWSER_PATH;
-const IMAGE = process.env.AGENTCOMPUTER_TEST_IMAGE;
 const docker = promisify(execFile);
-const ISOLATIONS: [string, string[] | undefined][] = [
-  ["none", BROWSER ? ["--browser-name", "chromium", "--browser-path", BROWSER] : undefined],
-  ["container", IMAGE ? ["--isolation", "container", "--image", IMAGE] : undefined],
+const KINDS: [Kind, string[] | undefined][] = [
+  ["this", BROWSER ? ["--browser-name", "chromium", "--browser-path", BROWSER] : undefined],
+  ["container", CONTAINER],
 ];
 
 const PAGE = `<!doctype html><title>Live</title>
@@ -44,7 +44,7 @@ async function until(check: () => boolean, what: string, ms = 20_000) {
   }
 }
 
-async function setup(t: test.TestContext, extra: string[]) {
+async function setup(t: test.TestContext, kind: Kind, extra: string[]) {
   const root = realpathSync(
     mkdtempSync(join(process.env.AGENTCOMPUTER_TEST_ROOT ?? tmpdir(), "ac-")),
   );
@@ -94,7 +94,7 @@ async function setup(t: test.TestContext, extra: string[]) {
     rmSync(root, { recursive: true, force: true });
   });
 
-  const computer = await Computer.create({
+  const computer = await make(Computer, kind, {
     ...to,
     access: "terminal",
     browser: true,
@@ -183,22 +183,21 @@ async function setup(t: test.TestContext, extra: string[]) {
   };
 }
 
-for (const [isolation, extra] of ISOLATIONS) {
+for (const [kind, extra] of KINDS) {
   const options = {
     timeout: 180_000,
     skip:
       !extra &&
-      (isolation === "none"
-        ? "needs AGENTCOMPUTER_BROWSER_PATH"
-        : "needs AGENTCOMPUTER_TEST_IMAGE"),
+      (kind === "this" ? "needs AGENTCOMPUTER_BROWSER_PATH" : "needs AGENTCOMPUTER_TEST_IMAGE"),
   };
 
   test(
-    `isolation ${isolation}: a person and the agent use the browser at once, each socket shown its own tab`,
+    `on ${named(kind)}: a person and the agent use the browser at once, each socket shown its own tab`,
     options,
     async (t) => {
       const { computer, call, session, becomes, centre, view, alive } = await setup(
         t,
+        kind,
         extra as string[],
       );
       assert.ok((await computer.getInfo()).surfaces.some((one) => one.surface === "browser"));
@@ -385,7 +384,7 @@ for (const [isolation, extra] of ISOLATIONS) {
         .find(Boolean) as string;
       assert.ok(shared, "the log names the socket");
       const own = dirname(dirname(dirname(shared)));
-      if (isolation === "none") assert.equal(statSync(own).mode & 0o777, 0o700);
+      if (kind === "this") assert.equal(statSync(own).mode & 0o777, 0o700);
       else {
         const name = `agentcomputer-${computer.computerID}`;
         const mode = (

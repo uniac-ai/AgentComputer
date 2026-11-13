@@ -1,5 +1,6 @@
 // Live sessions: one-time tickets, the Origin rule, every terminal on one socket, the agent's
-// commands and a person's shells alike, and a computer's load, the same with and without isolation.
+// commands and a person's shells alike, and a computer's load, the same on this computer and in a
+// container.
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -21,6 +22,7 @@ import { createInterface } from "node:readline";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import WebSocket, { WebSocketServer } from "ws";
+import { CONTAINER, type Kind, make, named } from "./kinds.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 type TerminalEvent = import("../src/sdk.ts").TerminalEvent;
@@ -28,12 +30,9 @@ type Reading = import("../src/generated/schema.js").components["schemas"]["LoadR
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");
-const IMAGE = process.env.AGENTCOMPUTER_TEST_IMAGE;
-const ISOLATIONS: [string, string[]][] = [
-  ["none", []],
-  ...(IMAGE
-    ? ([["container", ["--isolation", "container", "--image", IMAGE]]] as [string, string[]][])
-    : []),
+const KINDS: [Kind, string[]][] = [
+  ["this", []],
+  ...(CONTAINER ? [["container", CONTAINER] as [Kind, string[]]] : []),
 ];
 
 async function until(check: () => boolean, what: string) {
@@ -113,12 +112,12 @@ async function watch(url: string) {
   return { ws, first };
 }
 
-for (const [isolation, extra] of ISOLATIONS) {
+for (const [kind, extra] of KINDS) {
   const options = { timeout: 120_000 };
 
-  test(`isolation ${isolation}: its load, to watch and not to operate`, options, async (t) => {
+  test(`on ${named(kind)}: its load, to watch and not to operate`, options, async (t) => {
     const { Computer, to, workspace } = await setup(t, extra);
-    const computer = await Computer.create({ ...to, access: "read", workspace });
+    const computer = await make(Computer, kind, { ...to, access: "read", workspace });
     t.after(() => computer.close());
     await assert.rejects(computer.liveSession("load", "operate"), /watched, not operated/);
     const watcher = await watch((await computer.liveSession("load")).url);
@@ -126,7 +125,7 @@ for (const [isolation, extra] of ISOLATIONS) {
     watcher.ws.send("dropped");
     const { type, scope, cpuUsedPct, ...bytes } = await watcher.first;
     assert.equal(type, "reading");
-    assert.equal(scope, isolation === "none" ? "machine" : "computer");
+    assert.equal(scope, kind === "this" ? "machine" : "computer");
     assert.ok(cpuUsedPct >= 0 && cpuUsedPct <= 100, `CPU ${cpuUsedPct}`);
     assert.deepEqual(Object.keys(bytes).sort(), ["diskTotal", "diskUsed", "memTotal", "memUsed"]);
     for (const count of Object.values(bytes))
@@ -135,11 +134,11 @@ for (const [isolation, extra] of ISOLATIONS) {
   });
 
   test(
-    `isolation ${isolation}: a ticket opens once, never from a page, and only what it's for`,
+    `on ${named(kind)}: a ticket opens once, never from a page, and only what it's for`,
     options,
     async (t) => {
       const { Computer, to, url, workspace } = await setup(t, extra);
-      const computer = await Computer.create({ ...to, access: "terminal", workspace });
+      const computer = await make(Computer, kind, { ...to, access: "terminal", workspace });
       t.after(() => computer.close());
       const { surfaces } = await computer.getInfo();
       assert.deepEqual(
@@ -166,7 +165,7 @@ for (const [isolation, extra] of ISOLATIONS) {
       assert.equal(await attempt(`${url.replace("http", "ws")}/v1/live/l_made_up`), "404");
       assert.equal((await fetch(`${url}/v1/live/anything`)).status, 426);
 
-      const reader = await Computer.create({ ...to, access: "files", workspace });
+      const reader = await make(Computer, kind, { ...to, access: "files", workspace });
       assert.deepEqual(
         (await reader.getInfo()).surfaces.map((one) => one.surface),
         ["files", "load"],
@@ -176,11 +175,11 @@ for (const [isolation, extra] of ISOLATIONS) {
   );
 
   test(
-    `isolation ${isolation}: the agent's commands as they run, and what came before`,
+    `on ${named(kind)}: the agent's commands as they run, and what came before`,
     options,
     async (t) => {
       const { Computer, to, workspace } = await setup(t, extra);
-      const computer = await Computer.create({ ...to, access: "terminal", workspace });
+      const computer = await make(Computer, kind, { ...to, access: "terminal", workspace });
       t.after(() => computer.close());
       await computer.commands.run("echo earlier");
       const heard: TerminalEvent[] = [];
@@ -217,7 +216,7 @@ for (const [isolation, extra] of ISOLATIONS) {
       const start = heard.find((e) => e.type === "start" && e.id === running.sessionId);
       assert.equal(
         start?.type === "start" && start.workdir,
-        isolation === "none" ? workspace : "/workspace",
+        kind === "this" ? workspace : "/workspace",
       );
 
       await computer.commands.run(`: ${"x".repeat(9_000)}`);
@@ -230,11 +229,11 @@ for (const [isolation, extra] of ISOLATIONS) {
   );
 
   test(
-    `isolation ${isolation}: a person's shell and the agent's commands, each reached by the other`,
+    `on ${named(kind)}: a person's shell and the agent's commands, each reached by the other`,
     options,
     async (t) => {
       const { Computer, to, workspace, alive } = await setup(t, extra);
-      const computer = await Computer.create({ ...to, access: "terminal", workspace });
+      const computer = await make(Computer, kind, { ...to, access: "terminal", workspace });
       t.after(() => computer.close());
       const seen: TerminalEvent[] = [];
       const watched: TerminalEvent[] = [];
@@ -253,7 +252,7 @@ for (const [isolation, extra] of ISOLATIONS) {
       await until(() => watched.some((e) => e.type === "start"), "the watcher hearing it start");
       const shell = seen.find((e) => e.type === "start");
       assert.ok(shell?.type === "start" && shell.by === "person" && shell.tty);
-      assert.equal(shell.workdir, isolation === "none" ? workspace : "/workspace");
+      assert.equal(shell.workdir, kind === "this" ? workspace : "/workspace");
 
       person.sendInput(shell.id, "echo answer-$((6*7))\n");
       await until(() => wrote(seen, shell.id).includes("answer-42"), "the shell's answer");
@@ -353,8 +352,8 @@ for (const [isolation, extra] of ISOLATIONS) {
 }
 
 test("a page's origin can be allowed", { timeout: 60_000 }, async (t) => {
-  const { Computer, to } = await setup(t, ["--allow-origin", "https://agents.example"]);
-  const computer = await Computer.create({ ...to, access: "terminal" });
+  const { Computer, to, workspace } = await setup(t, ["--allow-origin", "https://agents.example"]);
+  const computer = await Computer.attach({ ...to, access: "terminal", workspace });
   t.after(() => computer.close());
   assert.equal(
     await attempt((await computer.liveSession("terminal")).url, "https://agents.example"),
@@ -369,8 +368,8 @@ test("a page's origin can be allowed", { timeout: 60_000 }, async (t) => {
 test("a shell that can't start is refused or heard ending, and nothing else does", {
   timeout: 60_000,
 }, async (t) => {
-  const { Computer, to, alive } = await setup(t, [], "/nonexistent/shell");
-  const computer = await Computer.create({ ...to, access: "terminal" });
+  const { Computer, to, alive, workspace } = await setup(t, [], "/nonexistent/shell");
+  const computer = await Computer.attach({ ...to, access: "terminal", workspace });
   t.after(() => computer.close());
   const heard: TerminalEvent[] = [];
   const person = await computer.terminals.connect({ onEvent: (event) => heard.push(event) });

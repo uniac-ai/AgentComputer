@@ -1,6 +1,6 @@
 // The files surface: a person's file window lists a folder, reads a file a range at a time, finds
-// what changed and, at operate, writes a file a part at a time, the same with and without
-// isolation.
+// what changed and, at operate, writes a file a part at a time, the same on this computer and in a
+// container.
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -22,6 +22,7 @@ import { createInterface } from "node:readline";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import WebSocket from "ws";
+import { CONTAINER, type Kind, make, named } from "./kinds.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 // biome-ignore lint/suspicious/noExplicitAny: each answer is JSON the test reads.
@@ -29,12 +30,9 @@ type Answer = any;
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");
-const IMAGE = process.env.AGENTCOMPUTER_TEST_IMAGE;
-const ISOLATIONS: [string, string[]][] = [
-  ["none", []],
-  ...(IMAGE
-    ? ([["container", ["--isolation", "container", "--image", IMAGE]]] as [string, string[]][])
-    : []),
+const KINDS: [Kind, string[]][] = [
+  ["this", []],
+  ...(CONTAINER ? [["container", CONTAINER] as [Kind, string[]]] : []),
 ];
 const MIB = 1024 * 1024;
 
@@ -144,11 +142,11 @@ async function window(url: string) {
 const temporaries = (folder: string) =>
   readdirSync(folder).filter((name) => name.startsWith(".agentexec-"));
 
-for (const [isolation, extra] of ISOLATIONS) {
+for (const [kind, extra] of KINDS) {
   const options = { timeout: 120_000 };
 
   test(
-    `isolation ${isolation}: a folder is listed, a file is read a range at a time, and what changed is found`,
+    `on ${named(kind)}: a folder is listed, a file is read a range at a time, and what changed is found`,
     options,
     async (t) => {
       const { Computer, to, workspace } = await setup(t, extra);
@@ -159,7 +157,7 @@ for (const [isolation, extra] of ISOLATIONS) {
       writeFileSync(join(workspace, "docs", "old.md"), "old");
       utimesSync(join(workspace, "docs", "old.md"), old, old);
       writeFileSync(join(workspace, "notes.txt"), "hello");
-      const computer = await Computer.create({ ...to, access: "terminal", workspace });
+      const computer = await make(Computer, kind, { ...to, access: "terminal", workspace });
       t.after(() => computer.close());
 
       const files = (await computer.getInfo()).surfaces.find((one) => one.surface === "files");
@@ -183,12 +181,14 @@ for (const [isolation, extra] of ISOLATIONS) {
       );
       const inner = await ask({ type: "list", path: "docs" });
       assert.deepEqual([inner.workspace, inner.path], ["Research notes", "docs"]);
-      // A workspace the service made is called what its folder is.
-      const made = await Computer.create({ ...to, access: "read" });
-      t.after(() => made.close());
-      const own = await window((await made.liveSession("files")).url);
-      t.after(() => own.ws.close());
-      assert.equal((await own.ask({ type: "list" })).workspace, "workspace");
+      // A workspace the service made, which only a made computer has, is called what its folder is.
+      if (kind === "container") {
+        const made = await Computer.create({ ...to, access: "read" });
+        t.after(() => made.close());
+        const own = await window((await made.liveSession("files")).url);
+        t.after(() => own.ws.close());
+        assert.equal((await own.ask({ type: "list" })).workspace, "workspace");
+      }
       assert.equal(inner.entries[0].modifiedAt, old.toISOString());
 
       // A file larger than one message is read by asking for it a range at a time.
@@ -272,12 +272,12 @@ for (const [isolation, extra] of ISOLATIONS) {
   );
 
   test(
-    `isolation ${isolation}: a file is written a part at a time and is there only once it is whole`,
+    `on ${named(kind)}: a file is written a part at a time and is there only once it is whole`,
     options,
     async (t) => {
       const { Computer, to, workspace } = await setup(t, extra);
       writeFileSync(join(workspace, "report.bin"), "before");
-      const computer = await Computer.create({ ...to, access: "files", workspace });
+      const computer = await make(Computer, kind, { ...to, access: "files", workspace });
       t.after(() => computer.close());
       const { ask, part, ws } = await window((await computer.liveSession("files", "operate")).url);
       t.after(() => ws.close());
@@ -366,12 +366,12 @@ for (const [isolation, extra] of ISOLATIONS) {
   );
 
   test(
-    `isolation ${isolation}: watching can't write, and a computer that only reads offers no writing`,
+    `on ${named(kind)}: watching can't write, and a computer that only reads offers no writing`,
     options,
     async (t) => {
       const { Computer, to, workspace } = await setup(t, extra);
       writeFileSync(join(workspace, "a.txt"), "a");
-      const writer = await Computer.create({ ...to, access: "files", workspace });
+      const writer = await make(Computer, kind, { ...to, access: "files", workspace });
       t.after(() => writer.close());
       const watching = await window((await writer.liveSession("files", "watch")).url);
       t.after(() => watching.ws.close());
@@ -390,7 +390,7 @@ for (const [isolation, extra] of ISOLATIONS) {
       watching.ws.send(new Uint8Array(4));
       assert.equal(await watching.closed, 1008);
 
-      const reader = await Computer.create({ ...to, access: "read", workspace });
+      const reader = await make(Computer, kind, { ...to, access: "read", workspace });
       t.after(() => reader.close());
       assert.deepEqual((await reader.getInfo()).surfaces, [
         { surface: "files", protocol: "files@1", operate: false },

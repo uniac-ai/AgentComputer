@@ -11,7 +11,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** What this service is and how it isolates its computers. */
+        /** What this service offers: this computer, the kinds of computer it can make, and the browsers that can go with each, every one ready or not and why. */
         get: operations["getInfo"];
         put?: never;
         post?: never;
@@ -33,6 +33,23 @@ export interface paths {
         put?: never;
         /** Create a computer. It answers once the computer is running. */
         post: operations["createComputer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/computers/attach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Killing it detaches it and removes nothing of the machine's. */
+        post: operations["attachComputer"];
         delete?: never;
         options?: never;
         head?: never;
@@ -207,13 +224,26 @@ export interface components {
             browser: boolean;
             /** @description The full path of a folder that exists, on the service's machine. With none, the service makes a folder, which goes when the computer is killed. A folder named here never does. */
             workspace?: string;
-            /** @description How it is isolated, which it keeps for as long as it exists. Left out, it is the service's own, the `isolation` that `getInfo` answers. */
+            /** @description How it is isolated, which it keeps for as long as it exists: container, the default. One with no isolation is no longer made, and asking for one is refused: attach this computer instead. */
             isolation?: components["schemas"]["Isolation"];
             timeout?: components["schemas"]["Timeout"];
             metadata?: components["schemas"]["Metadata"];
         };
+        AttachComputer: {
+            name?: string;
+            access: components["schemas"]["Access"];
+            /**
+             * @description Whether it has a headless browser of its own. With access none, it must.
+             * @default false
+             */
+            browser: boolean;
+            /** @description Its work folder: the full path of a folder that exists. Commands and relative paths start there and its agent is told to work there, but nothing keeps its files inside it. Detaching never removes it. */
+            workspace: string;
+            timeout?: components["schemas"]["Timeout"];
+            metadata?: components["schemas"]["Metadata"];
+        };
         /**
-         * @description none: processes of whoever started the service. container: a container of its own, which needs Docker on the service's machine.
+         * @description none: processes of whoever started the service, which only this computer has now; a computer made with no isolation before can't start again. container: a container of its own, which needs Docker on the service's machine.
          * @enum {string}
          */
         Isolation: "none" | "container";
@@ -231,7 +261,9 @@ export interface components {
             access: components["schemas"]["Access"];
             /** @description The isolation it was made in. It is never run in another. */
             isolation: components["schemas"]["Isolation"];
-            /** @description The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program. */
+            /** @description Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. */
+            attached: boolean;
+            /** @description The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program. */
             version: string | null;
             browser: boolean;
             workspace: string | null;
@@ -559,12 +591,42 @@ export interface components {
                 line: string;
             }[];
         };
+        Readiness: {
+            ready: boolean;
+            /** @description Why it isn't ready, in a line a person reads. Only when it isn't. */
+            reason?: string;
+        };
+        /**
+         * @description What a computer offers its agent and the person: what it is, its terminals, its files and its screen.
+         * @enum {string}
+         */
+        Capability: "about" | "terminal" | "files" | "screen";
+        CapabilityState: components["schemas"]["Readiness"] & {
+            capability: components["schemas"]["Capability"];
+        };
+        /**
+         * @description headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view.
+         * @enum {string}
+         */
+        BrowserKind: "headless";
+        BrowserState: components["schemas"]["Readiness"] & {
+            kind: components["schemas"]["BrowserKind"];
+        };
+        Offer: {
+            /** @description What such a computer has, each ready or not. */
+            capabilities: components["schemas"]["CapabilityState"][];
+            /** @description The browsers that can go with it, each ready or not. */
+            browsers: components["schemas"]["BrowserState"][];
+        };
+        MadeKind: components["schemas"]["Readiness"] & components["schemas"]["Offer"] & {
+            isolation: components["schemas"]["Isolation"];
+        };
         ServiceInfo: {
             version: string;
-            /** @description The isolation of a computer made without saying which, chosen when the service is started. */
-            isolation: components["schemas"]["Isolation"];
-            /** @description The isolations a computer can be made in now, `none` first. `container` is among them while Docker answers on the service's machine. It is what to offer, not a promise: Docker is asked for a second here and for ten when a container is made, so one that is slow can be missing here and still be made. If `isolation` itself is missing, a computer made without saying which is refused with 409. */
-            isolationsAvailable: components["schemas"]["Isolation"][];
+            /** @description This computer, the machine the service runs on, which is always offered: attached whole, as whoever started the service. */
+            thisComputer: components["schemas"]["Offer"];
+            /** @description Each kind of computer it makes, ready while it can be made now. A container is ready while Docker answers on the service's machine: asked for a second here and for ten when one is made, so one that is slow can be not ready here and still be made. */
+            made: components["schemas"]["MadeKind"][];
         };
     };
     responses: {
@@ -653,6 +715,33 @@ export interface operations {
         };
         responses: {
             /** @description The computer, with its access token, shown only now. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedComputer"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Error"];
+        };
+    };
+    attachComputer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttachComputer"];
+            };
+        };
+        responses: {
+            /** @description It, with its access token, shown only now. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -794,6 +883,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
     getComputerLogs: {

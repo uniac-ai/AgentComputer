@@ -10,7 +10,6 @@ export interface Running {
   url: string;
   pid: number;
   version: string;
-  isolation: string;
 }
 
 const MAX_LOG = 1024 * 1024;
@@ -41,8 +40,8 @@ export async function running(data: string, said = recorded(data)): Promise<Runn
       signal: AbortSignal.timeout(3_000),
     });
     if (!answer.ok) return undefined;
-    const { version, isolation } = (await answer.json()) as Running;
-    return { url: said.url, pid: said.pid, version, isolation };
+    const { version } = (await answer.json()) as Running;
+    return { url: said.url, pid: said.pid, version };
   } catch {
     return undefined;
   }

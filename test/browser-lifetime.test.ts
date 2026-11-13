@@ -1,5 +1,5 @@
 // A computer's browser lives as long as the computer does, whatever its clients do: one that ends
-// its session, one that goes without a word, and an agent that asks to close it. With no isolation
+// its session, one that goes without a word, and an agent that asks to close it. On this computer
 // the browser is the one AGENTCOMPUTER_BROWSER_PATH names, and in a container the image's.
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn } from "node:child_process";
@@ -11,16 +11,16 @@ import { createInterface } from "node:readline";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { CONTAINER, type Kind, make, named } from "./kinds.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");
 const BROWSER = process.env.AGENTCOMPUTER_BROWSER_PATH;
-const IMAGE = process.env.AGENTCOMPUTER_TEST_IMAGE;
-const ISOLATIONS: [string, string[] | undefined][] = [
-  ["none", BROWSER ? ["--browser-name", "chromium", "--browser-path", BROWSER] : undefined],
-  ["container", IMAGE ? ["--isolation", "container", "--image", IMAGE] : undefined],
+const KINDS: [Kind, string[] | undefined][] = [
+  ["this", BROWSER ? ["--browser-name", "chromium", "--browser-path", BROWSER] : undefined],
+  ["container", CONTAINER],
 ];
 
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
@@ -32,7 +32,7 @@ async function until(check: () => Promise<boolean>, what: string) {
   }
 }
 
-async function setup(t: test.TestContext, extra: string[]) {
+async function setup(t: test.TestContext, kind: Kind, extra: string[]) {
   const root = realpathSync(
     mkdtempSync(join(process.env.AGENTCOMPUTER_TEST_ROOT ?? tmpdir(), "ac-")),
   );
@@ -72,7 +72,12 @@ async function setup(t: test.TestContext, extra: string[]) {
     await gone;
     rmSync(root, { recursive: true, force: true });
   });
-  const computer = await Computer.create({ ...to, access: "terminal", browser: true, workspace });
+  const computer = await make(Computer, kind, {
+    ...to,
+    access: "terminal",
+    browser: true,
+    workspace,
+  });
   /** One session on the browser, as one client holds. */
   const session = async () => {
     const transport = new StreamableHTTPClientTransport(new URL(computer.getMcpUrl("browser")), {
@@ -108,16 +113,14 @@ async function setup(t: test.TestContext, extra: string[]) {
   return { computer, session, known };
 }
 
-for (const [isolation, extra] of ISOLATIONS)
-  test(`isolation ${isolation}: its browser outlives its clients, and isn't theirs to close`, {
+for (const [kind, extra] of KINDS)
+  test(`on ${named(kind)}: its browser outlives its clients, and isn't theirs to close`, {
     timeout: 180_000,
     skip:
       !extra &&
-      (isolation === "none"
-        ? "needs AGENTCOMPUTER_BROWSER_PATH"
-        : "needs AGENTCOMPUTER_TEST_IMAGE"),
+      (kind === "this" ? "needs AGENTCOMPUTER_BROWSER_PATH" : "needs AGENTCOMPUTER_TEST_IMAGE"),
   }, async (t) => {
-    const { computer, session, known } = await setup(t, extra as string[]);
+    const { computer, session, known } = await setup(t, kind, extra as string[]);
     /** The computer runs, and a new client finds the page where it was left. */
     const stillThere = async () => {
       assert.equal((await computer.getInfo()).state, "running");

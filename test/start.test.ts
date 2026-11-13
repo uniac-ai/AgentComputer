@@ -69,7 +69,7 @@ test("up runs it in the background once, status finds it, and down ends it", asy
   assert.equal(started.code, 0, started.err);
   const { url, pid, ...said } = JSON.parse(started.out) as Record<string, unknown>;
   assert.match(String(url), /^http:\/\/127\.0\.0\.1:\d+$/);
-  assert.deepEqual(said, { version, isolation: "none" });
+  assert.deepEqual(said, { version });
 
   // Asked again it is the same one, and another can't be run beside it.
   assert.deepEqual(await run("status"), { code: 0, out: started.out, err: "" });
@@ -105,11 +105,11 @@ test("its log keeps the end of what it wrote, and up says why it failed", async 
   mkdirSync(data, { mode: 0o700 });
   const log = join(data, "service.log");
   writeFileSync(log, "x".repeat(2 * 1024 * 1024));
-  const refused = await run("up", "--isolation", "vm");
+  const refused = await run("up", "--isolation", "none");
   assert.equal(refused.code, 1);
   assert.match(
     refused.err,
-    /^The service didn't start\. It said:\n--isolation is none or container\.\n/,
+    /^The service didn't start\. It said:\nserve takes no --isolation: computers are made in containers, and this computer is attached\.\n/,
   );
   assert.ok(statSync(log).size < 1024 * 1024 + 4096);
 

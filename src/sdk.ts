@@ -42,13 +42,18 @@ export interface ConnectionOpts {
 export interface CreateOpts extends ConnectionOpts {
   access: Schemas["Access"];
   browser?: boolean;
-  /** How it is isolated. By default, as the service was started to make them. */
+  /** How it is isolated: a container by default, and no other is offered now. */
   isolation?: Schemas["Isolation"];
   workspace?: string;
   name?: string;
   /** How long until it stops, in milliseconds. By default it doesn't. */
   timeoutMs?: number;
   metadata?: Record<string, string>;
+}
+/** This computer, attached whole: its files and commands reach all of it, as the service's user. */
+export interface AttachOpts extends Omit<CreateOpts, "isolation" | "workspace"> {
+  /** Its work folder, where commands and relative paths start. Detaching never removes it. */
+  workspace: string;
 }
 export interface CommandResult {
   exitCode: number;
@@ -72,6 +77,21 @@ export class ComputerError extends Error {
 }
 
 const seconds = (ms: number) => Math.max(1, Math.ceil(ms / 1000));
+
+/** What making and attaching a computer both send, and where to. */
+function bodyOf(opts: Omit<CreateOpts, "isolation" | "workspace">) {
+  const { access, browser, name, timeoutMs, metadata, apiKey, apiUrl } = opts;
+  return {
+    connection: { ...(apiKey ? { apiKey } : {}), ...(apiUrl ? { apiUrl } : {}) },
+    body: {
+      access,
+      browser: browser ?? false,
+      ...(name === undefined ? {} : { name }),
+      ...(timeoutMs === undefined ? {} : { timeout: seconds(timeoutMs) }),
+      ...(metadata === undefined ? {} : { metadata }),
+    },
+  };
+}
 
 function apiOf(opts: ConnectionOpts = {}) {
   const apiKey = opts.apiKey ?? process.env.AGENTCOMPUTER_API_KEY;
@@ -338,23 +358,29 @@ export class Computer {
   }
 
   static async create(opts: CreateOpts): Promise<Computer> {
-    const { access, browser, isolation, workspace, name, timeoutMs, metadata, apiKey, apiUrl } =
-      opts;
-    const connection = { ...(apiKey ? { apiKey } : {}), ...(apiUrl ? { apiUrl } : {}) };
+    const { isolation, workspace } = opts;
+    const { connection, body } = bodyOf(opts);
     const created = answered(
       await apiOf(connection).POST("/v1/computers", {
         body: {
-          access,
-          browser: browser ?? false,
+          ...body,
           ...(isolation === undefined ? {} : { isolation }),
           ...(workspace === undefined ? {} : { workspace }),
-          ...(name === undefined ? {} : { name }),
-          ...(timeoutMs === undefined ? {} : { timeout: seconds(timeoutMs) }),
-          ...(metadata === undefined ? {} : { metadata }),
         },
       }),
     );
     return new Computer(connection, created, created.accessToken);
+  }
+
+  /** This computer, attached whole. Killing it detaches it and removes nothing of the machine's. */
+  static async attach(opts: AttachOpts): Promise<Computer> {
+    const { connection, body } = bodyOf(opts);
+    const attached = answered(
+      await apiOf(connection).POST("/v1/computers/attach", {
+        body: { ...body, workspace: opts.workspace },
+      }),
+    );
+    return new Computer(connection, attached, attached.accessToken);
   }
 
   /** A computer made earlier. Its token was shown when it was made, and only then. */

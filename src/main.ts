@@ -15,7 +15,7 @@ import { serve } from "./service.ts";
 
 const USAGE = `Usage: agentcomputer <command> [--data DIR]
 
-  serve [--listen HOST:PORT] [--isolation none|container] [--image IMAGE]
+  serve [--listen HOST:PORT] [--image IMAGE]
         [--tls-cert FILE --tls-key FILE | --tls-proxy] [--public-url URL] [--allow-origin ORIGIN]...
         [--browser-name NAME] [--browser-path PATH]
                                     run the service; 127.0.0.1:7878 by default, and
@@ -24,11 +24,16 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
                                     answers, printing where; one running is left as it is
   down                              stop the service, and its computers with it
   status                            where the service is running, if it is
-  info                              the service's version, the isolation it gives a computer
-                                    made without saying, and the ones it can make now
+  info                              the service's version and what it offers: this computer,
+                                    the kinds it makes, and their browsers, each ready or not
   create --access none|read|files|terminal [--browser] [--workspace DIR] [--name NAME]
-         [--isolation none|container] [--timeout SECONDS] [--metadata KEY=VALUE]...
-                                    make a computer; prints its endpoints and token, once
+         [--isolation container] [--timeout SECONDS] [--metadata KEY=VALUE]...
+                                    make a computer, in a container; prints its endpoints and
+                                    token, once
+  attach --access none|read|files|terminal --workspace DIR [--browser] [--name NAME]
+         [--timeout SECONDS] [--metadata KEY=VALUE]...
+                                    attach this computer, whole and acting as you, with DIR its
+                                    work folder; prints its endpoints and token, once
   list [--state running|stopped|failed]
                                     the computers
   get <id>                          one computer
@@ -38,7 +43,8 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
   logs <id>                         what its servers wrote
   live <id> --surface terminal|files|browser|load [--mode watch|operate]
                                     a one-time ticket to open one live, as a WebSocket
-  kill <id>                         stop it and remove what the service made
+  kill <id>                         stop it and remove what the service made, or detach this
+                                    computer
 
 --version prints this program's version, with no service.
 
@@ -135,6 +141,10 @@ async function main() {
   };
   const milliseconds = (seconds: string) => Number(seconds) * 1000;
   const { isolation } = values;
+  if (command === "serve" && isolation !== undefined)
+    throw new UsageError(
+      "serve takes no --isolation: computers are made in containers, and this computer is attached.",
+    );
   if (isolation !== undefined && isolation !== "none" && isolation !== "container")
     throw new UsageError("--isolation is none or container.");
   if (command === "serve") {
@@ -148,7 +158,6 @@ async function main() {
       tlsProxy: values["tls-proxy"],
       publicUrl: values["public-url"],
       allowOrigins: values["allow-origin"],
-      isolation: isolation ?? "none",
       runtimes: {
         none: new ProcessRuntime({ browser: values["browser-name"], path: values["browser-path"] }),
         container: new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`),
@@ -176,33 +185,44 @@ async function main() {
       browser: values.browser === true,
     });
   const connection = connectionTo(data);
+  /** What create and attach both take. */
+  const making = () => {
+    if (!values.access) throw new UsageError(`${command} takes --access.`);
+    return {
+      ...connection,
+      access: values.access as CreateOpts["access"],
+      ...(values.browser ? { browser: true } : {}),
+      ...(values.name ? { name: values.name } : {}),
+      ...(values.timeout ? { timeoutMs: milliseconds(values.timeout) } : {}),
+      ...(values.metadata
+        ? {
+            metadata: Object.fromEntries(
+              values.metadata.map((pair) => {
+                const at = pair.indexOf("=");
+                if (at < 1) throw new UsageError("--metadata takes KEY=VALUE.");
+                return [pair.slice(0, at), pair.slice(at + 1)];
+              }),
+            ),
+          }
+        : {}),
+    };
+  };
+  const made = async (computer: Computer) =>
+    out({ ...(await computer.getInfo()), accessToken: computer.getMcpToken() });
   switch (command) {
     case "info":
       return out(await Computer.serviceInfo(connection));
-    case "create": {
-      if (!values.access) throw new UsageError("create takes --access.");
-      const computer = await Computer.create({
-        ...connection,
-        access: values.access as CreateOpts["access"],
-        ...(values.browser ? { browser: true } : {}),
-        ...(isolation ? { isolation } : {}),
-        ...(values.workspace ? { workspace: resolve(values.workspace) } : {}),
-        ...(values.name ? { name: values.name } : {}),
-        ...(values.timeout ? { timeoutMs: milliseconds(values.timeout) } : {}),
-        ...(values.metadata
-          ? {
-              metadata: Object.fromEntries(
-                values.metadata.map((pair) => {
-                  const at = pair.indexOf("=");
-                  if (at < 1) throw new UsageError("--metadata takes KEY=VALUE.");
-                  return [pair.slice(0, at), pair.slice(at + 1)];
-                }),
-              ),
-            }
-          : {}),
-      });
-      return out({ ...(await computer.getInfo()), accessToken: computer.getMcpToken() });
-    }
+    case "create":
+      return made(
+        await Computer.create({
+          ...making(),
+          ...(isolation ? { isolation } : {}),
+          ...(values.workspace ? { workspace: resolve(values.workspace) } : {}),
+        }),
+      );
+    case "attach":
+      if (!values.workspace) throw new UsageError("attach takes --workspace.");
+      return made(await Computer.attach({ ...making(), workspace: resolve(values.workspace) }));
     case "list":
       return out(
         await Computer.list({
