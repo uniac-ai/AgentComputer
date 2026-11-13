@@ -38,6 +38,7 @@ interface Created {
   computerID: string;
   state: string;
   isolation: string;
+  version: string | null;
   accessToken: string;
   workspace: string | null;
   endpoints: { computer: string | null; browser: string | null };
@@ -458,9 +459,11 @@ test(
     assert.equal((await raw(`${url()}${before}`, made.accessToken)).status, 200);
     assert.match(await cli("logs", made.computerID), /POST mcp\/computer/);
     const listed = JSON.parse(await cli("list")) as Created[];
+    // With no isolation it runs the service's own program.
+    const { version } = JSON.parse(await cli("info")) as { version: string };
     assert.deepEqual(
-      listed.map((one) => [one.computerID, one.state, one.isolation]),
-      [[made.computerID, "running", "none"]],
+      listed.map((one) => [one.computerID, one.state, one.isolation, one.version]),
+      [[made.computerID, "running", "none", version]],
     );
   },
 );

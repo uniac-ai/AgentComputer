@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Duplex } from "node:stream";
+import { VERSION } from "./handlers.ts";
 import type { Surface } from "./live.ts";
 import { type Access, ApiError, ProcessRuntime } from "./runtime.ts";
 import { digestOf, privateFolder, sameToken } from "./store.ts";
@@ -50,7 +51,7 @@ export async function serveInside(options: { access: Access; browser: boolean })
     if (pathname === "/ready") {
       const { browserTools, surfaces } = await running;
       response.writeHead(200, { "Content-Type": "application/json" });
-      return void response.end(JSON.stringify({ browserTools, surfaces }));
+      return void response.end(JSON.stringify({ browserTools, surfaces, version: VERSION }));
     }
     const endpoint = /^\/mcp\/(computer|browser)$/.exec(pathname)?.[1];
     if (!endpoint) return void response.writeHead(404).end();

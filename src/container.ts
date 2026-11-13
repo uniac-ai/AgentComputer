@@ -1,8 +1,9 @@
-// A computer as a container of its own: the service's image, the workspace mounted, a port on the
-// machine's loopback that takes a token only the service holds. A stopped computer's container
-// stays, so what was installed in it is there when it starts again.
+// A computer as a container of its own: the service's image, the workspace and its home mounted,
+// a port on the machine's loopback that takes a token only the service holds. A stopped
+// computer's container stays, and starts again as it was, unless it was made from another image
+// than the service's: then it is made again, which keeps the two folders that are mounted.
 import { execFile, spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { connect } from "node:net";
 import { hostname } from "node:os";
@@ -59,21 +60,32 @@ const UPGRADE_HEADERS = [
   "sec-websocket-protocol",
 ];
 
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const nameOf = (id: string) => `agentcomputer-${id}`;
+/** Its home in there, which is a folder of the machine's, in the computer's own. */
+const HOME = "/home/computer";
+const homeOf = (folder: string) => join(folder, "home");
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 interface Ready {
   browserTools: string[];
   surfaces: SurfaceInfo[];
+  /** The program's version inside, which one made before 0.0.17 doesn't say. */
+  version?: string;
 }
 
 interface Inspected {
+  /** The id of the image it was made from. */
+  Image: string;
+  Mounts: { Destination: string }[];
   State: { Running: boolean; StartedAt: string };
   NetworkSettings: { Ports: Record<string, { HostPort: string }[] | null> };
 }
 
 export class ContainerRuntime implements Runtime {
   readonly #image: string;
+  /** The id of that image, as it is now on this machine. */
+  #imageId: string | undefined;
 
   constructor(image: string) {
     this.#image = image;
@@ -102,11 +114,13 @@ export class ContainerRuntime implements Runtime {
 
   async prepare() {
     await this.#docker();
+    const id = () => docker(["image", "inspect", "--format", "{{.Id}}", this.#image]);
     try {
-      await docker(["image", "inspect", "--format", "{{.Id}}", this.#image]);
+      this.#imageId = await id();
     } catch {
       process.stdout.write(`Pulling ${this.#image}\n`);
       await docker(["pull", this.#image]);
+      this.#imageId = await id();
     }
   }
 
@@ -118,7 +132,46 @@ export class ContainerRuntime implements Runtime {
     }
   }
 
-  async #create(name: string, spec: ComputerSpec, token: string) {
+  /**
+   * Remove a container made from another image, for it to be made again. What it keeps is outside
+   * it: its workspace, and its home. One made before its home was outside has its home copied out
+   * first, and if that can't be done it is kept as it is, to try again at its next start.
+   */
+  async #remake(name: string, made: Inspected, folder: string, events: RuntimeEvents) {
+    if (!made.Mounts.some((mount) => mount.Destination === HOME)) {
+      const home = homeOf(folder);
+      const copying = `${home}.copying`;
+      rmSync(copying, { recursive: true, force: true });
+      try {
+        // With no user of its own given, it runs as the image's, so its files keep their owner.
+        const owners = process.getuid?.() ? [] : ["--archive"];
+        await docker(["cp", ...owners, `${name}:${HOME}`, copying]);
+        // Its home is the container's until the container goes: what is here is an earlier try.
+        rmSync(home, { recursive: true, force: true });
+        renameSync(copying, home);
+      } catch (error) {
+        rmSync(copying, { recursive: true, force: true });
+        events.log(
+          `Its home couldn't be copied out of its container (${messageOf(error)}), so the ` +
+            "container is kept and started as it was made. " +
+            "The copy is tried again at its next start.",
+        );
+        return;
+      }
+      events.log("Its home was copied out of its container, to keep.");
+    }
+    await docker(["rm", "--force", name]);
+    events.log(
+      `Its container was made from another image, so it is made again from ${this.#image}.`,
+    );
+  }
+
+  async #create(name: string, spec: ComputerSpec, token: string, folder: string) {
+    // Writable by whoever it runs as, as the image's own home is. Only the service's user can
+    // reach the computer's folder it is in.
+    const home = homeOf(folder);
+    mkdirSync(home, { recursive: true });
+    chmodSync(home, 0o1777);
     const uid = process.getuid?.();
     // What the program inside is told: its token, and what its workspace and its machine are
     // outside, which in there are only /workspace and the container.
@@ -146,6 +199,8 @@ export class ContainerRuntime implements Runtime {
         ...Object.keys(told).flatMap((name) => ["--env", name]),
         // Files it writes in the workspace belong to whoever runs the service.
         ...(uid ? ["--user", `${uid}:${process.getgid?.()}`] : []),
+        "--mount",
+        `type=bind,source=${home},target=${HOME}`,
         ...(spec.workspace
           ? [
               "--mount",
@@ -177,7 +232,11 @@ export class ContainerRuntime implements Runtime {
   async start(spec: ComputerSpec, folder: string, events: RuntimeEvents): Promise<Running> {
     const name = nameOf(spec.id);
     const token = this.#tokenIn(folder);
-    if (!(await this.#inspect(name))) await this.#create(name, spec, token);
+    const made = await this.#inspect(name);
+    // One made from another image, as after an update, is made again from this one.
+    if (made && this.#imageId && made.Image !== this.#imageId)
+      await this.#remake(name, made, folder, events);
+    if (!(await this.#inspect(name))) await this.#create(name, spec, token, folder);
     await docker(["start", name]);
     const inspected = await this.#inspect(name);
     const port = inspected?.NetworkSettings.Ports[`${INNER_PORT}/tcp`]?.[0]?.HostPort;
@@ -217,6 +276,7 @@ export class ContainerRuntime implements Runtime {
 
     return {
       browserTools: ready.browserTools,
+      version: ready.version,
       /** As they are now: nothing of a container that has stopped can be opened. */
       get surfaces() {
         return ready.surfaces.map((one) =>

@@ -557,6 +557,7 @@ export const OPENAPI = {
           "state",
           "access",
           "isolation",
+          "version",
           "browser",
           "workspace",
           "startedAt",
@@ -580,6 +581,13 @@ export const OPENAPI = {
           "isolation": {
             "$ref": "#/components/schemas/Isolation",
             "description": "The isolation it was made in. It is never run in another."
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
           },
           "browser": {
             "type": "boolean"
@@ -1869,6 +1877,7 @@ export const OPERATIONS: Operation[] = [
           "state",
           "access",
           "isolation",
+          "version",
           "browser",
           "workspace",
           "startedAt",
@@ -1909,6 +1918,13 @@ export const OPERATIONS: Operation[] = [
               "container"
             ],
             "description": "The isolation it was made in. It is never run in another."
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
           },
           "browser": {
             "type": "boolean"
@@ -2046,6 +2062,7 @@ export const OPERATIONS: Operation[] = [
             "state",
             "access",
             "isolation",
+            "version",
             "browser",
             "workspace",
             "startedAt",
@@ -2086,6 +2103,13 @@ export const OPERATIONS: Operation[] = [
                 "container"
               ],
               "description": "The isolation it was made in. It is never run in another."
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
             },
             "browser": {
               "type": "boolean"
@@ -2196,6 +2220,7 @@ export const OPERATIONS: Operation[] = [
             "state",
             "access",
             "isolation",
+            "version",
             "browser",
             "workspace",
             "startedAt",
@@ -2236,6 +2261,13 @@ export const OPERATIONS: Operation[] = [
                 "container"
               ],
               "description": "The isolation it was made in. It is never run in another."
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
             },
             "browser": {
               "type": "boolean"
@@ -2437,6 +2469,7 @@ export const OPERATIONS: Operation[] = [
         "state",
         "access",
         "isolation",
+        "version",
         "browser",
         "workspace",
         "startedAt",
@@ -2477,6 +2510,13 @@ export const OPERATIONS: Operation[] = [
             "container"
           ],
           "description": "The isolation it was made in. It is never run in another."
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
         },
         "browser": {
           "type": "boolean"
@@ -2571,6 +2611,7 @@ export const OPERATIONS: Operation[] = [
         "state",
         "access",
         "isolation",
+        "version",
         "browser",
         "workspace",
         "startedAt",
@@ -2611,6 +2652,13 @@ export const OPERATIONS: Operation[] = [
             "container"
           ],
           "description": "The isolation it was made in. It is never run in another."
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
         },
         "browser": {
           "type": "boolean"
@@ -2710,6 +2758,7 @@ export const OPERATIONS: Operation[] = [
         "state",
         "access",
         "isolation",
+        "version",
         "browser",
         "workspace",
         "startedAt",
@@ -2750,6 +2799,13 @@ export const OPERATIONS: Operation[] = [
             "container"
           ],
           "description": "The isolation it was made in. It is never run in another."
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
         },
         "browser": {
           "type": "boolean"

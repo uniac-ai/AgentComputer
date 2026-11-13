@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Duplex } from "node:stream";
 import type { components } from "./generated/schema.js";
+import { VERSION } from "./handlers.ts";
 import type { LiveMode, Surface } from "./live.ts";
 import { ApiError, type Endpoint, type Isolation, type Running, type Runtime } from "./runtime.ts";
 import { digestOf, newToken, privateFolder, sameToken, writePrivate } from "./store.ts";
@@ -29,6 +30,8 @@ interface Stored {
   access: Access;
   /** How it is isolated, for as long as it exists. */
   isolation: Isolation;
+  /** The version of the program it ran at its last start, where that is known. */
+  version?: string;
   browser: boolean;
   workspace?: string;
   metadata: Record<string, string>;
@@ -374,6 +377,7 @@ export class Computers {
       state: stored.state === "running" && down ? "failed" : stored.state,
       access: stored.access,
       isolation: stored.isolation,
+      version: stored.version ?? null,
       browser: stored.browser,
       workspace: stored.workspace ?? null,
       startedAt: stored.startedAt,
@@ -409,6 +413,10 @@ export class Computers {
         },
       },
     );
+    // With no isolation it runs this service's program; in a container, its image's, if it says.
+    const version = stored.isolation === "none" ? VERSION : live.running.version;
+    if (version) stored.version = version;
+    else delete stored.version;
     this.#arm(stored);
   }
 

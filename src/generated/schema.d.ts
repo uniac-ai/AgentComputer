@@ -231,6 +231,8 @@ export interface components {
             access: components["schemas"]["Access"];
             /** @description The isolation it was made in. It is never run in another. */
             isolation: components["schemas"]["Isolation"];
+            /** @description The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program. */
+            version: string | null;
             browser: boolean;
             workspace: string | null;
             /**
