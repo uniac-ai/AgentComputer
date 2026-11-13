@@ -505,13 +505,17 @@ test(
         await docker("cp", join(data, "old"), `${name}:/home/computer/old`);
       }
     };
-    const mounts = () =>
-      docker("inspect", "--format", "{{range .Mounts}}{{.Destination}} {{end}}", name);
+    // The paths mounted in the container, sorted: Docker lists mounts in no fixed order.
+    const mounts = async () =>
+      (await docker("inspect", "--format", "{{range .Mounts}}{{.Destination}} {{end}}", name))
+        .split(" ")
+        .filter(Boolean)
+        .sort();
 
     await t.test("where its home can't be copied out, the old container is kept", async () => {
       await restart("container", {}, IMAGE, () => old(other));
       assert.equal(await imageOf(), await idOf(other));
-      assert.equal(await mounts(), "");
+      assert.deepEqual(await mounts(), []);
       assert.equal(existsSync(home), false);
       assert.ok(
         (await logs()).some((line) =>
@@ -529,7 +533,7 @@ test(
       });
       assert.equal(existsSync(join(home, "earlier")), false);
       assert.equal(await imageOf(), await idOf(other));
-      assert.match(await mounts(), /\/home\/computer /);
+      assert.deepEqual(await mounts(), ["/home/computer", "/workspace"]);
       assert.equal(await sh("cat ~/old"), "from the old home\n");
       assert.ok((await logs()).includes("Its home was copied out of its container, to keep."));
       // Started again under the same image, it is the same container.
