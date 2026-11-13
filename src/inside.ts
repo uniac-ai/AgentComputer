@@ -66,9 +66,11 @@ export async function serveInside(options: { access: Access; browser: boolean })
   server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
     socket.on("error", () => socket.destroy());
     const given = /^Bearer (\S+)$/.exec(request.headers.authorization ?? "")?.[1];
-    const url = new URL(request.url ?? "/", "http://localhost");
-    const surface = /^\/live\/(terminal|files|browser|load)$/.exec(url.pathname)?.[1];
-    const mode = url.searchParams.get("mode");
+    // URL.parse gives null for an address it can't read; a throw in this handler would end the
+    // process.
+    const url = URL.parse(request.url ?? "/", "http://localhost");
+    const surface = /^\/live\/(terminal|files|browser|load)$/.exec(url?.pathname ?? "")?.[1];
+    const mode = url?.searchParams.get("mode");
     if (!given || !sameToken(given, digest) || !surface || (mode !== "watch" && mode !== "operate"))
       return void socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
     running

@@ -226,6 +226,9 @@ for (const [isolation, extra] of ISOLATIONS) {
       await until(() => Boolean(person.last("tabs")), "the tabs");
       assert.equal(person.last("tabs")?.tabs.length, 1);
 
+      // What isn't a message is ignored, and everything goes on.
+      for (const text of ["null", "7", '"text"', "[]", "{"]) person.ws.send(text);
+
       // Nobody waits: the agent's calls run while a person has the page open and is using it.
       const before = person.frames.length;
       person.send({ type: "mouse", action: "move", x: 5, y: 5 });
