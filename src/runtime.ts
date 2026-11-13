@@ -48,6 +48,8 @@ export interface RuntimeEvents {
 export interface Running {
   /** The tools its browser offers, read once it is up. */
   readonly browserTools: string[];
+  /** The version of the program it runs, where the runtime says. */
+  readonly version?: string | undefined;
   /** What it can open live. */
   readonly surfaces: SurfaceInfo[];
   handle(endpoint: Endpoint, request: IncomingMessage, response: ServerResponse): Promise<void>;

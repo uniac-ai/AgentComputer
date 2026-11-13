@@ -53,7 +53,11 @@ async function setup(t: test.TestContext) {
   mkdirSync(workspace);
   let child: ChildProcess;
   let url = "";
-  const start = async (isolation = "container", env: Record<string, string> = {}) => {
+  const start = async (
+    isolation = "container",
+    env: Record<string, string> = {},
+    image = IMAGE as string,
+  ) => {
     child = spawn(
       process.execPath,
       [
@@ -66,7 +70,7 @@ async function setup(t: test.TestContext) {
         "--isolation",
         isolation,
         "--image",
-        IMAGE as string,
+        image,
       ],
       { env: { ...environment(), ...env }, stdio: ["ignore", "pipe", "inherit"] },
     );
@@ -106,10 +110,16 @@ async function setup(t: test.TestContext) {
     clients.push(client);
     return client;
   };
-  /** Stop it and start it again, making computers this way where one isn't asked for. */
-  const restart = async (isolation?: string, env?: Record<string, string>) => {
+  /** Stop it, do what is given to do while it is stopped, and start it again. */
+  const restart = async (
+    isolation?: string,
+    env?: Record<string, string>,
+    image?: string,
+    between: () => Promise<unknown> = async () => {},
+  ) => {
     await stop();
-    await start(isolation, env);
+    await between();
+    await start(isolation, env, image);
   };
   return { Computer, to, root, data, workspace, mcp, restart, control: apiKey };
 }
@@ -194,7 +204,7 @@ test("read access is a read-only mount, and lists only its tools", options, asyn
   const mounts = await docker(
     "inspect",
     "--format",
-    "{{(index .Mounts 0).RW}}",
+    '{{range .Mounts}}{{if eq .Destination "/workspace"}}{{.RW}}{{end}}{{end}}',
     `agentcomputer-${computer.computerID}`,
   );
   assert.equal(mounts, "false");
@@ -431,6 +441,103 @@ test(
     }
     await Computer.start(inside.id, to());
     assert.deepEqual(await told(inside), ["container", "/workspace"]);
+  },
+);
+
+test(
+  "after an update a computer is made again, keeping its home, and an old one's home is copied out",
+  options,
+  async (t) => {
+    const { Computer, to, workspace, data, restart } = await setup(t);
+    // Another image, as an update brings. It has no home of its own, so a container made the
+    // old way from it has none to copy out.
+    const other = "agentcomputer-remake:test";
+    t.after(() => docker("rmi", other).catch(() => {}));
+    await new Promise<void>((done, failed) => {
+      const build = spawn("docker", ["build", "--quiet", "--tag", other, "-"], { stdio: "pipe" });
+      build.once("exit", (code) => (code === 0 ? done() : failed(new Error(`build ${code}`))));
+      build.stdin.end(`FROM ${IMAGE}\nUSER root\nRUN rm -rf /home/computer\nUSER 1000:1000\n`);
+    });
+    const made = await Computer.create({ ...to(), access: "terminal", workspace });
+    const { computerID } = made;
+    const name = `agentcomputer-${computerID}`;
+    t.after(() => docker("rm", "--force", name).catch(() => {}));
+    const idOf = (image: string) => docker("image", "inspect", "--format", "{{.Id}}", image);
+    const imageOf = () => docker("inspect", "--format", "{{.Image}}", name);
+    const home = join(data, "computers", computerID, "home");
+    const sh = async (cmd: string) => {
+      const computer = await Computer.connect(computerID, {
+        ...to(),
+        accessToken: made.getMcpToken(),
+      });
+      return (await computer.commands.run(cmd)).output;
+    };
+    const logs = async () => (await Computer.getLogs(computerID, to())).map((one) => one.line);
+    await sh("echo kept > ~/kept && echo gone > /tmp/gone");
+    assert.equal(readFileSync(join(home, "kept"), "utf8"), "kept\n");
+
+    await t.test("started under another image, it is made again, with its home", async () => {
+      await restart("container", {}, other);
+      assert.equal(await imageOf(), await idOf(other));
+      assert.equal(await sh("cat ~/kept; ls /tmp/gone 2>/dev/null || echo none"), "kept\nnone\n");
+      assert.ok(
+        (await logs()).includes(
+          `Its container was made from another image, so it is made again from ${other}.`,
+        ),
+      );
+    });
+
+    // A container made the old way, with its home inside it and no home mounted, put in the
+    // computer's place while the service is stopped.
+    const old = async (image: string, file?: string) => {
+      await docker("rm", "--force", name);
+      rmSync(home, { recursive: true, force: true });
+      await docker(
+        "create",
+        "--name",
+        name,
+        "--label",
+        `agentcomputer.computer=${computerID}`,
+        image,
+      );
+      if (file) {
+        writeFileSync(join(data, "old"), file);
+        await docker("cp", join(data, "old"), `${name}:/home/computer/old`);
+      }
+    };
+    const mounts = () =>
+      docker("inspect", "--format", "{{range .Mounts}}{{.Destination}} {{end}}", name);
+
+    await t.test("where its home can't be copied out, the old container is kept", async () => {
+      await restart("container", {}, IMAGE, () => old(other));
+      assert.equal(await imageOf(), await idOf(other));
+      assert.equal(await mounts(), "");
+      assert.equal(existsSync(home), false);
+      assert.ok(
+        (await logs()).some((line) =>
+          line.startsWith("Its home couldn't be copied out of its container ("),
+        ),
+      );
+    });
+
+    await t.test("where it can, its home is copied out, and it is made again", async () => {
+      // A home left by an earlier try is not in its way: the container's is the one kept.
+      await restart("container", {}, other, async () => {
+        await old(IMAGE as string, "from the old home\n");
+        mkdirSync(home);
+        writeFileSync(join(home, "earlier"), "");
+      });
+      assert.equal(existsSync(join(home, "earlier")), false);
+      assert.equal(await imageOf(), await idOf(other));
+      assert.match(await mounts(), /\/home\/computer /);
+      assert.equal(await sh("cat ~/old"), "from the old home\n");
+      assert.ok((await logs()).includes("Its home was copied out of its container, to keep."));
+      // Started again under the same image, it is the same container.
+      const container = await docker("inspect", "--format", "{{.Id}}", name);
+      await Computer.stop(computerID, to());
+      await Computer.start(computerID, to());
+      assert.equal(await docker("inspect", "--format", "{{.Id}}", name), container);
+    });
   },
 );
 
