@@ -208,19 +208,19 @@ export async function serve(options: ServeOptions) {
       socket.end(
         `HTTP/1.1 ${status} ${STATUS_CODES[status]}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n${JSON.stringify({ code: status, message })}\n`,
       );
-    const { pathname } = new URL(request.url ?? "/", "http://localhost");
+    // URL.parse, not new URL: a throw in this handler ends the service. A ticket is base64url,
+    // so it is looked up as it comes, not decoded.
+    const pathname = URL.parse(request.url ?? "/", "http://localhost")?.pathname ?? "";
     const ticket = /^\/v1\/live\/([^/]+)$/.exec(pathname)?.[1];
     if (!ticket) return refuse(404, "Not found.");
     // A browser doesn't keep a page's WebSockets to its own origin, so the origin is checked here.
     const origin = request.headers.origin;
     if (origin !== undefined && !allowed.has(origin))
       return refuse(403, `A live session isn't opened from ${origin.slice(0, 200)}.`);
-    computers
-      .openLive(decodeURIComponent(ticket), request, socket, head)
-      .catch((error: unknown) => {
-        if (error instanceof ApiError) refuse(error.status, error.message);
-        else socket.destroy();
-      });
+    computers.openLive(ticket, request, socket, head).catch((error: unknown) => {
+      if (error instanceof ApiError) refuse(error.status, error.message);
+      else socket.destroy();
+    });
   });
   await new Promise<void>((done, failed) => {
     server.once("error", failed);

@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
+import { type AddressInfo, connect } from "node:net";
 import { hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -42,6 +42,31 @@ interface Created {
   accessToken: string;
   workspace: string | null;
   endpoints: { computer: string | null; browser: string | null };
+}
+
+/** Ask for a WebSocket at this request target, as sent, and give the first line of the answer. */
+function upgrade(port: number, target: string) {
+  return new Promise<string>((done) => {
+    const socket = connect(port, "127.0.0.1", () =>
+      socket.write(
+        [
+          `GET ${target} HTTP/1.1`,
+          "Host: localhost",
+          "Upgrade: websocket",
+          "Connection: Upgrade",
+          "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+          "Sec-WebSocket-Version: 13",
+          "\r\n",
+        ].join("\r\n"),
+      ),
+    );
+    let got = "";
+    socket.on("data", (data) => {
+      got += data;
+    });
+    socket.on("error", () => {});
+    socket.on("close", () => done(got.split("\r\n")[0] ?? ""));
+  });
 }
 
 async function setup(
@@ -518,6 +543,15 @@ test("info doesn't wait on a Docker that hangs", async (t) => {
   const { isolationsAvailable } = JSON.parse(await cli("info")) as Record<string, unknown>;
   assert.deepEqual(isolationsAvailable, ["none"]);
   assert.ok(Date.now() - asked < 3_000);
+});
+
+test("a malformed live address is refused, and the service stays", async (t) => {
+  const { url, api } = await setup(t, []);
+  const port = Number(new URL(url()).port);
+  // A ticket with a broken escape in it, and a target no URL can be made of, from anyone.
+  for (const target of ["/v1/live/%E0%A4%A", "http://["])
+    assert.equal(await upgrade(port, target), "HTTP/1.1 404 Not Found", target);
+  assert.equal((await api("")).status, 200);
 });
 
 test("a command with no service running says how to start one", async () => {

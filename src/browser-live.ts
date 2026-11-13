@@ -120,13 +120,15 @@ export class BrowserLive implements BrowserGate {
     ws.on("close", () => this.#left(ws));
     ws.on("message", (data: Buffer, binary: boolean) => {
       if (binary || viewer.mode !== "operate") return;
-      let message: ClientMessage;
+      let message: unknown;
       try {
-        message = JSON.parse(data.toString()) as ClientMessage;
+        message = JSON.parse(data.toString());
       } catch {
         return;
       }
-      this.#input(ws, viewer, message);
+      // JSON that isn't an object, `null` among it, is ignored as text that isn't JSON is.
+      if (typeof message !== "object" || message === null) return;
+      this.#input(ws, viewer, message as ClientMessage);
     });
     this.#begin().then(
       // Unless it chose a tab while this was starting, it is shown the newest.

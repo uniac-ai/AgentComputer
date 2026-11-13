@@ -13,6 +13,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { connect } from "node:net";
 import { hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -124,6 +125,31 @@ async function setup(t: test.TestContext) {
   return { Computer, to, root, data, workspace, mcp, restart, control: apiKey };
 }
 
+/** Ask for a WebSocket at this request target, as sent, and give the first line of the answer. */
+function upgrade(port: number, target: string) {
+  return new Promise<string>((done) => {
+    const socket = connect(port, "127.0.0.1", () =>
+      socket.write(
+        [
+          `GET ${target} HTTP/1.1`,
+          "Host: localhost",
+          "Upgrade: websocket",
+          "Connection: Upgrade",
+          "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+          "Sec-WebSocket-Version: 13",
+          "\r\n",
+        ].join("\r\n"),
+      ),
+    );
+    let got = "";
+    socket.on("data", (data) => {
+      got += data;
+    });
+    socket.on("error", () => {});
+    socket.on("close", () => done(got.split("\r\n")[0] ?? ""));
+  });
+}
+
 const docker = async (...args: string[]) => (await run("docker", args)).stdout.trim();
 const running = async (id: string) =>
   (await docker("inspect", "--format", "{{.State.Running}}", `agentcomputer-${id}`)) === "true";
@@ -194,6 +220,22 @@ test(
     );
   },
 );
+
+test("what runs in a container refuses a malformed live address, and stays", options, async (t) => {
+  const { Computer, to, workspace } = await setup(t);
+  const computer = await Computer.create({ ...to(), access: "read", workspace });
+  t.after(() => computer.close());
+  // Its own port on this machine's loopback, which any process here can reach, with no token.
+  const port = Number(
+    await docker("port", `agentcomputer-${computer.computerID}`, "8000/tcp").then((line) =>
+      line.split(":").pop(),
+    ),
+  );
+  assert.equal(await upgrade(port, "http://["), "HTTP/1.1 401 Unauthorized");
+  assert.equal(await running(computer.computerID), true);
+  // And what is in it still answers.
+  assert.ok(Array.isArray(await computer.files.list()));
+});
 
 test("read access is a read-only mount, and lists only its tools", options, async (t) => {
   const { Computer, to, workspace, mcp } = await setup(t);
