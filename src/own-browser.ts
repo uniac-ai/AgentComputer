@@ -1,4 +1,4 @@
-// The person's own browser, for this computer: Chrome or Edge, whichever has its switch on,
+// The person's own browser, for this computer: Chrome or Edge, whichever has remote debugging on,
 // Chrome first, as they use it, signed in. It is reached through the browser's own attach, from
 // version 144: the person switches on remote debugging once, on its inspect page, and the browser
 // then writes where it is reached in DevToolsActivePort, in its user data folder, and asks the
@@ -20,7 +20,9 @@ export interface Kind {
   page: string;
   /** Its user data folder, where it writes DevToolsActivePort. */
   folder: string;
-  /** Its app or program here, where it is installed; none for a folder named by the service. */
+  /** Whether it is here: one whose folder the service was given is taken to be. */
+  installed: boolean;
+  /** Its app or program, where this can open it; none for a folder named by the service. */
   at?: string | undefined;
 }
 
@@ -53,7 +55,7 @@ export const here = (): Where => ({
 });
 
 /** Chrome, then Edge, where each would be on this machine, installed or not. */
-export function kinds({ platform, home, applications }: Where): Kind[] {
+function kinds({ platform, home, applications }: Where): Omit<Kind, "installed">[] {
   if (platform === "darwin") {
     const app = (name: string) =>
       applications.map((folder) => join(folder, name)).find((path) => existsSync(path));
@@ -145,18 +147,19 @@ export async function reachedAt(folder: string) {
   }
 }
 
-/** The person's browsers here: Chrome, then Edge, as installed, or the one whose folder is named. */
+/** The person's browsers: Chrome, then Edge, installed or not, or the one whose folder is named. */
 export function browsers(folder?: string, where: Where = here()): Kind[] {
   if (folder)
     return [
       {
         browser: "named",
         name: "the browser",
-        page: "its inspect page, chrome://inspect/#remote-debugging",
+        page: "chrome://inspect/#remote-debugging",
         folder,
+        installed: true,
       },
     ];
-  return kinds(where).filter((kind) => kind.at);
+  return kinds(where).map((kind) => ({ ...kind, installed: kind.at !== undefined }));
 }
 
 /**
@@ -164,8 +167,8 @@ export function browsers(folder?: string, where: Where = here()): Kind[] {
  * the user data folder of the browser to use, in place of looking for Chrome and Edge.
  */
 export async function ownBrowser(folder?: string, where: Where = here()): Promise<OwnBrowser> {
-  const found = browsers(folder, where);
-  // The one whose switch is on, Chrome first: switching one on is choosing it.
+  const found = browsers(folder, where).filter((kind) => kind.installed);
+  // The one with remote debugging on, Chrome first: turning it on is choosing it.
   for (const { name, folder } of found) {
     const endpoint = await reachedAt(folder);
     if (endpoint) return { ready: true, name, endpoint };
@@ -182,6 +185,6 @@ export async function ownBrowser(folder?: string, where: Where = here()): Promis
   const Name = name[0]?.toUpperCase() + name.slice(1);
   return {
     ready: false,
-    reason: `${Name}'s remote debugging is off, or ${name} isn't open. On this machine, open ${name}, version 144 or later, go to ${page} and switch on remote debugging. ${Name} then asks you to allow each connection.`,
+    reason: `${Name}'s remote debugging is off, or ${name} isn't open. On this machine, open ${name}, version 144 or later, go to its inspect page, ${page}, and switch on remote debugging. ${Name} then asks you to allow each connection.`,
   };
 }

@@ -237,6 +237,8 @@ export async function serveBrowserMcp(options: McpOptions) {
     allowedHosts: ["localhost"],
     // The tool that closes the browser refuses, as it does for any browser its clients share.
     sharedBrowserContext: true,
+    // Files the agent's calls name stay in the computer's folder: a client's roots don't move it.
+    ignoreRoots: true,
   });
   const tools = parts.filteredTools(config);
   const own = options.own

@@ -1,17 +1,17 @@
 // The setup of this machine for its computer: for each part an agent can use (its terminal, its
 // files, its screen and the person's own browser), the person's switch, and what that part still
-// needs before it works. Turning a part on takes the steps that ask for what it needs, on this
-// machine, so a window, wherever it is drawn, only shows them. The terminal and the files need
-// nothing: on macOS the Mac asks folder by folder. The screen needs Cua Driver's Screen
-// Recording and Accessibility; the browser needs its remote-debugging switch. Only macOS asks.
+// needs before it works. Asking for what a part needs takes the steps on this machine, so a
+// window, wherever it is drawn, only shows them. The terminal and the files need nothing: on
+// macOS the Mac asks folder by folder. The screen needs Cua Driver's Screen Recording and
+// Accessibility; the browser needs remote debugging on. Only macOS asks.
 import { execFile, spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import type { components } from "./generated/schema.js";
-import { browsers, here, kinds, reachedAt, type Where } from "./own-browser.ts";
+import { browsers, here, reachedAt, type Where } from "./own-browser.ts";
 import { ApiError } from "./runtime.ts";
-import { driverGrants, driverProgram, quiet } from "./screen.ts";
+import { driverGrants, driverProgram, quiet, screenCheck } from "./screen.ts";
 import { SWITCHES, type Switch, type Switches } from "./switches.ts";
 
 type Schemas = components["schemas"];
@@ -19,7 +19,10 @@ type Need = Schemas["Need"];
 type NeedName = Schemas["NeedName"];
 type Granted = "granted" | "not-granted" | "unknown";
 
-/** What the setup reads and runs of the machine: its own, except where a test stands in. */
+/**
+ * What the setup opens and starts on the machine, and where it looks for browsers: this one's,
+ * except where a test stands in.
+ */
 export interface Machine extends Where {
   /** Run a program to its end; it fails with what the program said. */
   run(program: string, args: string[]): Promise<void>;
@@ -80,17 +83,17 @@ async function driverApp(program: string) {
 const grant = (value: boolean | undefined): Granted =>
   value === undefined ? "unknown" : value ? "granted" : "not-granted";
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
-/** Whether a part has all it needs: the browser one browser on; the rest, each item granted. */
-const isReady = (capability: Switch, needs: Need[]) =>
-  capability === "browser"
-    ? needs.some((one) => one.state === "on")
-    : needs.every((one) => one.state === "granted");
 /** Each grant's own pane in System Settings. */
 const PANE: Partial<Record<NeedName, string>> = {
   "screen-recording":
     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
   accessibility: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
 };
+
+/** A part: whether it has all it needs, and each thing it needs. */
+type Part = { ready: boolean; needs: Need[] };
+/** The terminal's and the files': nothing. */
+const NOTHING: Part = { ready: true, needs: [] };
 
 export class Setup {
   readonly #switches: Switches;
@@ -113,59 +116,52 @@ export class Setup {
 
   /** Each part, its switch, whether it has all it needs, and each thing it needs. */
   async capabilities(): Promise<Schemas["Setup"]> {
-    const needs = await this.#needs();
+    const parts = await this.#parts();
     return {
       capabilities: SWITCHES.map((capability) => ({
         capability,
         on: this.#switches.on(capability),
-        ready: isReady(capability, needs[capability]),
-        needs: needs[capability],
+        ...parts[capability],
       })),
     };
   }
 
-  async #needs(): Promise<Record<Switch, Need[]>> {
+  async #parts(): Promise<Record<Switch, Part>> {
     const [screen, browser] = await Promise.all([this.#screen(), this.#browser()]);
-    return { terminal: [], files: [], screen, browser };
+    return { terminal: NOTHING, files: NOTHING, screen, browser };
   }
 
   /**
-   * What the screen needs: Cua Driver, and on macOS its two grants, which System Settings lists
-   * under the app the driver is the program of: whatever that app is named, CuaDriver or an app
-   * that bundles it.
+   * The screen: ready as the computer's readiness says, and what it needs, Cua Driver and on macOS
+   * its two grants, which System Settings lists under the outermost app the driver is inside.
    */
-  async #screen(): Promise<Need[]> {
-    const program = driverProgram(this.#driver);
-    if (!program) return [{ need: "install", state: "missing" }];
-    if (this.#machine.platform !== "darwin") return [];
-    const [app, { screen_recording, accessibility }] = await Promise.all([
-      driverApp(program),
-      driverGrants(program),
-    ]);
+  async #screen(): Promise<Part> {
+    const { readiness, program, grants } = await screenCheck(this.#driver, this.#machine.platform);
+    if (!program) return { ready: false, needs: [{ need: "install", state: "missing" }] };
+    if (!grants) return { ready: readiness.ready, needs: [] };
+    const app = await driverApp(program);
     const holder = app && { holder: app.name };
-    return [
-      { need: "screen-recording", ...holder, state: grant(screen_recording) },
-      { need: "accessibility", ...holder, state: grant(accessibility) },
-    ];
+    return {
+      ready: readiness.ready,
+      needs: [
+        { need: "screen-recording", ...holder, state: grant(grants.screen_recording) },
+        { need: "accessibility", ...holder, state: grant(grants.accessibility) },
+      ],
+    };
   }
 
-  /** The person's browsers: Chrome and Edge, installed or not, or the one whose folder is named. */
-  #browsers() {
-    const named = this.#browserData;
-    return named ? browsers(named, this.#machine) : kinds(this.#machine);
-  }
-
-  /** What the person's browser needs: one browser here with its switch on, each as it stands. */
-  async #browser(): Promise<Need[]> {
-    return Promise.all(
-      this.#browsers().map(
-        async ({ browser, name, folder, at }): Promise<Need> => ({
+  /** The person's browser: ready with one on, that is, open with remote debugging on. */
+  async #browser(): Promise<Part> {
+    const needs = await Promise.all(
+      browsers(this.#browserData, this.#machine).map(
+        async ({ browser, name, folder, installed }): Promise<Need> => ({
           need: browser,
           name,
-          state: browser !== "named" && !at ? "missing" : (await reachedAt(folder)) ? "on" : "off",
+          state: !installed ? "missing" : (await reachedAt(folder)) ? "on" : "off",
         }),
       ),
     );
+    return { ready: needs.some((one) => one.state === "on"), needs };
   }
 
   /**
@@ -180,7 +176,7 @@ export class Setup {
       } catch (error) {
         throw new ApiError(
           409,
-          `It is on, but asking for what it needs didn't start: ${(error as Error).message}`,
+          `The ${capability} is on, but asking for what it needs didn't start: ${(error as Error).message}`,
         );
       }
     return this.capabilities();
@@ -198,18 +194,18 @@ export class Setup {
 
   /** Only macOS asks: elsewhere there is nothing to ask the person for. */
   async #ask(capability: Switch, need?: NeedName) {
-    const needs = (await this.#needs())[capability];
+    const { needs } = (await this.#parts())[capability];
     if (need && !needs.some((one) => one.need === need))
       throw new Error(`There's no "${need}" for ${capability} here.`);
     if (this.#machine.platform !== "darwin") return;
     if (capability === "screen") {
       const program = driverProgram(this.#driver);
       if (!program) throw new Error("Cua Driver isn't installed on this machine.");
-      if (!isReady("screen", needs)) await this.#askScreen(program);
+      if (needs.some((one) => one.state !== "granted")) await this.#askScreen(program);
       const pane = need && PANE[need];
       if (pane) await this.#machine.run("/usr/bin/open", [pane]);
     }
-    if (capability === "browser" && (need || !isReady("browser", needs)))
+    if (capability === "browser" && (need || !needs.some((one) => one.state === "on")))
       await this.#askBrowser(need);
   }
 
@@ -239,17 +235,22 @@ export class Setup {
   }
 
   /**
-   * The browser asked for, or else the first installed, Chrome before Edge, opened at its
-   * remote-debugging switch; one the service was given only the folder of, the person opens.
+   * The browser asked for, or else the first this can open, Chrome before Edge, opened at its
+   * inspect page, where remote debugging is switched on. One the service was given only the folder
+   * of, the person opens themselves.
    */
   async #askBrowser(need?: NeedName) {
-    const one = this.#browsers().find((kind) =>
-      need ? kind.browser === need : kind.at || kind.browser === "named",
-    );
-    if (!one) throw new Error("Neither Chrome nor Edge is installed on this machine.");
-    if (one.browser === "named")
-      throw new Error(`Open ${one.name} yourself, and switch on remote debugging at ${one.page}.`);
-    if (!one.at) throw new Error(`${one.name} isn't installed on this machine.`);
+    const each = browsers(this.#browserData, this.#machine);
+    const one = each.find((kind) => (need ? kind.browser === need : kind.at));
+    if (!one) {
+      if (each.some((kind) => kind.installed)) return;
+      throw new Error("Neither Chrome nor Edge is installed on this machine.");
+    }
+    if (!one.installed) throw new Error(`${one.name} isn't installed on this machine.`);
+    if (!one.at)
+      throw new Error(
+        `Open ${one.name} yourself, and switch on remote debugging at its inspect page, ${one.page}.`,
+      );
     await this.#machine.run("/usr/bin/open", ["-a", one.at, one.page]);
   }
 }

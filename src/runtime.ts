@@ -9,7 +9,7 @@ import { basename, dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import { type AgentExec, createAgentExec, type PtySpawn } from "@agentorg/exec";
 import { aboutTool } from "./about.ts";
-import { Browser, type BrowserConfig, refuseBody, refuseCall } from "./browser.ts";
+import { Browser, type BrowserConfig, readRequest, refuseBody, refuseCall } from "./browser.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { FilesLive } from "./files-live.ts";
 import type { components } from "./generated/schema.js";
@@ -167,9 +167,9 @@ function browserProgram(config: BrowserConfig): Schemas["Readiness"] {
  */
 const FILE_TOOLS = new Set(["read", "list", "search", "edit"]);
 /**
- * The switch each tool answers to that reaches the machine's terminal or files: the computer's own,
- * and the browser's two that run code and read files. `about` and the rest of the browser's
- * answer to none.
+ * The switch each tool answers to by its name: the computer's own, and the browser's that runs
+ * code on the machine. A browser call that names files, by `paths` or `filename`, answers to the
+ * files' switch as well. `about` and the rest of the browser's answer to none.
  */
 const TOOL_SWITCH: Record<string, Switch> = {
   ...Object.fromEntries([...FILE_TOOLS].map((tool) => [tool, "files" as const])),
@@ -177,42 +177,10 @@ const TOOL_SWITCH: Record<string, Switch> = {
   write_stdin: "terminal",
   list_sessions: "terminal",
   browser_run_code_unsafe: "terminal",
-  browser_file_upload: "files",
 };
 
 /** The most an agent's request to its computer may be, as AgentExec itself takes it. */
 const MAX_CALL = 4 * 1024 * 1024;
-
-/**
- * One of the agent's requests to its computer while the person has its terminal or its files off,
- * read whole: a call to a tool switched off is refused, and so is a batch, whose calls couldn't
- * each be; the rest goes on, as read.
- */
-async function switchedCall(
-  request: IncomingMessage,
-  response: ServerResponse,
-  refused: (tool: string) => string | undefined,
-  pass: (body: unknown) => Promise<void>,
-) {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of request) {
-    size += (chunk as Buffer).length;
-    if (size > MAX_CALL) throw new ApiError(413, "That request is too large.");
-    chunks.push(chunk as Buffer);
-  }
-  let message: { method?: string; id?: unknown; params?: { name?: unknown } } | undefined;
-  try {
-    const read: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    if (typeof read === "object" && read !== null && !Array.isArray(read)) message = read;
-  } catch {
-    // Refused below, with whatever else isn't one request.
-  }
-  if (!message) return refuseBody(response);
-  const refusal = message.method === "tools/call" && refused(String(message.params?.name));
-  if (refusal) return refuseCall(response, message.id, refusal);
-  return pass(message);
-}
 
 export class ProcessRuntime implements Runtime {
   readonly #config: BrowserConfig;
@@ -455,11 +423,12 @@ export class ProcessRuntime implements Runtime {
       );
       browser.gate = browserLive;
       browser.noted = () => presence.agentCalled({ capability: "browser" });
-      // The browser's switch is for the person's own; any browser's tools that reach the machine
+      // The browser's switch is for the person's own; any browser's calls that reach the machine
       // answer to its terminal's and files' switches.
-      browser.refused = (tool) =>
+      browser.refused = (tool, args) =>
         (spec.browser === "own" ? this.#switches?.refused("browser") : undefined) ??
-        this.#toolRefused(tool);
+        this.#toolRefused(tool) ??
+        ("paths" in args || "filename" in args ? this.#switches?.refused("files") : undefined);
     }
     const files =
       exec &&
@@ -494,20 +463,18 @@ export class ProcessRuntime implements Runtime {
       handle: async (endpoint, request, response) => {
         if (endpoint === "computer") {
           const agentExec = exec as AgentExec;
-          const switches = this.#switches;
-          // As it comes, unless it is a call while the person has its terminal or its files off.
-          if (
-            !switches ||
-            request.method !== "POST" ||
-            (switches.on("terminal") && switches.on("files"))
-          )
+          // Where the person has switches, each call is read whole and checked as it comes, so
+          // one sent slowly is checked as the switches are when it arrives.
+          if (!this.#switches || request.method !== "POST")
             return agentExec.handle(request, response);
-          return switchedCall(
-            request,
-            response,
-            (tool) => this.#toolRefused(tool),
-            (body) => agentExec.handle(request, response, body),
-          );
+          const read = await readRequest(request, response, MAX_CALL);
+          if (!read) return;
+          const { message } = read;
+          if (!message) return refuseBody(response);
+          const refusal =
+            message?.method === "tools/call" && this.#toolRefused(String(message.params?.name));
+          if (refusal) return refuseCall(response, message.id, refusal);
+          return agentExec.handle(request, response, message);
         }
         if (endpoint === "screen") {
           if (screenDown) throw new ApiError(502, "Cua Driver has stopped.");

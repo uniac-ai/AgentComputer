@@ -159,7 +159,7 @@ export const OPENAPI = {
       ],
       "post": {
         "operationId": "askSetup",
-        "summary": "Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with none named, for everything it is missing. screen-recording or accessibility: Cua Driver's own grant, its app started first, which makes the system's requests in its own order, Accessibility first; then that grant's own pane in System Settings opens. chrome or edge: that browser opens at its remote-debugging switch. With none named, the screen's grant while either is missing, and the first browser installed, Chrome before Edge, while none is on. It answers once the steps have started, with each part then; what the person does next is read afresh later. That a browser opens at its switch's address this way, and a grant's pane at its own, is yet to be tried. Elsewhere it asks for nothing.",
+        "summary": "Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with none named, for everything it is missing. screen-recording or accessibility: Cua Driver's own grant, its app started first, which makes the system's requests in its own order, Accessibility first; then that grant's own pane in System Settings opens. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. With none named, the screen's grant while either is missing, and the first browser installed, Chrome before Edge, while none is on. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1928,7 +1928,7 @@ export const OPENAPI = {
           "edge",
           "named"
         ],
-        "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser and its remote-debugging switch; named: the one browser a service was given the folder of."
+        "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser, with remote debugging on or off; named: the one browser a service was given the folder of."
       },
       "Need": {
         "type": "object",
@@ -1985,7 +1985,7 @@ export const OPENAPI = {
                 },
                 "on": {
                   "type": "boolean",
-                  "description": "The person's switch. Off, agents can't use the part: its tools refuse, saying the person turned it off, and `info` says so. The browser's switch is for the person's own; any browser's tools that run code or upload files answer to the terminal's and the files' switches. A service started with `--lend` starts with every one off; any other, with every one on."
+                  "description": "The person's switch. Off, agents' new calls to the part refuse, saying the person turned it off, and `info` says so; what an agent already started runs on. The terminal and the screen each reach the whole machine: commands read any file, and the screen acts in any app. The browser's switch is for the person's own; any browser's code-running tool answers to the terminal's switch, and a browser call that names files, by `paths` or `filename`, to the files'. A service started with `--lend` starts with every one off; any other, with every one on."
                 },
                 "ready": {
                   "type": "boolean",
@@ -2471,7 +2471,7 @@ export const OPENAPI = {
           "files",
           "screen"
         ],
-        "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do."
+        "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do. A part the person switched off on that machine isn't ready either."
       },
       "CapabilityState": {
         "allOf": [
@@ -2497,7 +2497,7 @@ export const OPENAPI = {
           "headless",
           "own"
         ],
-        "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or Edge, signed in, offered for this computer: ready where one is open with its remote debugging switched on, Chrome first, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine."
+        "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or Edge, signed in, offered for this computer: ready where one is open with its remote debugging switched on, Chrome first, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine. Switched off by the person on that machine, it isn't ready either."
       },
       "BrowserState": {
         "allOf": [
@@ -2695,7 +2695,7 @@ export const OPERATIONS: Operation[] = [
                               "files",
                               "screen"
                             ],
-                            "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do."
+                            "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do. A part the person switched off on that machine isn't ready either."
                           }
                         }
                       }
@@ -2734,7 +2734,7 @@ export const OPERATIONS: Operation[] = [
                               "headless",
                               "own"
                             ],
-                            "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or Edge, signed in, offered for this computer: ready where one is open with its remote debugging switched on, Chrome first, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine."
+                            "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or Edge, signed in, offered for this computer: ready where one is open with its remote debugging switched on, Chrome first, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine. Switched off by the person on that machine, it isn't ready either."
                           }
                         }
                       }
@@ -2809,7 +2809,7 @@ export const OPERATIONS: Operation[] = [
                                     "files",
                                     "screen"
                                   ],
-                                  "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do."
+                                  "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do. A part the person switched off on that machine isn't ready either."
                                 }
                               }
                             }
@@ -2848,7 +2848,7 @@ export const OPERATIONS: Operation[] = [
                                     "headless",
                                     "own"
                                   ],
-                                  "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or Edge, signed in, offered for this computer: ready where one is open with its remote debugging switched on, Chrome first, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine."
+                                  "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or Edge, signed in, offered for this computer: ready where one is open with its remote debugging switched on, Chrome first, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine. Switched off by the person on that machine, it isn't ready either."
                                 }
                               }
                             }
@@ -2983,7 +2983,7 @@ export const OPERATIONS: Operation[] = [
               },
               "on": {
                 "type": "boolean",
-                "description": "The person's switch. Off, agents can't use the part: its tools refuse, saying the person turned it off, and `info` says so. The browser's switch is for the person's own; any browser's tools that run code or upload files answer to the terminal's and the files' switches. A service started with `--lend` starts with every one off; any other, with every one on."
+                "description": "The person's switch. Off, agents' new calls to the part refuse, saying the person turned it off, and `info` says so; what an agent already started runs on. The terminal and the screen each reach the whole machine: commands read any file, and the screen acts in any app. The browser's switch is for the person's own; any browser's code-running tool answers to the terminal's switch, and a browser call that names files, by `paths` or `filename`, to the files'. A service started with `--lend` starts with every one off; any other, with every one on."
               },
               "ready": {
                 "type": "boolean",
@@ -3009,7 +3009,7 @@ export const OPERATIONS: Operation[] = [
                         "edge",
                         "named"
                       ],
-                      "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser and its remote-debugging switch; named: the one browser a service was given the folder of."
+                      "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser, with remote debugging on or off; named: the one browser a service was given the folder of."
                     },
                     "name": {
                       "type": "string",
@@ -3105,7 +3105,7 @@ export const OPERATIONS: Operation[] = [
               },
               "on": {
                 "type": "boolean",
-                "description": "The person's switch. Off, agents can't use the part: its tools refuse, saying the person turned it off, and `info` says so. The browser's switch is for the person's own; any browser's tools that run code or upload files answer to the terminal's and the files' switches. A service started with `--lend` starts with every one off; any other, with every one on."
+                "description": "The person's switch. Off, agents' new calls to the part refuse, saying the person turned it off, and `info` says so; what an agent already started runs on. The terminal and the screen each reach the whole machine: commands read any file, and the screen acts in any app. The browser's switch is for the person's own; any browser's code-running tool answers to the terminal's switch, and a browser call that names files, by `paths` or `filename`, to the files'. A service started with `--lend` starts with every one off; any other, with every one on."
               },
               "ready": {
                 "type": "boolean",
@@ -3131,7 +3131,7 @@ export const OPERATIONS: Operation[] = [
                         "edge",
                         "named"
                       ],
-                      "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser and its remote-debugging switch; named: the one browser a service was given the folder of."
+                      "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser, with remote debugging on or off; named: the one browser a service was given the folder of."
                     },
                     "name": {
                       "type": "string",
@@ -3167,7 +3167,7 @@ export const OPERATIONS: Operation[] = [
     "operationId": "askSetup",
     "method": "POST",
     "path": "/v1/setup/{capability}/ask",
-    "summary": "Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with none named, for everything it is missing. screen-recording or accessibility: Cua Driver's own grant, its app started first, which makes the system's requests in its own order, Accessibility first; then that grant's own pane in System Settings opens. chrome or edge: that browser opens at its remote-debugging switch. With none named, the screen's grant while either is missing, and the first browser installed, Chrome before Edge, while none is on. It answers once the steps have started, with each part then; what the person does next is read afresh later. That a browser opens at its switch's address this way, and a grant's pane at its own, is yet to be tried. Elsewhere it asks for nothing.",
+    "summary": "Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with none named, for everything it is missing. screen-recording or accessibility: Cua Driver's own grant, its app started first, which makes the system's requests in its own order, Accessibility first; then that grant's own pane in System Settings opens. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. With none named, the screen's grant while either is missing, and the first browser installed, Chrome before Edge, while none is on. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing.",
     "status": 200,
     "hasBody": true,
     "pathParameters": [
@@ -3198,7 +3198,7 @@ export const OPERATIONS: Operation[] = [
             "edge",
             "named"
           ],
-          "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser and its remote-debugging switch; named: the one browser a service was given the folder of."
+          "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser, with remote debugging on or off; named: the one browser a service was given the folder of."
         }
       },
       "required": [
@@ -3235,7 +3235,7 @@ export const OPERATIONS: Operation[] = [
               },
               "on": {
                 "type": "boolean",
-                "description": "The person's switch. Off, agents can't use the part: its tools refuse, saying the person turned it off, and `info` says so. The browser's switch is for the person's own; any browser's tools that run code or upload files answer to the terminal's and the files' switches. A service started with `--lend` starts with every one off; any other, with every one on."
+                "description": "The person's switch. Off, agents' new calls to the part refuse, saying the person turned it off, and `info` says so; what an agent already started runs on. The terminal and the screen each reach the whole machine: commands read any file, and the screen acts in any app. The browser's switch is for the person's own; any browser's code-running tool answers to the terminal's switch, and a browser call that names files, by `paths` or `filename`, to the files'. A service started with `--lend` starts with every one off; any other, with every one on."
               },
               "ready": {
                 "type": "boolean",
@@ -3261,7 +3261,7 @@ export const OPERATIONS: Operation[] = [
                         "edge",
                         "named"
                       ],
-                      "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser and its remote-debugging switch; named: the one browser a service was given the folder of."
+                      "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser, with remote debugging on or off; named: the one browser a service was given the folder of."
                     },
                     "name": {
                       "type": "string",

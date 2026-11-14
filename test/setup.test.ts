@@ -9,6 +9,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -79,7 +80,7 @@ esac
 };
 
 /** A port that answers, written into a browser folder's DevToolsActivePort. */
-async function switchOn(t: test.TestContext, folder: string) {
+async function debuggingOn(t: test.TestContext, folder: string) {
   const listening = createServer();
   await new Promise<void>((done) => listening.listen(0, "127.0.0.1", done));
   t.after(() => listening.close());
@@ -113,8 +114,10 @@ test("every switch is off where the service only lends, on elsewhere, and only t
 
 test("switches that can't be read are every one off", (t) => {
   const folder = folderOf(t);
-  writeFileSync(join(folder, "switches.json"), "{");
-  assert.deepEqual(all(new Switches(folder, false)), [false, false, false, false]);
+  for (const kept of ["{", '["terminal"]', '{"terminal":"off"}', '{"printer":true}']) {
+    writeFileSync(join(folder, "switches.json"), kept);
+    assert.deepEqual(all(new Switches(folder, false)), [false, false, false, false], kept);
+  }
 });
 
 test("the terminal and files need nothing, and the screen needs the driver and, on macOS, its two grants", async (t) => {
@@ -194,7 +197,7 @@ test("the browser lists Chrome and Edge, each as it stands, and is ready with on
     { need: "edge", name: "Edge", state: "off" },
   ]);
   assert.equal(await readyOf(setup, "browser"), false);
-  await switchOn(t, join(home, "Library", "Application Support", "Microsoft Edge"));
+  await debuggingOn(t, join(home, "Library", "Application Support", "Microsoft Edge"));
   assert.deepEqual(await needsOf(setup, "browser"), [
     { need: "chrome", name: "Chrome", state: "off" },
     { need: "edge", name: "Edge", state: "on" },
@@ -216,10 +219,10 @@ test("the browser used is the one whose switch is on, Chrome where both are", as
   mkdirSync(join(home, "Applications", "Google Chrome.app"), { recursive: true });
   mkdirSync(join(home, "Applications", "Microsoft Edge.app"), { recursive: true });
   const darwin = { platform: "darwin" as const, home, applications: [join(home, "Applications")] };
-  await switchOn(t, join(home, "Library", "Application Support", "Microsoft Edge"));
+  await debuggingOn(t, join(home, "Library", "Application Support", "Microsoft Edge"));
   const edge = await ownBrowser(undefined, darwin);
   assert.equal(edge.ready && edge.name, "Edge");
-  await switchOn(t, join(home, "Library", "Application Support", "Google", "Chrome"));
+  await debuggingOn(t, join(home, "Library", "Application Support", "Google", "Chrome"));
   const both = await ownBrowser(undefined, darwin);
   assert.equal(both.ready && both.name, "Chrome");
 });
@@ -330,19 +333,19 @@ test("a step that can't be started leaves the part on, and says why", async (t) 
     {
       status: 409,
       message:
-        "It is on, but asking for what it needs didn't start: No application knows how to open it.",
+        "The browser is on, but asking for what it needs didn't start: No application knows how to open it.",
     },
   );
   assert.equal(switches.on("browser"), true);
-  // One the service was given only the folder of, the person opens.
-  await assert.rejects(
-    new Setup(switches, undefined, join(home, "named"), failing.stands).set("browser", true),
-    {
-      status: 409,
-      message:
-        "It is on, but asking for what it needs didn't start: Open the browser yourself, and switch on remote debugging at its inspect page, chrome://inspect/#remote-debugging.",
-    },
-  );
+  // One the service was given only the folder of, the person opens: turning it on opens nothing,
+  // and asking for it says so.
+  const named = new Setup(switches, undefined, join(home, "named"), failing.stands);
+  await named.set("browser", true);
+  await assert.rejects(named.ask("browser", "named"), {
+    status: 409,
+    message:
+      "Open the browser yourself, and switch on remote debugging at its inspect page, chrome://inspect/#remote-debugging.",
+  });
 });
 
 test("a part switched off isn't ready, and its tools refuse, until the person turns it on", async (t) => {
@@ -448,7 +451,7 @@ test("a part switched off isn't ready, and its tools refuse, until the person tu
   const list = () => call("list", { path: "." });
   assert.equal(await list(), off("the files"));
   assert.equal(await call("exec_command", { cmd: "true" }), off("the terminal"));
-  // A batch, whose calls couldn't each be refused, is refused whole; a notification gets nothing.
+  // A batch, whose calls couldn't each be refused, is refused whole.
   const post = (body: unknown) =>
     fetch(endpoints.computer as string, {
       method: "POST",
@@ -462,13 +465,14 @@ test("a part switched off isn't ready, and its tools refuse, until the person tu
   const batch = await post([{ jsonrpc: "2.0", id: 1, method: "tools/list" }]);
   assert.equal(batch.status, 400);
   assert.match(((await batch.json()) as { error: { message: string } }).error.message, /own POST/);
-  const listing = { name: "list", arguments: { path: "." } };
-  assert.equal((await post({ jsonrpc: "2.0", method: "tools/call", params: listing })).status, 202);
   if (BROWSER) {
+    // Any of its calls that names files answers to the files' switch, whichever tool it is.
     const browse = await connect(endpoints.browser as string);
     assert.equal(await browse("browser_run_code_unsafe", { code: "1" }), off("the terminal"));
     assert.equal(await browse("browser_file_upload", { paths: [] }), off("the files"));
-    assert.equal(await browse("browser_tabs", { action: "list" }), "answered");
+    assert.equal(await browse("browser_drop", { paths: [] }), off("the files"));
+    assert.equal(await browse("browser_snapshot", { filename: "page.md" }), off("the files"));
+    assert.equal(await browse("browser_snapshot", {}), "answered");
   }
   const turned = await fetch(`${apiUrl}/v1/setup/files`, {
     method: "PUT",
@@ -478,6 +482,23 @@ test("a part switched off isn't ready, and its tools refuse, until the person tu
   assert.equal(turned.status, 200);
   assert.equal(await list(), "answered");
   assert.equal(await call("exec_command", { cmd: "true" }), off("the terminal"));
+  if (BROWSER) {
+    // A file the browser writes stays in the computer's folder, whatever roots the agent's
+    // client gives.
+    const elsewhere = folderOf(t);
+    const rooted = new Client({ name: "roots", version: "1" }, { capabilities: { roots: {} } });
+    rooted.setRequestHandler("roots/list", async () => ({
+      roots: [{ uri: pathToFileURL(elsewhere).href }],
+    }));
+    await rooted.connect(
+      new StreamableHTTPClientTransport(new URL(endpoints.browser as string), {
+        requestInit: { headers: auth },
+      }),
+    );
+    t.after(() => rooted.close());
+    await rooted.callTool({ name: "browser_snapshot", arguments: { filename: "page.md" } });
+    assert.deepEqual(readdirSync(elsewhere), []);
+  }
   // Ending its session isn't a call, and goes through while the terminal is off.
   await call.end();
 });

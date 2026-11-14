@@ -141,6 +141,17 @@ try {
   out.tools = (await client.listTools()).tools.map((one) => one.name).sort();
   out.see = await call("see");
   out.apps = await call("apps");
+  // Switched off by the person, the agent's next call is refused; on again, it is answered.
+  const setScreen = (on) =>
+    fetch(`${url}/v1/setup/screen`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${to.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ on }),
+    });
+  await setScreen(false);
+  out.switchedOff = await call("apps");
+  await setScreen(true);
+  out.switchedOn = await call("apps");
   const [, windowId, pid] = /window_id=(\d+) pid=(\d+) "screen-test"/.exec(out.apps.text) ?? [];
   const term = { pid: Number(pid), window_id: Number(windowId) };
   // The terminal window: typing into it in the background is refused here, where nothing can
