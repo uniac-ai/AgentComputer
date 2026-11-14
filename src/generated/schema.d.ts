@@ -306,10 +306,10 @@ export interface components {
             };
         };
         /**
-         * @description terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes. load: how busy it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later. One that can't be taken is left out, and a socket that hasn't read the one before is not sent the next. Nothing is read while nobody watches or asks. presence: who is acting on it now, in presence@1, to watch only: a PresenceEvent when the socket opens, and another each time someone starts or stops acting on something.
+         * @description terminal: every terminal on it, the agent's commands and a person's shells alike, on one socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other. Watching reads them all; operating also opens a shell, types into any of them, the agent's included, sizes and stops them. files: its workspace's files, in files@1: text messages are FilesRequest one way and FilesAnswer the other, and a file's bytes travel as binary messages of at most 1,048,576 bytes. Watching lists and reads; operating also writes, which a computer with read access doesn't offer. browser: its browser, in screencast@1: binary messages are JPEG frames of the page shown, text messages are ScreencastEvent one way and ScreencastInput the other. Nobody waits for anybody: the agent's tools and a person's input act on the same browser at once. The page shown is each socket's own. A socket is shown each new tab as it opens, until it sends a tab input to show or open one; from then its page changes only when that page closes. load: how busy it is, in metrics@1, to watch only: a LoadReading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later. One that can't be taken is left out, and a socket that hasn't read the one before is not sent the next. Nothing is read while nobody watches or asks. presence: who is acting on it now, in presence@1, to watch only: a PresenceEvent when the socket opens, and another each time someone starts or stops acting on something. screen: the machine's screen, for this computer attached with it, in screen@1: binary messages are PNG frames of the whole screen, at most 1,280 pixels on their longest side, text messages are ScreenEvent one way and ScreenInput the other. The screen is taken twice a second while a socket is open, and a frame is sent only when the picture changed, so a socket is sent the last one when it opens and nothing more while the screen is still. A socket with more than 4 MiB still to be sent to it is sent nothing until it catches up.
          * @enum {string}
          */
-        Surface: "terminal" | "files" | "browser" | "load" | "presence";
+        Surface: "terminal" | "files" | "browser" | "load" | "presence" | "screen";
         /**
          * @description In watch you see and don't act: what you send is dropped, except that a files socket may still ask to list, to read and for what changed.
          * @enum {string}
@@ -429,6 +429,39 @@ export interface components {
             /** @description A URL, or back, forward or reload. */
             to: string;
         };
+        /** @description What the service sends on a screen@1 socket, as JSON text. */
+        ScreenEvent: {
+            /** @constant */
+            type: "size";
+            width: number;
+            height: number;
+        } | {
+            /** @constant */
+            type: "refused";
+            message: string;
+        };
+        /** @description What an operate socket sends on screen@1, as JSON text, no message over 65,536 bytes: a larger one closes the socket. Each is done in order, through Cua Driver, as the person. A point is in pixels of the frames, as the last size says, scaled to the screen; keys and text go to the window in front. What isn't done is answered with refused, and why: what Cua Driver refuses, what is none of these, and what is sent while 32 are still waiting. Binary messages, and whatever a watch socket sends, are dropped. */
+        ScreenInput: {
+            /** @constant */
+            type: "mouse";
+            /** @enum {string} */
+            action: "click" | "double_click" | "right_click" | "drag" | "scroll";
+            x: number;
+            y: number;
+            to_x?: number;
+            to_y?: number;
+            /** @enum {string} */
+            direction?: "up" | "down" | "left" | "right";
+            amount?: number;
+        } | {
+            /** @constant */
+            type: "key";
+            keys: string[];
+        } | {
+            /** @constant */
+            type: "text";
+            text: string;
+        };
         /** @description What the service sends on a terminal@1 socket, as JSON text, no message over 65,536 bytes. A terminal is a command the agent started or a shell a person opened; its id is the session id the agent's tools use. A new socket is first sent, for each terminal already there, the oldest first, its start, the end of what it wrote (its last 65,536 characters), and its exit if it has ended; then each event as it happens, with nothing to mark where the first ends. The last 64 that ended are among those already there, and one that leaves that list is not told. A character here is a UTF-16 unit. A socket with more than 4 MiB still to be sent to it is closed, with no close frame (1006): one that has stopped reading, or one that is reading while a terminal writes tens of megabytes at once. It isn't an error. Opened again, it is sent every terminal afresh, with the last 65,536 characters each wrote, in place of whatever it held. */
         TerminalEvent: {
             /** @constant */
@@ -511,7 +544,7 @@ export interface components {
             /** @description Bytes on that volume. */
             diskTotal: number;
         };
-        /** @description Someone who acted on a computer in the last 10 seconds. The person acts in a live view at operate: opening a shell, typing into or stopping a terminal, writing a file, or any input to the browser but moving the pointer. Watching is not acting. The agent acts by calling its endpoints: starting a command or typing into one (waiting on its output is not acting), any file tool, reads among them, and any browser tool that is answered. Computers attached to the same machine share its files: each is shown the person and the other computers' agents acting on them, by name. */
+        /** @description Someone who acted on a computer in the last 10 seconds. The person acts in a live view at operate: opening a shell, typing into or stopping a terminal, writing a file, any input to the browser but moving the pointer, or any input to the screen that Cua Driver did. Watching is not acting, and the person's own use of the screen, outside a live view, can't be seen. The agent acts by calling its endpoints: starting a command or typing into one (waiting on its output is not acting), any file tool, reads among them, any browser tool that is answered, and any screen tool. Computers attached to the same machine share its files and its screen: each is shown the person and the other computers' agents acting on them, by name. */
         Acting: {
             /** @enum {string} */
             who: "person" | "agent";

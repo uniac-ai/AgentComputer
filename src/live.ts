@@ -1,7 +1,7 @@
 // A computer's live surfaces, where its processes run: its terminals, the agent's commands and a
 // person's shells alike, its files, which files-live.ts holds, its browser, which browser-live.ts
-// holds, and its load, which load-live.ts holds. Each is a WebSocket in a small protocol of its
-// own.
+// holds, its load, which load-live.ts holds, and the machine's screen, which screen-live.ts holds.
+// Each is a WebSocket in a small protocol of its own.
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import type { AgentExec, CommandEvent } from "@agentorg/exec";
@@ -11,6 +11,7 @@ import { type FilesLive, MAX_PART, reason } from "./files-live.ts";
 import type { components } from "./generated/schema.js";
 import type { LoadLive } from "./load-live.ts";
 import type { Presence } from "./presence.ts";
+import type { ScreenLive } from "./screen-live.ts";
 import { pieces } from "./text.ts";
 
 type Schemas = components["schemas"];
@@ -24,6 +25,7 @@ export const PROTOCOLS: Record<Surface, string> = {
   browser: "screencast@1",
   load: "metrics@1",
   presence: "presence@1",
+  screen: "screen@1",
 };
 
 /** No terminal@1 message is larger, either way. A larger one closes its socket. */
@@ -51,6 +53,7 @@ const SERVERS: Record<Surface, WebSocketServer> = {
   browser: new WebSocketServer({ noServer: true }),
   load: new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE }),
   presence: new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE }),
+  screen: new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE }),
 };
 
 const MALFORMED = "That isn't a terminal@1 message.";
@@ -73,6 +76,7 @@ export class Live {
 
   readonly #browser: BrowserLive | undefined;
   readonly #files: FilesLive | undefined;
+  readonly #screen: ScreenLive | undefined;
   /** Whether a person may write files here: not where the agent can only read them. */
   readonly #writes: boolean;
 
@@ -87,6 +91,7 @@ export class Live {
     presence: Presence,
     files?: FilesLive,
     browser?: BrowserLive,
+    screen?: ScreenLive,
   ) {
     this.#load = load;
     this.#presence = presence;
@@ -102,6 +107,7 @@ export class Live {
     this.#files = files;
     this.#writes = access !== "read";
     this.#browser = browser;
+    this.#screen = screen;
   }
 
   surfaces(): SurfaceInfo[] {
@@ -114,6 +120,8 @@ export class Live {
       surfaces.push({ surface: "browser", protocol: PROTOCOLS.browser, operate: true });
     surfaces.push({ surface: "load", protocol: PROTOCOLS.load, operate: false });
     surfaces.push({ surface: "presence", protocol: PROTOCOLS.presence, operate: false });
+    if (this.#screen)
+      surfaces.push({ surface: "screen", protocol: PROTOCOLS.screen, operate: true });
     return surfaces;
   }
 
@@ -127,6 +135,7 @@ export class Live {
       else if (surface === "browser" && this.#browser) this.#browser.open(ws, mode);
       else if (surface === "load") this.#load.open(ws);
       else if (surface === "presence") this.#watch(ws);
+      else if (surface === "screen" && this.#screen) this.#screen.open(ws, mode);
       else ws.close(1011, `There's no ${surface} here.`);
     });
   }
@@ -134,6 +143,7 @@ export class Live {
   /** The terminals themselves end with the AgentExec that runs them. */
   close() {
     void this.#browser?.close();
+    this.#screen?.close();
     this.#files?.close();
     this.#load.close();
     for (const ws of [...this.#viewers, ...this.#watchers]) ws.close(1001, "It stopped.");

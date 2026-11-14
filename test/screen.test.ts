@@ -11,6 +11,7 @@ import { createInterface } from "node:readline";
 import test, { before, describe } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { personCall } from "../src/screen-live.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -67,12 +68,66 @@ test("where Cua Driver isn't installed, the screen isn't ready and attaching wit
   await plain.kill();
 });
 
+test("the person's input in the live view is the driver's call, at the whole screen", () => {
+  const desktop = { kind: "desktop", display_id: "primary" };
+  const mouse = { type: "mouse", x: 10, y: 20 };
+  const fore = { target: desktop, delivery_mode: "foreground", x: 10, y: 20 };
+  assert.deepEqual(personCall({ ...mouse, action: "click" }), ["click", fore]);
+  assert.deepEqual(personCall({ ...mouse, action: "double_click" }), [
+    "click",
+    { ...fore, count: 2 },
+  ]);
+  assert.deepEqual(personCall({ ...mouse, action: "right_click" }), [
+    "click",
+    { ...fore, button: "right" },
+  ]);
+  assert.deepEqual(personCall({ ...mouse, action: "drag", to_x: 30, to_y: 40 }), [
+    "drag",
+    { target: desktop, delivery_mode: "foreground", from_x: 10, from_y: 20, to_x: 30, to_y: 40 },
+  ]);
+  assert.deepEqual(personCall({ ...mouse, action: "scroll", direction: "up", amount: 2 }), [
+    "scroll",
+    { ...fore, direction: "up", amount: 2 },
+  ]);
+  // Keys and text go where the person's focus is.
+  assert.deepEqual(personCall({ type: "key", keys: ["enter"] }), [
+    "press_key",
+    { target: desktop, key: "enter" },
+  ]);
+  assert.deepEqual(personCall({ type: "key", keys: ["cmd", "c"] }), [
+    "hotkey",
+    { target: desktop, keys: ["cmd", "c"] },
+  ]);
+  assert.deepEqual(personCall({ type: "text", text: "hi" }), [
+    "type_text",
+    { target: desktop, text: "hi" },
+  ]);
+  const malformed = "That isn't a screen@1 message.";
+  for (const [wrong, message] of [
+    [null, malformed],
+    [{ type: "mouse", action: "click" }, malformed],
+    [{ type: "key", keys: [] }, malformed],
+    [{ type: "text", text: "" }, malformed],
+    [{ type: "tab" }, malformed],
+    [{ ...mouse, action: "drag" }, "drag needs x and y, where it starts, and to_x and to_y."],
+    [{ ...mouse, action: "scroll" }, "scroll needs a direction."],
+  ] as const)
+    assert.throws(() => personCall(wrong), { message }, JSON.stringify(wrong));
+});
+
 type Answer = { isError: boolean; kinds: string[]; text: string };
 type Ran = Record<string, Answer> & {
   error?: string;
   ran: string;
   screenOffered: unknown;
-  attached: { tools: string[]; screen: boolean };
+  attached: { tools: string[]; screen: boolean; surface: unknown };
+  liveError?: string;
+  watched: { texts: unknown[]; frames: string[]; settled: boolean };
+  pointer: { x: number; y: number };
+  liveRan: string;
+  watchTyped: boolean;
+  operated: unknown[];
+  aboutAfter: unknown;
   tools: string[];
   about: unknown;
   other: unknown;
@@ -120,6 +175,11 @@ describe("in a desktop of its own, with the pinned driver", {
     assert.deepEqual(out.screenOffered, { capability: "screen", ready: true });
     assert.deepEqual([out.attached.screen, out.attached.tools], [true, ["see", "act", "apps"]]);
     assert.deepEqual(out.tools, ["act", "apps", "see"]);
+    assert.deepEqual(out.attached.surface, {
+      surface: "screen",
+      protocol: "screen@1",
+      operate: true,
+    });
   });
 
   test("the agent sees the whole screen, one window's elements, and the apps", () => {
@@ -171,6 +231,41 @@ describe("in a desktop of its own, with the pinned driver", {
     assert.deepEqual(out.otherAbout, [
       { label: "Reaches", value: "Read-only files" },
       { label: "Acting now", value: "Scout: the screen" },
+    ]);
+  });
+
+  test("the person watching is sent the size, then a PNG frame scaled from the screen, and nothing more while it is still", () => {
+    assert.equal(out.liveError, undefined, out.liveError);
+    assert.deepEqual(out.watched.texts, [{ type: "size", width: 1280, height: 800 }]);
+    assert.deepEqual(out.watched.frames, ["PNG"]);
+    assert.equal(out.watched.settled, true);
+  });
+
+  test("at operate the person types into the window in front", () => {
+    assert.equal(out.liveRan, "live-ok\n");
+  });
+
+  test("a point in the frames is scaled to the screen", () => {
+    assert.deepEqual([out.pointer.x, out.pointer.y], [150, 150]);
+  });
+
+  test("a watch socket's input is dropped", () => {
+    assert.equal(out.watchTyped, false);
+  });
+
+  test("of every mouse action and keys together, nothing is refused but what is no screen@1 message", () => {
+    const refused = { type: "refused", message: "That isn't a screen@1 message." };
+    assert.deepEqual(out.operated, [{ type: "size", width: 1280, height: 800 }, refused, refused]);
+  });
+
+  test("the agent is told the person used the screen, in its next answer there and in about", () => {
+    assert.match(done(out.personLine), /\nThe person used the screen \d+ s ago\.$/);
+    assert.deepEqual(out.aboutAfter, [
+      { label: "Reaches", value: "Read-only files, Screen" },
+      {
+        label: "Acting now",
+        value: "The person: the screen; can't tell whether the person is using the screen",
+      },
     ]);
   });
 });

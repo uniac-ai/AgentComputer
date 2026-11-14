@@ -18,6 +18,7 @@ import { LoadLive } from "./load-live.ts";
 import { channelProgram, DEFAULT_CHANNEL, playwright } from "./playwright.ts";
 import { Board, Presence } from "./presence.ts";
 import { driverProgram, Screen, screenReadiness } from "./screen.ts";
+import { ScreenLive } from "./screen-live.ts";
 import { privateFolder } from "./store.ts";
 
 type Schemas = components["schemas"];
@@ -287,13 +288,15 @@ export class ProcessRuntime implements Runtime {
     }
     // The screen is the machine's, through Cua Driver, which the person installed and granted.
     let screen: Screen | undefined;
+    let screenLive: ScreenLive | undefined;
     let screenDown = false;
     if (spec.screen) {
       // Asked afresh, not as last seen: it is what this start rests on.
       const ready = await this.#checkScreen();
+      const program = driverProgram(this.#screenDriver) as string;
       screen = ready.ready
         ? new Screen(
-            driverProgram(this.#screenDriver) as string,
+            program,
             events.log,
             () => {
               screenDown = true;
@@ -309,6 +312,12 @@ export class ProcessRuntime implements Runtime {
         await Promise.all([exec?.close(), browser?.stop(), screen?.stop()]);
         throw error;
       }
+      // The person's live view of it reaches the driver through a connection of its own.
+      screenLive = new ScreenLive(
+        program,
+        (line) => events.log(`Live view: ${line}`),
+        () => presence.acted("person", { capability: "screen" }),
+      );
     }
     let browserLive: BrowserLive | undefined;
     if (browser) {
@@ -325,11 +334,11 @@ export class ProcessRuntime implements Runtime {
         basename(spec.outside?.workspace ?? (spec.workspace as string)),
         () => presence.acted("person", { capability: "files" }),
       );
-    const live = new Live(exec, spec.access, load, presence, files, browserLive);
+    const live = new Live(exec, spec.access, load, presence, files, browserLive, screenLive);
     const surfaces = live.surfaces();
     return {
       browserTools: browser?.tools ?? [],
-      /** As they are now: a browser that has stopped can't be opened, and says so. */
+      /** As they are now: a browser or a driver that has stopped can't be opened, and says so. */
       get surfaces() {
         return surfaces.map((one) =>
           one.surface === "browser" && browserDown
@@ -337,7 +346,12 @@ export class ProcessRuntime implements Runtime {
                 ...one,
                 unavailable: "Its browser has stopped. Stop the computer and start it again.",
               }
-            : one,
+            : one.surface === "screen" && screenDown
+              ? {
+                  ...one,
+                  unavailable: "Cua Driver has stopped. Stop the computer and start it again.",
+                }
+              : one,
         );
       },
       openLive: async (surface, mode, request, socket, head) =>

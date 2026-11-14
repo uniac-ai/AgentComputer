@@ -1,6 +1,7 @@
 // This computer's screen, for its agent: three tools, see, act and apps, served over MCP and done
 // through Cua Driver, which the person installs and grants once. None of the driver's other tools
-// is ever offered: not its perception extension, its scripts, its clipboard or its recording.
+// is ever offered: not its perception extension, its scripts, its clipboard or its recording. The
+// person's live view of it, in screen-live.ts, reaches the driver the same way.
 import { execFile } from "node:child_process";
 import { statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -125,12 +126,14 @@ export async function screenReadiness(given?: string): Promise<Readiness> {
   }
 }
 
-type Answer = { content?: unknown[]; structuredContent?: unknown; isError?: boolean };
+export type Answer = { content?: unknown[]; structuredContent?: unknown; isError?: boolean };
 type Args = Record<string, unknown>;
 /** Only what was given: the driver reads a key left out as its own default. */
 const given = (args: Args) =>
   Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined));
 const text = (value: string) => ({ type: "text" as const, text: value });
+/** The whole screen, as the driver names it. */
+export const DESKTOP = { kind: "desktop", display_id: "primary" };
 
 const Window = {
   pid: z.number().int().optional().describe("The app's process id, from apps."),
@@ -173,7 +176,7 @@ const Act = z
 type Act = z.infer<typeof Act>;
 
 /** Each action, as the driver's tool that does it and the arguments it takes. */
-function driverCall(input: Act): [string, Args] {
+export function driverCall(input: Act): [string, Args] {
   const { action, pid, window_id, element_token, x, y } = input;
   if ((pid === undefined) !== (window_id === undefined))
     throw new ApiError(400, "A window is its pid and its window_id, from apps: give both.");
@@ -187,9 +190,7 @@ function driverCall(input: Act): [string, Args] {
   const common = given({
     element_token,
     // A point with no window is in the whole screen's picture.
-    target:
-      window ??
-      (element_token === undefined ? { kind: "desktop", display_id: "primary" } : undefined),
+    target: window ?? (element_token === undefined ? DESKTOP : undefined),
     delivery_mode: input.delivery_mode ?? "background",
   });
   const at = { ...common, ...given({ x, y }) };
@@ -220,26 +221,17 @@ function driverCall(input: Act): [string, Args] {
   }
 }
 
-export class Screen {
+/** A connection to Cua Driver, with every tool it needs. */
+export class Driver {
   readonly #client = new Client({ name: "agentcomputer", version: "1" });
   readonly #transport: StdioClientTransport;
   readonly #started: Promise<void>;
-  readonly #noted: () => string | undefined;
   /** The driver's last words, to say why it didn't start. */
   #said = "";
   #stopping = false;
 
-  /**
-   * `program` is Cua Driver; `log` hears what it writes, `exited` that it stopped by itself, and
-   * `noted` gives the line to add to each answer: who else acted on the screen.
-   */
-  constructor(
-    program: string,
-    log: (line: string) => void,
-    exited: () => void,
-    noted: () => string | undefined,
-  ) {
-    this.#noted = noted;
+  /** `program` is Cua Driver; `log` hears what it writes, and `exited` that it stopped by itself. */
+  constructor(program: string, log: (line: string) => void, exited: () => void) {
     this.#transport = new StdioClientTransport({
       command: program,
       args: ["mcp"],
@@ -281,8 +273,24 @@ export class Screen {
     await this.#client.close().catch(() => {});
   }
 
-  async #call(tool: string, args: Args): Promise<Answer> {
+  async call(tool: string, args: Args): Promise<Answer> {
     return (await this.#client.callTool({ name: tool, arguments: args })) as Answer;
+  }
+}
+
+/** The agent's screen: a connection of its own to the driver, and its three tools. */
+export class Screen extends Driver {
+  readonly #noted: () => string | undefined;
+
+  /** `noted` gives the line to add to each answer: who else acted on the screen. */
+  constructor(
+    program: string,
+    log: (line: string) => void,
+    exited: () => void,
+    noted: () => string | undefined,
+  ) {
+    super(program, log, exited);
+    this.#noted = noted;
   }
 
   /** The agent's three tools, each answered with what the driver answers, and the line after it. */
@@ -316,10 +324,10 @@ export class Screen {
       ({ pid, window_id }) =>
         answered(async () => {
           if (pid === undefined && window_id === undefined)
-            return this.#call("get_desktop_state", {});
+            return this.call("get_desktop_state", {});
           if (pid === undefined || window_id === undefined)
             throw new ApiError(400, "A window is its pid and its window_id, from apps: give both.");
-          return this.#call("get_window_state", { pid, window_id });
+          return this.call("get_window_state", { pid, window_id });
         }),
     );
     server.registerTool(
@@ -332,7 +340,7 @@ export class Screen {
       (input) =>
         answered(() => {
           const [tool, args] = driverCall(input);
-          return this.#call(tool, args);
+          return this.call(tool, args);
         }),
     );
     server.registerTool(
@@ -347,12 +355,12 @@ export class Screen {
           if ((pid === undefined) !== (window_id === undefined))
             throw new ApiError(400, "A window is its pid and its window_id, from apps: give both.");
           if (pid !== undefined) {
-            const brought = await this.#call("bring_to_front", { pid, window_id });
+            const brought = await this.call("bring_to_front", { pid, window_id });
             if (brought.isError) return brought;
           }
-          const apps = await this.#call("list_apps", {});
+          const apps = await this.call("list_apps", {});
           if (apps.isError) return apps;
-          const windows = await this.#call("list_windows", { on_screen_only: true });
+          const windows = await this.call("list_windows", { on_screen_only: true });
           return {
             content: [...(apps.content ?? []), ...(windows.content ?? [])],
             ...(windows.isError ? { isError: true } : {}),
@@ -364,7 +372,7 @@ export class Screen {
 
   /** Answer one MCP request, as the stateless transport does. */
   async handle(request: IncomingMessage, response: ServerResponse) {
-    await this.#started;
+    await this.ready();
     const server = this.#server();
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     response.once("close", () => {
