@@ -38,6 +38,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** For each part of the service's machine an agent can use, the person's switch, whether it has all it needs, and each thing it needs, read afresh each time. */
+        get: operations["getSetup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/setup/{capability}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability: components["schemas"]["Switch"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Set a part's switch, which lasts across restarts. Turning it on, or on again, also asks for everything the part is missing, as asking for it with no need named does. Where that couldn't be started, it answers 409, saying why, and the switch stays on. */
+        put: operations["setSetup"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/setup/{capability}/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability: components["schemas"]["Switch"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with none named, for everything it is missing. screen-recording or accessibility: Cua Driver's own grant, its app started first, which makes the system's requests in its own order, Accessibility first; then that grant's own pane in System Settings opens. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. With none named, the screen's grant while either is missing, and the first browser installed, Chrome before Edge, while none is on. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing. */
+        post: operations["askSetup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/acting": {
         parameters: {
             query?: never;
@@ -600,6 +655,40 @@ export interface components {
             /** @description Bytes on that volume. */
             diskTotal: number;
         };
+        /**
+         * @description A part of the service's machine an agent can use: its terminal, its files, its screen, and the person's own browser.
+         * @enum {string}
+         */
+        Switch: "terminal" | "files" | "screen" | "browser";
+        /**
+         * @description install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser, with remote debugging on or off; named: the one browser a service was given the folder of.
+         * @enum {string}
+         */
+        NeedName: "install" | "screen-recording" | "accessibility" | "chrome" | "edge" | "named";
+        Need: {
+            need: components["schemas"]["NeedName"];
+            /** @description A browser's name: Chrome, Edge, or the browser. */
+            name?: string;
+            /** @description For a grant, whose it is, as System Settings lists it: the outermost app Cua Driver is inside, CuaDriver for its own app, or an app that carries the driver. None where Cua Driver is in no app. */
+            holder?: string;
+            /**
+             * @description missing: not installed. unknown: it can't be read now. A browser is on while it is open with its remote debugging switched on.
+             * @enum {string}
+             */
+            state: "missing" | "granted" | "not-granted" | "unknown" | "on" | "off";
+        };
+        Setup: {
+            /** @description terminal, files, screen and browser, in that order. */
+            capabilities: {
+                capability: components["schemas"]["Switch"];
+                /** @description The person's switch. Off, agents' new calls to the part refuse, saying the person turned it off, and `info` says so; what an agent already started runs on. The terminal and the screen each reach the whole machine: commands read any file, and the screen acts in any app. The browser's switch is for the person's own; any browser's code-running tool answers to the terminal's switch, and a browser call that names files, by `paths` or `filename`, to the files'. A service started with `--lend` starts with every one off; any other, with every one on. */
+                on: boolean;
+                /** @description Whether the part has all it needs, apart from its switch: the screen, each item granted; the browser, one browser on. The terminal and files always do. */
+                ready: boolean;
+                /** @description Each thing the part needs, always, with its state. The terminal and files need nothing. The screen needs Cua Driver, which while it isn't installed is the one item, and on macOS its two grants. The browser lists Chrome then Edge, each on, off or missing, or the one browser named; with both on, the agent's is Chrome. */
+                needs: components["schemas"]["Need"][];
+            }[];
+        };
         Connection: {
             /** @description Whether any client holds a connection now. */
             connected: boolean;
@@ -733,7 +822,7 @@ export interface components {
             reason?: string;
         };
         /**
-         * @description What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do.
+         * @description What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do. A part the person switched off on that machine isn't ready either.
          * @enum {string}
          */
         Capability: "about" | "terminal" | "files" | "screen";
@@ -741,7 +830,7 @@ export interface components {
             capability: components["schemas"]["Capability"];
         };
         /**
-         * @description headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or else Edge, signed in, offered for this computer: ready where it is open with its remote debugging switched on, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine.
+         * @description headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or Edge, signed in, offered for this computer: ready where one is open with its remote debugging switched on, Chrome first, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine. Switched off by the person on that machine, it isn't ready either.
          * @enum {string}
          */
         BrowserKind: "headless" | "own";
@@ -832,6 +921,103 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Each part. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Setup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    setSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability: components["schemas"]["Switch"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    on: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Set, and its steps started. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Setup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description On, but the steps that ask for what it needs couldn't be started. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    askSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability: components["schemas"]["Switch"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    need?: components["schemas"]["NeedName"];
+                };
+            };
+        };
+        responses: {
+            /** @description Asked, its steps started. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Setup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The part doesn't need that here, or what it needs can't be asked for, such as a browser that isn't installed, or the steps couldn't be started. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     getActing: {

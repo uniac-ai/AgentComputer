@@ -1,8 +1,9 @@
-// The person's own browser, for this computer: Chrome, or else Edge, as they use it, signed in. It
-// is reached through the browser's own attach, from version 144: the person switches on remote
-// debugging once, on its inspect page, and the browser then writes where it is reached in
-// DevToolsActivePort, in its user data folder, and asks the person to allow each connection.
-// Nothing is installed, and no port is opened on the person's profile by the service.
+// The person's own browser, for this computer: Chrome or Edge, whichever has remote debugging on,
+// Chrome first, as they use it, signed in. It is reached through the browser's own attach, from
+// version 144: the person switches on remote debugging once, on its inspect page, and the browser
+// then writes where it is reached in DevToolsActivePort, in its user data folder, and asks the
+// person to allow each connection. Nothing is installed, and no port is opened on the person's
+// profile by the service.
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -12,14 +13,17 @@ import { promisify } from "node:util";
 const run = promisify(execFile);
 
 /** One browser the person may have, as this machine has it. */
-interface Kind {
+export interface Kind {
+  browser: "chrome" | "edge" | "named";
   name: string;
   /** Where the person switches on remote debugging. */
   page: string;
   /** Its user data folder, where it writes DevToolsActivePort. */
   folder: string;
-  /** Whether it is installed here. */
+  /** Whether it is here: one whose folder the service was given is taken to be. */
   installed: boolean;
+  /** Its app or program, where this can open it; none for a folder named by the service. */
+  at?: string | undefined;
 }
 
 export type OwnBrowser =
@@ -28,33 +32,48 @@ export type OwnBrowser =
 
 /** A program on the path, where there is one. */
 const onPath = (names: string[]) =>
-  names.some((name) =>
-    (process.env.PATH ?? "")
-      .split(delimiter)
-      .some((dir) => isAbsolute(dir) && existsSync(join(dir, name))),
-  );
+  names
+    .flatMap((name) =>
+      (process.env.PATH ?? "")
+        .split(delimiter)
+        .filter((dir) => isAbsolute(dir))
+        .map((dir) => join(dir, name)),
+    )
+    .find((path) => existsSync(path));
 
-/** Chrome, then Edge, where each would be on this machine. */
-function kinds(): Kind[] {
-  const home = homedir();
-  if (process.platform === "darwin") {
+/** The system browsers are looked for on: this one, unless a test stands in. */
+export interface Where {
+  platform: NodeJS.Platform;
+  home: string;
+  /** Where macOS apps are looked for. */
+  applications: string[];
+}
+export const here = (): Where => ({
+  platform: process.platform,
+  home: homedir(),
+  applications: ["/Applications", join(homedir(), "Applications")],
+});
+
+/** Chrome, then Edge, where each would be on this machine, installed or not. */
+function kinds({ platform, home, applications }: Where): Omit<Kind, "installed">[] {
+  if (platform === "darwin") {
     const app = (name: string) =>
-      [join("/Applications", name), join(home, "Applications", name)].some((path) =>
-        existsSync(path),
-      );
+      applications.map((folder) => join(folder, name)).find((path) => existsSync(path));
     const support = join(home, "Library", "Application Support");
     return [
       {
+        browser: "chrome",
         name: "Chrome",
         page: "chrome://inspect/#remote-debugging",
         folder: join(support, "Google", "Chrome"),
-        installed: app("Google Chrome.app"),
+        at: app("Google Chrome.app"),
       },
       {
+        browser: "edge",
         name: "Edge",
         page: "edge://inspect/#remote-debugging",
         folder: join(support, "Microsoft Edge"),
-        installed: app("Microsoft Edge.app"),
+        at: app("Microsoft Edge.app"),
       },
     ];
   }
@@ -62,16 +81,18 @@ function kinds(): Kind[] {
     process.env.CHROME_CONFIG_HOME || process.env.XDG_CONFIG_HOME || join(home, ".config");
   return [
     {
+      browser: "chrome",
       name: "Chrome",
       page: "chrome://inspect/#remote-debugging",
       folder: join(config, "google-chrome"),
-      installed: onPath(["google-chrome", "google-chrome-stable"]),
+      at: onPath(["google-chrome", "google-chrome-stable"]),
     },
     {
+      browser: "edge",
       name: "Edge",
       page: "edge://inspect/#remote-debugging",
       folder: join(config, "microsoft-edge"),
-      installed: onPath(["microsoft-edge", "microsoft-edge-stable"]),
+      at: onPath(["microsoft-edge", "microsoft-edge-stable"]),
     },
   ];
 }
@@ -126,27 +147,44 @@ export async function reachedAt(folder: string) {
   }
 }
 
+/** The person's browsers: Chrome, then Edge, installed or not, or the one whose folder is named. */
+export function browsers(folder?: string, where: Where = here()): Kind[] {
+  if (folder)
+    return [
+      {
+        browser: "named",
+        name: "the browser",
+        page: "chrome://inspect/#remote-debugging",
+        folder,
+        installed: true,
+      },
+    ];
+  return kinds(where).map((kind) => ({ ...kind, installed: kind.at !== undefined }));
+}
+
 /**
  * The person's browser, and where it is reached, or why it can't be. `folder`, where given, is
  * the user data folder of the browser to use, in place of looking for Chrome and Edge.
  */
-export async function ownBrowser(folder?: string): Promise<OwnBrowser> {
-  const found = folder
-    ? {
-        name: "the browser",
-        page: "its inspect page, chrome://inspect/#remote-debugging",
-        folder,
-        installed: true,
-      }
-    : kinds().find((kind) => kind.installed);
-  if (!found)
+export async function ownBrowser(folder?: string, where: Where = here()): Promise<OwnBrowser> {
+  const found = browsers(folder, where).filter((kind) => kind.installed);
+  // The one with remote debugging on, Chrome first: turning it on is choosing it.
+  for (const { name, folder } of found) {
+    const endpoint = await reachedAt(folder);
+    if (endpoint) return { ready: true, name, endpoint };
+  }
+  const [first, second] = found;
+  if (!first)
     return { ready: false, reason: "Neither Chrome nor Edge is installed on this machine." };
-  const { name, page } = found;
-  const endpoint = await reachedAt(found.folder);
-  if (endpoint) return { ready: true, name, endpoint };
+  if (second)
+    return {
+      ready: false,
+      reason: `Neither ${first.name}'s nor ${second.name}'s remote debugging is on, or the browser isn't open. On this machine, open the one you use, version 144 or later, go to its inspect page, ${first.page} or ${second.page}, and switch on remote debugging. It then asks you to allow each connection.`,
+    };
+  const { name, page } = first;
   const Name = name[0]?.toUpperCase() + name.slice(1);
   return {
     ready: false,
-    reason: `${Name}'s remote debugging is off, or ${name} isn't open. On this machine, open ${name}, version 144 or later, go to ${page} and switch on remote debugging. ${Name} then asks you to allow each connection.`,
+    reason: `${Name}'s remote debugging is off, or ${name} isn't open. On this machine, open ${name}, version 144 or later, go to its inspect page, ${page}, and switch on remote debugging. ${Name} then asks you to allow each connection.`,
   };
 }

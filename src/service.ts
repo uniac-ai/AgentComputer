@@ -19,6 +19,7 @@ import { OPENAPI, OPERATIONS, type Operation } from "./generated/operations.ts";
 import { createHandlers, VERSION } from "./handlers.ts";
 import { recordOf, running } from "./running.ts";
 import { ApiError, type Endpoint, type Isolation, type Runtime } from "./runtime.ts";
+import type { Setup } from "./setup.ts";
 import { controlToken, digestOf, privateFolder, sameToken, writePrivate } from "./store.ts";
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -28,6 +29,8 @@ const MAX_BODY = 64 * 1024;
 export interface ServeOptions {
   listen: string;
   data: string;
+  /** What this machine needs set up for this computer to reach all of it. */
+  setup: Setup;
   /** How this computer is run, as `none`, and how a computer is made in each isolation, where it makes any. */
   runtimes: { none: Runtime } & Partial<Record<Isolation, Runtime>>;
   /** Files holding the certificate and its key, to terminate TLS here. */
@@ -125,7 +128,7 @@ export async function serve(options: ServeOptions) {
   );
   // Behind a proxy every client comes from it, so where one connects from tells nothing.
   const connections = new Connections(options.tlsProxy === true);
-  const handlers = createHandlers(computers, connections) as unknown as Record<
+  const handlers = createHandlers(computers, connections, options.setup) as unknown as Record<
     string,
     (input: unknown) => Promise<unknown>
   >;

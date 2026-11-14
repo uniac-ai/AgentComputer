@@ -190,6 +190,14 @@ describe("in a desktop of its own, with the pinned driver", {
     assert.match(done(out.apps), /window_id=\d+ pid=\d+ "screen-test"/);
   });
 
+  test("switched off by the person, the agent's calls are refused; on again, they are answered", () => {
+    assert.equal(
+      refused(out.switchedOff),
+      "The person turned off the screen for agents on this machine.",
+    );
+    assert.match(done(out.switchedOn), /"screen-test"/);
+  });
+
   test("typing is refused in the background where only the focus can take it, and runs in the foreground", () => {
     assert.match(refused(out.background), /delivery_mode:"foreground"/);
     done(out.typed);

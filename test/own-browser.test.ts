@@ -31,7 +31,7 @@ const run = promisify(execFile);
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 /** What a browser named by its folder says while it doesn't answer there. */
 const NOT_OPEN =
-  "The browser's remote debugging is off, or the browser isn't open. On this machine, open the browser, version 144 or later, go to its inspect page, chrome://inspect/#remote-debugging and switch on remote debugging. The browser then asks you to allow each connection.";
+  "The browser's remote debugging is off, or the browser isn't open. On this machine, open the browser, version 144 or later, go to its inspect page, chrome://inspect/#remote-debugging, and switch on remote debugging. The browser then asks you to allow each connection.";
 
 const cleanups: (() => Promise<unknown> | unknown)[] = [];
 after(async () => {
@@ -218,6 +218,23 @@ describe("attached with the person's browser", { skip }, () => {
     await said("browser_close", {});
     assert.equal(browser.child.exitCode, null);
     assert.equal((await ownBrowser(browser.folder)).ready, true);
+  });
+
+  test("switched off by the person, the agent's calls are refused; on again, they are answered", async () => {
+    const set = (on: boolean) =>
+      fetch(`${made.to.apiUrl}/v1/setup/browser`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${made.to.apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ on }),
+      });
+    assert.equal((await set(false)).status, 200);
+    const where = process.platform === "darwin" ? "this Mac" : "this machine";
+    assert.equal(
+      await said("browser_tabs", { action: "list" }),
+      `The person turned off their own browser for agents on ${where}.`,
+    );
+    assert.equal((await set(true)).status, 200);
+    assert.match(await said("browser_tabs", { action: "list" }), /Opener/);
   });
 
   test("the person watches every tab in the live view, theirs among them", async () => {

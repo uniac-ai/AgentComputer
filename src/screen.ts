@@ -40,7 +40,7 @@ const DRIVER_TOOLS = [
 const INSTALL = "Install the signed app from cua.ai/download";
 
 /** The driver's environment: what this starts of it sends no telemetry. */
-const quiet = (): NodeJS.ProcessEnv => ({ ...process.env, DO_NOT_TRACK: "1" });
+export const quiet = (): NodeJS.ProcessEnv => ({ ...process.env, DO_NOT_TRACK: "1" });
 
 const program = (path: string) => {
   try {
@@ -74,55 +74,82 @@ const older = (version: string, than: string) => {
 };
 
 /** Whether the screen can be reached through Cua Driver here, and if not, what to do. */
-export async function screenReadiness(given?: string): Promise<Readiness> {
-  const found = driverProgram(given);
-  if (!found)
+export const screenReadiness = async (given?: string): Promise<Readiness> =>
+  (await screenCheck(given)).readiness;
+
+/**
+ * The one place that decides whether the screen can be reached here: its readiness, the driver
+ * found, and on macOS the two grants as the driver read them.
+ */
+export async function screenCheck(
+  given?: string,
+  platform = process.platform,
+): Promise<{ readiness: Readiness; program?: string; grants?: Grants }> {
+  const program = driverProgram(given);
+  if (!program)
     return {
-      ready: false,
-      reason: `Cua Driver isn't installed on this machine. ${INSTALL}, then grant it Screen Recording and Accessibility.`,
+      readiness: {
+        ready: false,
+        reason: `Cua Driver isn't installed on this machine. ${INSTALL}, then grant it Screen Recording and Accessibility.`,
+      },
     };
   const doesntRun = { ready: false, reason: `Cua Driver doesn't run. ${INSTALL} again.` };
   try {
-    const { stdout } = await run(found, ["--version"], { timeout: 5_000, env: quiet() });
+    const { stdout } = await run(program, ["--version"], { timeout: 5_000, env: quiet() });
     const version = /(\d+\.\d+\.\d+)/.exec(stdout)?.[1];
-    if (!version) return doesntRun;
+    if (!version) return { readiness: doesntRun, program };
     if (older(version, DRIVER_VERSION))
       return {
-        ready: false,
-        reason: `Cua Driver ${version} is older than ${DRIVER_VERSION}. ${INSTALL} to update it.`,
+        readiness: {
+          ready: false,
+          reason: `Cua Driver ${version} is older than ${DRIVER_VERSION}. ${INSTALL} to update it.`,
+        },
+        program,
       };
   } catch {
-    return doesntRun;
+    return { readiness: doesntRun, program };
   }
   // Only macOS asks for grants, and the driver answers for its own app, not for whoever asks.
-  if (process.platform !== "darwin") return { ready: true };
+  if (platform !== "darwin") return { readiness: { ready: true }, program };
   const unknown = "Can't tell whether Cua Driver is granted Screen Recording and Accessibility";
+  const grants = await driverGrants(program);
+  const missing = [
+    ...(grants.screen_recording ? [] : ["Screen Recording"]),
+    ...(grants.accessibility ? [] : ["Accessibility"]),
+  ];
+  const readiness =
+    grants.accessibility === undefined || grants.screen_recording === undefined
+      ? { ready: false, reason: grants.reason ? `${unknown}: ${grants.reason}` : `${unknown}.` }
+      : missing.length === 0
+        ? { ready: true }
+        : {
+            ready: false,
+            reason: `Cua Driver needs Screen Recording and Accessibility, and is missing ${missing.join(" and ")}. Grant it in System Settings, under Privacy & Security.`,
+          };
+  return { readiness, program, grants };
+}
+
+/** Cua Driver's two grants, as it reads them for its own app, and why where it can't. */
+export interface Grants {
+  accessibility?: boolean;
+  screen_recording?: boolean;
+  reason?: string;
+}
+
+/**
+ * Whether Cua Driver has its two grants on macOS, as it says for its own app. A grant it can't
+ * read, as when its app isn't running, is left out, with its reason where it gives one.
+ */
+export async function driverGrants(program: string): Promise<Grants> {
   try {
-    const { stdout } = await run(found, ["permissions", "status", "--json"], {
+    const { stdout } = await run(program, ["permissions", "status", "--json"], {
       timeout: 15_000,
       env: quiet(),
     });
-    const status = JSON.parse(stdout) as {
-      accessibility?: boolean;
-      screen_recording?: boolean;
-      reason?: string;
-    };
-    if (status.accessibility === undefined || status.screen_recording === undefined)
-      return {
-        ready: false,
-        reason: status.reason ? `${unknown}: ${status.reason}` : `${unknown}.`,
-      };
-    const missing = [
-      ...(status.screen_recording ? [] : ["Screen Recording"]),
-      ...(status.accessibility ? [] : ["Accessibility"]),
-    ];
-    if (missing.length === 0) return { ready: true };
-    return {
-      ready: false,
-      reason: `Cua Driver needs Screen Recording and Accessibility, and is missing ${missing.join(" and ")}. Grant it in System Settings, under Privacy & Security.`,
-    };
+    const said: unknown = JSON.parse(stdout);
+    return said && typeof said === "object" ? (said as Grants) : {};
   } catch {
-    return { ready: false, reason: `${unknown}.` };
+    return {};
   }
 }
 
@@ -281,22 +308,30 @@ export class Driver {
 /** The agent's screen: a connection of its own to the driver, and its three tools. */
 export class Screen extends Driver {
   readonly #noted: () => string | undefined;
+  readonly #refused: () => string | undefined;
 
-  /** `noted` gives the line to add to each answer: who else acted on the screen. */
+  /**
+   * `noted` gives the line to add to each answer: who else acted on the screen. `refused` says why
+   * no call is answered now, while the person has it switched off.
+   */
   constructor(
     program: string,
     log: (line: string) => void,
     exited: () => void,
     noted: () => string | undefined,
+    refused: () => string | undefined,
   ) {
     super(program, log, exited);
     this.#noted = noted;
+    this.#refused = refused;
   }
 
   /** The agent's three tools, each answered with what the driver answers, and the line after it. */
   #server() {
     const server = new McpServer({ name: "agentcomputer-screen", version: "1" });
     const answered = async (work: () => Promise<Answer>) => {
+      const refusal = this.#refused();
+      if (refusal) return { content: [text(refusal)], isError: true };
       const line = this.#noted();
       let answer: Answer;
       try {

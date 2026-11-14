@@ -115,7 +115,7 @@ A computer in a container:
 
 A client that calls a computer's tools can put the commands it starts in a group, and stop them together. At `--access terminal` it sends a word as `agentexec/group` in the `_meta` of an `exec_command` call, and the request `agentexec/group/stop` with `{"group": "<word>"}` on the `computer` endpoint, which ends every running command of that group and answers `{"stopped": <how many>}`. Giving up a call does not stop its command; only that request does. A shell a person opened is in no group. This is AgentExec's, described in [its README](https://github.com/uniac-ai/AgentExec#sessions), and the service passes both through, on this computer and in a container.
 
-In a container the file tools stay inside the workspace, which is a check and not a boundary: the container is the boundary. On this computer they reach the whole machine. Below `terminal`, the browser's `browser_run_code_unsafe` tool is hidden and refused, because it would otherwise be a terminal. The browser's endpoint takes one JSON-RPC request in each POST, as a JSON object, and refuses anything else with 400, a batch among them: it checks each request before passing it on, and passes on only what it read. The service enforces all of this, whatever the client does.
+In a container the file tools stay inside the workspace, which is a check and not a boundary: the container is the boundary. On this computer they reach the whole machine. Below `terminal`, the browser's `browser_run_code_unsafe` tool is hidden and refused, because it would otherwise be a terminal. The browser's endpoint takes one JSON-RPC request in each POST, as a JSON object, and refuses anything else with 400, a batch among them: it checks each request before passing it on, and passes on only what it read. A file a browser call names, such as a snapshot's `filename`, is in the computer's folder, whatever roots the client gives. The service enforces all of this, whatever the client does.
 
 Before 0.0.14 the browser's endpoint passed on a body it couldn't read as one request, unchecked. So on a computer made with `--access none`, `read` or `files` and `--browser`, a caller holding that computer's token could run code in its browser by sending the call in a batch or behind a byte order mark. It needed the computer's own token and a client that sends such a body, which MCP clients don't. 0.0.14 fixes it; a computer in a container made by an earlier version keeps the fault until its container is made again.
 
@@ -168,6 +168,9 @@ The data folder is `--data`, else `$AGENTCOMPUTER_DATA`, else `$XDG_DATA_HOME/ag
 | `POST /v1/computers/{computerID}/live`    | `computer_live`        |
 | `GET /v1/connection`                      |                        |
 | `GET /v1/acting`                          |                        |
+| `GET /v1/setup`                           |                        |
+| `PUT /v1/setup/{capability}`              |                        |
+| `POST /v1/setup/{capability}/ask`         |                        |
 
 These take the control token, kept in the data folder. A computer's own endpoints take its `accessToken`, and neither token works for the other:
 
@@ -179,6 +182,23 @@ These take the control token, kept in the data folder. A computer's own endpoint
 `POST /v1/computers` and `POST /v1/computers/attach` are the only places an `accessToken` is shown. Failures are `{ "code": 404, "message": "..." }`.
 
 - **A client that relies on the service can hold a connection to it:** a WebSocket at `/v1/connection?name=NAME`, with the control token in its `Authorization` header. Nothing is sent either way; the service pings, and drops one that stops answering. `GET /v1/connection` says who holds one: `{ "connected": true, "clients": [{ "name", "since", "local" }] }`, where `name` is its first 100 characters and `local` is whether it connects from the service's machine, false behind `--tls-proxy`.
+- **The person's switches.** Each part of this computer an agent can use (`terminal`, `files`, `screen`, and `browser`, the person's own) has the person's own switch.
+  - Off, agents' new calls to that part refuse with "The person turned off the screen for agents on this Mac" (or "this machine" off macOS), `info` says the same, and attaching with the screen or the person's browser is refused with 409. What an agent already started, such as a command, runs on.
+  - The terminal and the screen each reach the whole machine: with the terminal on, commands read and change any file, whatever the files' switch; with the screen on, the agent acts in any app.
+  - Any browser's calls that reach the machine answer to its switches too: `browser_run_code_unsafe` to the terminal's, and a call that names files, by `paths` or `filename`, to the files'.
+  - The computer's own endpoint on this machine reads each call whole and checks it as it arrives, so it takes one JSON-RPC request in each POST, as the browser's does, and refuses a batch.
+  - A service started with `--lend` starts with every switch off, for the person to turn on. Any other starts with every one on. They are kept in the data folder, so they last across a restart. A switches file that can't be read leaves every one off.
+- **`GET /v1/setup`** gives `{ "capabilities": [...] }`, each part as `{ "capability", "on", "ready", "needs" }`, read afresh each time.
+  - `ready` is whether the part has all it needs, apart from its switch. `needs` lists each thing it needs, always, each with its state.
+  - The terminal and files need nothing, and are always ready; on macOS the Mac asks folder by folder.
+  - The screen needs Cua Driver, and on macOS its `screen-recording` and `accessibility` grants, each `granted`, `not-granted` or `unknown`; it is ready once both are granted. While Cua Driver isn't installed, the one item is `{ "need": "install", "state": "missing" }`. `holder` names whom System Settings lists the grants under: the outermost app Cua Driver is inside, CuaDriver for its own app, or an app that carries the driver.
+  - The browser lists Chrome, then Edge, each `on` (open, with remote debugging on), `off`, or `missing` (not installed); a service given one browser's folder, with `--own-browser-data`, lists just that one as `named`. It is ready with one on. With both on, the agent's is Chrome.
+- **`POST /v1/setup/{capability}/ask`**, with `{ "need": "..." }` or no body, asks the person, on the service's machine, macOS only, for one thing the part needs, or for everything it is missing. It answers once the steps have started, with each part then:
+  - `screen-recording` or `accessibility`: Cua Driver's own grant, its app started first, through the system, so the Mac names that app; then that grant's own pane in System Settings opens. Cua Driver asks in its own order, Accessibility first.
+  - `chrome` or `edge`: that browser opens at its inspect page, where remote debugging is switched on. One the service was given only the folder of, the person opens themselves.
+  - With none named: the screen's grant while either is missing; the first browser installed, Chrome before Edge, while none is on.
+  - What the part doesn't need, a browser that isn't installed, or steps that couldn't be started answer 409, saying why.
+- **`PUT /v1/setup/{capability}`** with `{ "on": true }` or `{ "on": false }` sets a switch. Turning it on, or on again, also asks for everything the part is missing, as asking with no need does. Where that couldn't be started, it answers 409, saying why, and the switch stays on.
 - **`GET /v1/acting`** is who is acting now on every computer attached to this machine, in one list, as each one's `presence` surface has it. A computer in a container isn't included: its own `presence` surface has it.
 
 ## SDK

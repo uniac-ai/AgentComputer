@@ -55,6 +55,30 @@ export interface BrowserGate {
   sessionEnded(session: string): void;
 }
 
+/**
+ * Answer a tool's call with a refusal the agent reads, as the tool's own answer; a call sent as a
+ * notification is answered with nothing, as one that runs is.
+ */
+export function refuseCall(response: ServerResponse, id: unknown, words: string) {
+  if (id === undefined) return void response.writeHead(202).end();
+  response.writeHead(200, { "Content-Type": "application/json" });
+  response.end(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: id ?? null,
+      result: { content: [{ type: "text", text: words }], isError: true },
+    }),
+  );
+}
+
+/** Refuse a body that isn't one JSON-RPC request, as a JSON object. */
+export function refuseBody(response: ServerResponse) {
+  response.writeHead(400, { "Content-Type": "application/json" });
+  response.end(
+    JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: ONE_REQUEST } }),
+  );
+}
+
 /** Give a client what the server answered, however it ends. */
 export function sendAnswer(upstream: Response, response: ServerResponse) {
   const answer: Record<string, string> = {};
@@ -116,7 +140,40 @@ const MCP = "http://localhost/mcp";
 /** This program, which also runs the browser host and the browser's MCP server. */
 const self = fileURLToPath(import.meta.url);
 
-type Message = { id?: unknown; method?: string; params?: { name?: unknown } };
+/** One JSON-RPC request, as far as what refuses it reads it. */
+export type Message = {
+  id?: unknown;
+  method?: string;
+  params?: { name?: unknown; arguments?: Record<string, unknown> };
+};
+
+/**
+ * Read an MCP request's body whole, as one request: the request in it, none for an empty body.
+ * One too large, or that isn't one request, is answered here, and gives nothing: a batch, or a
+ * body a server can read and this can't, would carry a call past every check made on it.
+ */
+export async function readRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  max: number,
+): Promise<{ message?: Message } | undefined> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += (chunk as Buffer).length;
+    if (size > max) return void response.writeHead(413).end();
+    chunks.push(chunk as Buffer);
+  }
+  const body = Buffer.concat(chunks);
+  if (body.length === 0) return {};
+  try {
+    const read: unknown = JSON.parse(body.toString("utf8"));
+    if (typeof read === "object" && read !== null && !Array.isArray(read)) return { message: read };
+  } catch {
+    // Refused below, with whatever else isn't one request.
+  }
+  refuseBody(response);
+}
 
 type Answer = {
   result?: {
@@ -191,6 +248,8 @@ export class Browser {
    * it comes: one that fails leaves it for the next.
    */
   noted: (() => string | undefined) | undefined;
+  /** Why a call isn't answered now: the person has switched off what it uses. */
+  refused: ((tool: string, args: Record<string, unknown>) => string | undefined) | undefined;
 
   constructor(
     config: BrowserConfig,
@@ -311,34 +370,13 @@ export class Browser {
   /** Answer one MCP request by passing it on, enforcing what this computer may not do. */
   async handle(request: IncomingMessage, response: ServerResponse) {
     const served = await this.#served;
-    const chunks: Buffer[] = [];
-    let size = 0;
-    for await (const chunk of request) {
-      size += (chunk as Buffer).length;
-      if (size > MAX_BODY) return void response.writeHead(413).end();
-      chunks.push(chunk as Buffer);
-    }
-    const body = Buffer.concat(chunks);
-    // Only what is read here as one request is passed on, and as it was read. A batch, or a body
-    // the browser's server can read and this can't, would carry a call by every check made below.
-    let message: Message | undefined;
-    try {
-      const read: unknown = body.length > 0 ? JSON.parse(body.toString("utf8")) : undefined;
-      if (typeof read === "object" && read !== null && !Array.isArray(read)) message = read;
-    } catch {
-      // Refused with whatever else isn't one request.
-    }
-    if (body.length > 0 && !message) {
-      response.writeHead(400, { "Content-Type": "application/json" });
-      return void response.end(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: null,
-          error: { code: -32600, message: ONE_REQUEST },
-        }),
-      );
-    }
+    // Only what is read as one request is passed on, and as it was read.
+    const read = await readRequest(request, response, MAX_BODY);
+    if (!read) return;
+    const { message } = read;
     const tool = message?.method === "tools/call" ? String(message.params?.name) : undefined;
+    const refusal = tool ? this.refused?.(tool, message?.params?.arguments ?? {}) : undefined;
+    if (refusal) return refuseCall(response, message?.id, refusal);
     if (tool && this.#hidden.has(tool)) {
       response.writeHead(200, { "Content-Type": "application/json" });
       return void response.end(
