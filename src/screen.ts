@@ -190,41 +190,91 @@ const Window = {
   pid: z.number().int().optional().describe("The app's process id, from apps."),
   window_id: z.number().int().optional().describe("The window's id, from apps."),
 };
-const Act = z
-  .object({
-    action: z.enum([
-      "click",
-      "double_click",
-      "right_click",
-      "drag",
-      "scroll",
-      "type",
-      "key",
-      "hotkey",
-    ]),
-    ...Window,
-    element_token: z.string().optional().describe("An element's reference, from see."),
-    x: z.number().optional().describe("A point's x, in pixels of the picture see gave last."),
-    y: z.number().optional().describe("A point's y, in pixels of that picture."),
-    to_x: z.number().optional().describe("Where a drag ends: x."),
-    to_y: z.number().optional().describe("Where a drag ends: y."),
-    text: z.string().optional().describe("What to type."),
-    key: z.string().optional().describe("The key to press, such as enter."),
-    keys: z
-      .array(z.string())
-      .optional()
-      .describe('The keys to press together, such as ["ctrl","c"].'),
-    direction: z.enum(["up", "down", "left", "right"]).optional().describe("Which way to scroll."),
-    amount: z.number().int().positive().optional().describe("How many steps to scroll."),
-    delivery_mode: z
-      .enum(["background", "foreground"])
-      .optional()
-      .describe(
-        "Leave it out. Only if a call is refused because it can't be done in the background, repeat it with foreground, which brings the window forward and takes the person's focus.",
-      ),
-  })
-  .strict();
+const ActBase = z.object({
+  action: z.enum([
+    "click",
+    "double_click",
+    "right_click",
+    "drag",
+    "scroll",
+    "type",
+    "key",
+    "hotkey",
+  ]),
+  ...Window,
+  element_token: z.string().optional().describe("An element's reference, from see."),
+  x: z.number().optional().describe("A point's x, in pixels of the picture see gave last."),
+  y: z.number().optional().describe("A point's y, in pixels of that picture."),
+  to_x: z.number().optional().describe("Where a drag ends: x."),
+  to_y: z.number().optional().describe("Where a drag ends: y."),
+  text: z.string().optional().describe("What to type."),
+  key: z.string().optional().describe("The key to press, such as enter."),
+  keys: z
+    .array(z.string())
+    .optional()
+    .describe('The keys to press together, such as ["ctrl","c"].'),
+  direction: z.enum(["up", "down", "left", "right"]).optional().describe("Which way to scroll."),
+  amount: z.number().int().positive().optional().describe("How many steps to scroll."),
+});
+const Act = ActBase.extend({
+  delivery_mode: z
+    .enum(["background", "foreground"])
+    .optional()
+    .describe(
+      "Leave it out. Only if a call is refused because it can't be done in the background, repeat it with foreground, which brings the window forward and takes the person's focus.",
+    ),
+}).strict();
+/** On a lent machine: no way of delivery to choose, since it is always the background. */
+const BackgroundAct = ActBase.strict();
 type Act = z.infer<typeof Act>;
+
+/** One window as the driver lists it, of which the agent is given what it can aim with. */
+type Listed = {
+  app_name: string;
+  title: string;
+  pid: number;
+  window_id: number;
+  bounds: { x: number; y: number; width: number; height: number };
+  z_index: number | null;
+};
+
+/** What the agent is told in place of the driver's advice to act in the foreground. */
+const BACKGROUND = {
+  done: "It was sent in the background, with the person's pointer left where it is: see the window to check that it took effect.",
+  refused:
+    "It can't be done in the background there, and on this machine the agent acts only in the background.",
+};
+
+/**
+ * The driver's answer as the agent can use it: without the hints that name the driver's own tools,
+ * which the agent doesn't have, and, where it acts only in the background, with any sentence
+ * advising the foreground said in plain words instead.
+ */
+export function forAgent(answer: Answer, onlyBackground: boolean): Answer {
+  const {
+    hint: _,
+    next_call: __,
+    summary: ___,
+    ...structured
+  } = (answer.structuredContent ?? {}) as Record<string, unknown>;
+  const plain = (said: string) =>
+    said
+      .split(/(?<=[.!?])\s+/)
+      .map((sentence) =>
+        onlyBackground && /foreground/i.test(sentence)
+          ? BACKGROUND[answer.isError ? "refused" : "done"]
+          : sentence,
+      )
+      .join(" ");
+  return {
+    ...answer,
+    content: (answer.content ?? []).map((part) => {
+      const one = part as { type?: string; text?: string };
+      return one.type === "text" && one.text ? { ...one, text: plain(one.text) } : part;
+    }),
+    ...(answer.structuredContent ? { structuredContent: structured } : {}),
+  };
+}
 
 /** Each action, as the driver's tool that does it and the arguments it takes. */
 export function driverCall(input: Act): [string, Args] {
@@ -341,16 +391,21 @@ export class Screen extends Driver {
    * `noted` gives the line to add to each answer: who else acted on the screen. `refused` says why
    * no call is answered now, while the person has it switched off.
    */
+  /** On a lent machine: the agent acts only in the background, leaving the person's pointer. */
+  readonly #onlyBackground: boolean;
+
   constructor(
     driver: DriverAt,
     log: (line: string) => void,
     exited: () => void,
     noted: () => string | undefined,
     refused: () => string | undefined,
+    onlyBackground: boolean,
   ) {
     super(driver, log, exited);
     this.#noted = noted;
     this.#refused = refused;
+    this.#onlyBackground = onlyBackground;
   }
 
   /** The agent's three tools, each answered with what the driver answers, and the line after it. */
@@ -362,7 +417,7 @@ export class Screen extends Driver {
       const line = this.#noted();
       let answer: Answer;
       try {
-        answer = await work();
+        answer = forAgent(await work(), this.#onlyBackground);
       } catch (error) {
         answer = {
           content: [text(error instanceof Error ? error.message : String(error))],
@@ -380,7 +435,7 @@ export class Screen extends Driver {
       "see",
       {
         description:
-          "Returns the whole screen as a picture, with its windows. With pid and window_id from apps, returns that window's elements, each with an element_token, and a picture of it.",
+          "Returns the whole screen as a picture; apps lists its windows. With pid and window_id from apps, returns that window's elements, each with an element_token, and a picture of it.",
         inputSchema: Seen,
       },
       ({ pid, window_id }) =>
@@ -395,21 +450,35 @@ export class Screen extends Driver {
     server.registerTool(
       "act",
       {
-        description:
-          "Does one thing on the screen. click, double_click, right_click: an element_token, or x and y. drag: x and y, where it starts, and to_x and to_y. scroll: direction, and amount if not 3, at an element_token or x and y. type: text. key: key, such as enter. hotkey: keys pressed together. Aim at an element_token from see, or at x and y in pixels of the picture see gave last: a window's, with its pid and window_id, or the whole screen's, with neither. type, key and hotkey need a window or an element. See again after anything changes. If a call is refused because it can't be done in the background, repeat it with delivery_mode foreground, which takes the person's focus.",
-        inputSchema: Act,
+        description: `Does one thing on the screen. click, double_click, right_click: an element_token, or x and y. drag: x and y, where it starts, and to_x and to_y. scroll: direction, and amount if not 3, at an element_token or x and y. type: text. key: key, such as enter. hotkey: keys pressed together. Aim at an element_token from see, or at x and y in pixels of the picture see gave last: a window's, with its pid and window_id, or the whole screen's, with neither. An element that can't be pressed, such as a text area, is clicked by its point. type, key and hotkey need a window or an element. See again after anything changes. ${
+          this.#onlyBackground
+            ? "It is always done in the background, with the person's pointer left where it is."
+            : "If a call is refused because it can't be done in the background, repeat it with delivery_mode foreground, which takes the person's focus."
+        }`,
+        inputSchema: this.#onlyBackground ? BackgroundAct : Act,
       },
-      (input) =>
-        answered(() => {
+      (input: Act) =>
+        answered(async () => {
           const [tool, args] = driverCall(input);
-          return this.call(tool, args);
+          const answer = await this.call(tool, args);
+          // An element that can't take the action is reached by its point instead.
+          if (!answer.isError || input.element_token === undefined) return answer;
+          return {
+            ...answer,
+            content: [
+              text(
+                "That element couldn't take it. Aim at its point in the window's picture instead: x and y, with the window's pid and window_id. What the driver said:",
+              ),
+              ...(answer.content ?? []),
+            ],
+          };
         }),
     );
     server.registerTool(
       "apps",
       {
         description:
-          "Lists the running apps and their windows, each window with its pid and window_id. With a pid and window_id, it first brings that window forward, in front of what the person sees.",
+          "Lists the running apps and their windows, each window with its pid and window_id, and, as fields, each window's app_name, title, pid, window_id, bounds in the screen's points and z_index, higher in front. With a pid and window_id, it first brings that window forward, in front of what the person sees.",
         inputSchema: Seen,
       },
       ({ pid, window_id }) =>
@@ -423,8 +492,23 @@ export class Screen extends Driver {
           const apps = await this.call("list_apps", {});
           if (apps.isError) return apps;
           const windows = await this.call("list_windows", { on_screen_only: true });
+          const listed = (windows.structuredContent as { windows?: Listed[] } | undefined)?.windows;
           return {
             content: [...(apps.content ?? []), ...(windows.content ?? [])],
+            ...(listed
+              ? {
+                  structuredContent: {
+                    windows: listed.map(({ app_name, title, pid, window_id, bounds, z_index }) => ({
+                      app_name,
+                      title,
+                      pid,
+                      window_id,
+                      bounds,
+                      z_index,
+                    })),
+                  },
+                }
+              : {}),
             ...(windows.isError ? { isError: true } : {}),
           };
         }),
