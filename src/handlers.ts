@@ -32,6 +32,7 @@ export function createHandlers(
     getConnection: async () => connections.state(),
     getSetup: () => setup.capabilities(),
     setSetup: ({ capability, on }) => setup.set(capability, on),
+    askSetup: ({ capability, need }) => setup.ask(capability, need),
     getActing: async () => computers.acting(),
     listComputers: async ({ state }) => computers.list(state),
     createComputer: (input) => computers.create(input),

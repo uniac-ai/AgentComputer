@@ -1,8 +1,9 @@
 // The person's own browser, for this computer: Chrome or Edge, whichever has its switch on,
-// Chrome first, as they use it, signed in. It is reached through the browser's own attach, from version 144: the person switches on remote
-// debugging once, on its inspect page, and the browser then writes where it is reached in
-// DevToolsActivePort, in its user data folder, and asks the person to allow each connection.
-// Nothing is installed, and no port is opened on the person's profile by the service.
+// Chrome first, as they use it, signed in. It is reached through the browser's own attach, from
+// version 144: the person switches on remote debugging once, on its inspect page, and the browser
+// then writes where it is reached in DevToolsActivePort, in its user data folder, and asks the
+// person to allow each connection. Nothing is installed, and no port is opened on the person's
+// profile by the service.
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -42,18 +43,20 @@ const onPath = (names: string[]) =>
 export interface Where {
   platform: NodeJS.Platform;
   home: string;
-  /** Where macOS apps are looked for: by default /Applications and the home's own. */
-  applications?: string[] | undefined;
+  /** Where macOS apps are looked for. */
+  applications: string[];
 }
-const here = (): Where => ({ platform: process.platform, home: homedir() });
+export const here = (): Where => ({
+  platform: process.platform,
+  home: homedir(),
+  applications: ["/Applications", join(homedir(), "Applications")],
+});
 
-/** Chrome, then Edge, where each would be on this machine. */
-function kinds({ platform, home, applications }: Where): Kind[] {
+/** Chrome, then Edge, where each would be on this machine, installed or not. */
+export function kinds({ platform, home, applications }: Where): Kind[] {
   if (platform === "darwin") {
     const app = (name: string) =>
-      (applications ?? ["/Applications", join(home, "Applications")])
-        .map((folder) => join(folder, name))
-        .find((path) => existsSync(path));
+      applications.map((folder) => join(folder, name)).find((path) => existsSync(path));
     const support = join(home, "Library", "Application Support");
     return [
       {

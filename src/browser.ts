@@ -55,8 +55,12 @@ export interface BrowserGate {
   sessionEnded(session: string): void;
 }
 
-/** Answer a tool's call with a refusal the agent reads, as the tool's own answer. */
+/**
+ * Answer a tool's call with a refusal the agent reads, as the tool's own answer; a call sent as a
+ * notification is answered with nothing, as one that runs is.
+ */
 export function refuseCall(response: ServerResponse, id: unknown, words: string) {
+  if (id === undefined) return void response.writeHead(202).end();
   response.writeHead(200, { "Content-Type": "application/json" });
   response.end(
     JSON.stringify({
@@ -64,6 +68,14 @@ export function refuseCall(response: ServerResponse, id: unknown, words: string)
       id: id ?? null,
       result: { content: [{ type: "text", text: words }], isError: true },
     }),
+  );
+}
+
+/** Refuse a body that isn't one JSON-RPC request, as a JSON object. */
+export function refuseBody(response: ServerResponse) {
+  response.writeHead(400, { "Content-Type": "application/json" });
+  response.end(
+    JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: ONE_REQUEST } }),
   );
 }
 
@@ -203,8 +215,8 @@ export class Browser {
    * it comes: one that fails leaves it for the next.
    */
   noted: (() => string | undefined) | undefined;
-  /** Why no tool is answered now, while the person has it switched off. */
-  refused: (() => string | undefined) | undefined;
+  /** Why a tool isn't answered now: the person has switched off what it uses. */
+  refused: ((tool: string) => string | undefined) | undefined;
 
   constructor(
     config: BrowserConfig,
@@ -342,18 +354,9 @@ export class Browser {
     } catch {
       // Refused with whatever else isn't one request.
     }
-    if (body.length > 0 && !message) {
-      response.writeHead(400, { "Content-Type": "application/json" });
-      return void response.end(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: null,
-          error: { code: -32600, message: ONE_REQUEST },
-        }),
-      );
-    }
+    if (body.length > 0 && !message) return refuseBody(response);
     const tool = message?.method === "tools/call" ? String(message.params?.name) : undefined;
-    const refusal = tool ? this.refused?.() : undefined;
+    const refusal = tool ? this.refused?.(tool) : undefined;
     if (refusal) return refuseCall(response, message?.id, refusal);
     if (tool && this.#hidden.has(tool)) {
       response.writeHead(200, { "Content-Type": "application/json" });

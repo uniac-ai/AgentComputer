@@ -68,7 +68,7 @@ export const OPENAPI = {
     "/v1/setup": {
       "get": {
         "operationId": "getSetup",
-        "summary": "For each part of the service's machine an agent can use, the person's switch and what it still needs before it works, read afresh each time.",
+        "summary": "For each part of the service's machine an agent can use, the person's switch, whether it has all it needs, and each thing it needs, read afresh each time.",
         "responses": {
           "200": {
             "description": "Each part.",
@@ -99,7 +99,7 @@ export const OPENAPI = {
       ],
       "put": {
         "operationId": "setSetup",
-        "summary": "Set a part's switch, which lasts across restarts. Turning it on, or on again, also takes the steps that ask for what it still needs, on the service's machine, macOS only: for the screen, Cua Driver's own grant of Screen Recording and Accessibility, its app started first; for the browser, Chrome, or Edge where there is no Chrome, opened at its remote-debugging switch. It answers once they have started, with each part then; what the person does next is read afresh later. That a browser opens at its switch's address this way is yet to be tried.",
+        "summary": "Set a part's switch, which lasts across restarts. Turning it on, or on again, also asks for everything the part is missing, as asking for it with no need named does. Where that couldn't be started, it answers 409, saying why, and the switch stays on.",
         "requestBody": {
           "required": true,
           "content": {
@@ -134,7 +134,70 @@ export const OPENAPI = {
             "$ref": "#/components/responses/Unauthorized"
           },
           "409": {
-            "$ref": "#/components/responses/Error"
+            "description": "On, but the steps that ask for what it needs couldn't be started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/setup/{capability}/ask": {
+      "parameters": [
+        {
+          "name": "capability",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Switch"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "askSetup",
+        "summary": "Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with none named, for everything it is missing. screen-recording or accessibility: Cua Driver's own grant, its app started first, which makes the system's requests in its own order, Accessibility first; then that grant's own pane in System Settings opens. chrome or edge: that browser opens at its remote-debugging switch. With none named, the screen's grant while either is missing, and the first browser installed, Chrome before Edge, while none is on. It answers once the steps have started, with each part then; what the person does next is read afresh later. That a browser opens at its switch's address this way, and a grant's pane at its own, is yet to be tried. Elsewhere it asks for nothing.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "need": {
+                    "$ref": "#/components/schemas/NeedName"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Asked, its steps started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Setup"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "description": "The part doesn't need that here, or what it needs can't be asked for, such as a browser that isn't installed, or the steps couldn't be started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -1855,6 +1918,18 @@ export const OPENAPI = {
         ],
         "description": "A part of the service's machine an agent can use: its terminal, its files, its screen, and the person's own browser."
       },
+      "NeedName": {
+        "type": "string",
+        "enum": [
+          "install",
+          "screen-recording",
+          "accessibility",
+          "chrome",
+          "edge",
+          "named"
+        ],
+        "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser and its remote-debugging switch; named: the one browser a service was given the folder of."
+      },
       "Need": {
         "type": "object",
         "required": [
@@ -1863,16 +1938,7 @@ export const OPENAPI = {
         ],
         "properties": {
           "need": {
-            "type": "string",
-            "enum": [
-              "install",
-              "screen-recording",
-              "accessibility",
-              "chrome",
-              "edge",
-              "named"
-            ],
-            "description": "install: what the part works through isn't installed: Cua Driver, or both Chrome and Edge. screen-recording and accessibility: Cua Driver's two grants. chrome, edge and named: a browser here and its remote-debugging switch."
+            "$ref": "#/components/schemas/NeedName"
           },
           "name": {
             "type": "string",
@@ -1880,7 +1946,7 @@ export const OPENAPI = {
           },
           "holder": {
             "type": "string",
-            "description": "For a grant, whose it is, as System Settings lists it: the app Cua Driver is the program of, such as CuaDriver."
+            "description": "For a grant, whose it is, as System Settings lists it: the outermost app Cua Driver is inside, CuaDriver for its own app, or an app that carries the driver. None where Cua Driver is in no app."
           },
           "state": {
             "type": "string",
@@ -1892,7 +1958,7 @@ export const OPENAPI = {
               "on",
               "off"
             ],
-            "description": "unknown is that it can't be read now."
+            "description": "missing: not installed. unknown: it can't be read now. A browser is on while it is open with its remote debugging switched on."
           }
         }
       },
@@ -1910,6 +1976,7 @@ export const OPENAPI = {
               "required": [
                 "capability",
                 "on",
+                "ready",
                 "needs"
               ],
               "properties": {
@@ -1918,11 +1985,15 @@ export const OPENAPI = {
                 },
                 "on": {
                   "type": "boolean",
-                  "description": "The person's switch. Off, agents can't use the part: its tools refuse, saying the person turned it off, and `info` says so. A service started with `--lend` starts with every one off; any other, with every one on."
+                  "description": "The person's switch. Off, agents can't use the part: its tools refuse, saying the person turned it off, and `info` says so. The browser's switch is for the person's own; any browser's tools that run code or upload files answer to the terminal's and the files' switches. A service started with `--lend` starts with every one off; any other, with every one on."
+                },
+                "ready": {
+                  "type": "boolean",
+                  "description": "Whether the part has all it needs, apart from its switch: the screen, each item granted; the browser, one browser on. The terminal and files always do."
                 },
                 "needs": {
                   "type": "array",
-                  "description": "While anything the part needs isn't right yet, each such item with its state; none once all are. The terminal and files need nothing. The screen needs Cua Driver, and on macOS its two grants. The browser needs Chrome or Edge with its switch on: while none is on, each one here, off.",
+                  "description": "Each thing the part needs, always, with its state. The terminal and files need nothing. The screen needs Cua Driver, which while it isn't installed is the one item, and on macOS its two grants. The browser lists Chrome then Edge, each on, off or missing, or the one browser named; with both on, the agent's is Chrome.",
                   "items": {
                     "$ref": "#/components/schemas/Need"
                   }
@@ -2426,7 +2497,7 @@ export const OPENAPI = {
           "headless",
           "own"
         ],
-        "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or else Edge, signed in, offered for this computer: ready where it is open with its remote debugging switched on, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine."
+        "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or Edge, signed in, offered for this computer: ready where one is open with its remote debugging switched on, Chrome first, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine."
       },
       "BrowserState": {
         "allOf": [
@@ -2663,7 +2734,7 @@ export const OPERATIONS: Operation[] = [
                               "headless",
                               "own"
                             ],
-                            "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or else Edge, signed in, offered for this computer: ready where it is open with its remote debugging switched on, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine."
+                            "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or Edge, signed in, offered for this computer: ready where one is open with its remote debugging switched on, Chrome first, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine."
                           }
                         }
                       }
@@ -2777,7 +2848,7 @@ export const OPERATIONS: Operation[] = [
                                     "headless",
                                     "own"
                                   ],
-                                  "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or else Edge, signed in, offered for this computer: ready where it is open with its remote debugging switched on, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine."
+                                  "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or Edge, signed in, offered for this computer: ready where one is open with its remote debugging switched on, Chrome first, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine."
                                 }
                               }
                             }
@@ -2871,7 +2942,7 @@ export const OPERATIONS: Operation[] = [
     "operationId": "getSetup",
     "method": "GET",
     "path": "/v1/setup",
-    "summary": "For each part of the service's machine an agent can use, the person's switch and what it still needs before it works, read afresh each time.",
+    "summary": "For each part of the service's machine an agent can use, the person's switch, whether it has all it needs, and each thing it needs, read afresh each time.",
     "status": 200,
     "hasBody": false,
     "pathParameters": [],
@@ -2896,6 +2967,7 @@ export const OPERATIONS: Operation[] = [
             "required": [
               "capability",
               "on",
+              "ready",
               "needs"
             ],
             "properties": {
@@ -2911,11 +2983,15 @@ export const OPERATIONS: Operation[] = [
               },
               "on": {
                 "type": "boolean",
-                "description": "The person's switch. Off, agents can't use the part: its tools refuse, saying the person turned it off, and `info` says so. A service started with `--lend` starts with every one off; any other, with every one on."
+                "description": "The person's switch. Off, agents can't use the part: its tools refuse, saying the person turned it off, and `info` says so. The browser's switch is for the person's own; any browser's tools that run code or upload files answer to the terminal's and the files' switches. A service started with `--lend` starts with every one off; any other, with every one on."
+              },
+              "ready": {
+                "type": "boolean",
+                "description": "Whether the part has all it needs, apart from its switch: the screen, each item granted; the browser, one browser on. The terminal and files always do."
               },
               "needs": {
                 "type": "array",
-                "description": "While anything the part needs isn't right yet, each such item with its state; none once all are. The terminal and files need nothing. The screen needs Cua Driver, and on macOS its two grants. The browser needs Chrome or Edge with its switch on: while none is on, each one here, off.",
+                "description": "Each thing the part needs, always, with its state. The terminal and files need nothing. The screen needs Cua Driver, which while it isn't installed is the one item, and on macOS its two grants. The browser lists Chrome then Edge, each on, off or missing, or the one browser named; with both on, the agent's is Chrome.",
                 "items": {
                   "type": "object",
                   "required": [
@@ -2933,7 +3009,7 @@ export const OPERATIONS: Operation[] = [
                         "edge",
                         "named"
                       ],
-                      "description": "install: what the part works through isn't installed: Cua Driver, or both Chrome and Edge. screen-recording and accessibility: Cua Driver's two grants. chrome, edge and named: a browser here and its remote-debugging switch."
+                      "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser and its remote-debugging switch; named: the one browser a service was given the folder of."
                     },
                     "name": {
                       "type": "string",
@@ -2941,7 +3017,7 @@ export const OPERATIONS: Operation[] = [
                     },
                     "holder": {
                       "type": "string",
-                      "description": "For a grant, whose it is, as System Settings lists it: the app Cua Driver is the program of, such as CuaDriver."
+                      "description": "For a grant, whose it is, as System Settings lists it: the outermost app Cua Driver is inside, CuaDriver for its own app, or an app that carries the driver. None where Cua Driver is in no app."
                     },
                     "state": {
                       "type": "string",
@@ -2953,7 +3029,7 @@ export const OPERATIONS: Operation[] = [
                         "on",
                         "off"
                       ],
-                      "description": "unknown is that it can't be read now."
+                      "description": "missing: not installed. unknown: it can't be read now. A browser is on while it is open with its remote debugging switched on."
                     }
                   }
                 }
@@ -2969,7 +3045,7 @@ export const OPERATIONS: Operation[] = [
     "operationId": "setSetup",
     "method": "PUT",
     "path": "/v1/setup/{capability}",
-    "summary": "Set a part's switch, which lasts across restarts. Turning it on, or on again, also takes the steps that ask for what it still needs, on the service's machine, macOS only: for the screen, Cua Driver's own grant of Screen Recording and Accessibility, its app started first; for the browser, Chrome, or Edge where there is no Chrome, opened at its remote-debugging switch. It answers once they have started, with each part then; what the person does next is read afresh later. That a browser opens at its switch's address this way is yet to be tried.",
+    "summary": "Set a part's switch, which lasts across restarts. Turning it on, or on again, also asks for everything the part is missing, as asking for it with no need named does. Where that couldn't be started, it answers 409, saying why, and the switch stays on.",
     "status": 200,
     "hasBody": true,
     "pathParameters": [
@@ -3013,6 +3089,7 @@ export const OPERATIONS: Operation[] = [
             "required": [
               "capability",
               "on",
+              "ready",
               "needs"
             ],
             "properties": {
@@ -3028,11 +3105,15 @@ export const OPERATIONS: Operation[] = [
               },
               "on": {
                 "type": "boolean",
-                "description": "The person's switch. Off, agents can't use the part: its tools refuse, saying the person turned it off, and `info` says so. A service started with `--lend` starts with every one off; any other, with every one on."
+                "description": "The person's switch. Off, agents can't use the part: its tools refuse, saying the person turned it off, and `info` says so. The browser's switch is for the person's own; any browser's tools that run code or upload files answer to the terminal's and the files' switches. A service started with `--lend` starts with every one off; any other, with every one on."
+              },
+              "ready": {
+                "type": "boolean",
+                "description": "Whether the part has all it needs, apart from its switch: the screen, each item granted; the browser, one browser on. The terminal and files always do."
               },
               "needs": {
                 "type": "array",
-                "description": "While anything the part needs isn't right yet, each such item with its state; none once all are. The terminal and files need nothing. The screen needs Cua Driver, and on macOS its two grants. The browser needs Chrome or Edge with its switch on: while none is on, each one here, off.",
+                "description": "Each thing the part needs, always, with its state. The terminal and files need nothing. The screen needs Cua Driver, which while it isn't installed is the one item, and on macOS its two grants. The browser lists Chrome then Edge, each on, off or missing, or the one browser named; with both on, the agent's is Chrome.",
                 "items": {
                   "type": "object",
                   "required": [
@@ -3050,7 +3131,7 @@ export const OPERATIONS: Operation[] = [
                         "edge",
                         "named"
                       ],
-                      "description": "install: what the part works through isn't installed: Cua Driver, or both Chrome and Edge. screen-recording and accessibility: Cua Driver's two grants. chrome, edge and named: a browser here and its remote-debugging switch."
+                      "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser and its remote-debugging switch; named: the one browser a service was given the folder of."
                     },
                     "name": {
                       "type": "string",
@@ -3058,7 +3139,7 @@ export const OPERATIONS: Operation[] = [
                     },
                     "holder": {
                       "type": "string",
-                      "description": "For a grant, whose it is, as System Settings lists it: the app Cua Driver is the program of, such as CuaDriver."
+                      "description": "For a grant, whose it is, as System Settings lists it: the outermost app Cua Driver is inside, CuaDriver for its own app, or an app that carries the driver. None where Cua Driver is in no app."
                     },
                     "state": {
                       "type": "string",
@@ -3070,7 +3151,137 @@ export const OPERATIONS: Operation[] = [
                         "on",
                         "off"
                       ],
-                      "description": "unknown is that it can't be read now."
+                      "description": "missing: not installed. unknown: it can't be read now. A browser is on while it is open with its remote debugging switched on."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "websocket": false
+  },
+  {
+    "operationId": "askSetup",
+    "method": "POST",
+    "path": "/v1/setup/{capability}/ask",
+    "summary": "Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with none named, for everything it is missing. screen-recording or accessibility: Cua Driver's own grant, its app started first, which makes the system's requests in its own order, Accessibility first; then that grant's own pane in System Settings opens. chrome or edge: that browser opens at its remote-debugging switch. With none named, the screen's grant while either is missing, and the first browser installed, Chrome before Edge, while none is on. It answers once the steps have started, with each part then; what the person does next is read afresh later. That a browser opens at its switch's address this way, and a grant's pane at its own, is yet to be tried. Elsewhere it asks for nothing.",
+    "status": 200,
+    "hasBody": true,
+    "pathParameters": [
+      "capability"
+    ],
+    "queryParameters": [],
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capability": {
+          "type": "string",
+          "enum": [
+            "terminal",
+            "files",
+            "screen",
+            "browser"
+          ],
+          "description": "A part of the service's machine an agent can use: its terminal, its files, its screen, and the person's own browser."
+        },
+        "need": {
+          "type": "string",
+          "enum": [
+            "install",
+            "screen-recording",
+            "accessibility",
+            "chrome",
+            "edge",
+            "named"
+          ],
+          "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser and its remote-debugging switch; named: the one browser a service was given the folder of."
+        }
+      },
+      "required": [
+        "capability"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "required": [
+        "capabilities"
+      ],
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "description": "terminal, files, screen and browser, in that order.",
+          "items": {
+            "type": "object",
+            "required": [
+              "capability",
+              "on",
+              "ready",
+              "needs"
+            ],
+            "properties": {
+              "capability": {
+                "type": "string",
+                "enum": [
+                  "terminal",
+                  "files",
+                  "screen",
+                  "browser"
+                ],
+                "description": "A part of the service's machine an agent can use: its terminal, its files, its screen, and the person's own browser."
+              },
+              "on": {
+                "type": "boolean",
+                "description": "The person's switch. Off, agents can't use the part: its tools refuse, saying the person turned it off, and `info` says so. The browser's switch is for the person's own; any browser's tools that run code or upload files answer to the terminal's and the files' switches. A service started with `--lend` starts with every one off; any other, with every one on."
+              },
+              "ready": {
+                "type": "boolean",
+                "description": "Whether the part has all it needs, apart from its switch: the screen, each item granted; the browser, one browser on. The terminal and files always do."
+              },
+              "needs": {
+                "type": "array",
+                "description": "Each thing the part needs, always, with its state. The terminal and files need nothing. The screen needs Cua Driver, which while it isn't installed is the one item, and on macOS its two grants. The browser lists Chrome then Edge, each on, off or missing, or the one browser named; with both on, the agent's is Chrome.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "need",
+                    "state"
+                  ],
+                  "properties": {
+                    "need": {
+                      "type": "string",
+                      "enum": [
+                        "install",
+                        "screen-recording",
+                        "accessibility",
+                        "chrome",
+                        "edge",
+                        "named"
+                      ],
+                      "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser and its remote-debugging switch; named: the one browser a service was given the folder of."
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "A browser's name: Chrome, Edge, or the browser."
+                    },
+                    "holder": {
+                      "type": "string",
+                      "description": "For a grant, whose it is, as System Settings lists it: the outermost app Cua Driver is inside, CuaDriver for its own app, or an app that carries the driver. None where Cua Driver is in no app."
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "missing",
+                        "granted",
+                        "not-granted",
+                        "unknown",
+                        "on",
+                        "off"
+                      ],
+                      "description": "missing: not installed. unknown: it can't be read now. A browser is on while it is open with its remote debugging switched on."
                     }
                   }
                 }

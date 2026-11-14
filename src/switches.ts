@@ -8,6 +8,22 @@ import { join } from "node:path";
 import { writePrivate } from "./store.ts";
 
 export type Switch = "terminal" | "files" | "screen" | "browser";
+const OFF = { terminal: false, files: false, screen: false, browser: false };
+
+/** The switches kept, or, where the file can't be read, every one off, and why said once. */
+function kept(file: string): Partial<Record<Switch, boolean>> {
+  try {
+    const read: unknown = JSON.parse(readFileSync(file, "utf8"));
+    if (read && typeof read === "object")
+      return Object.fromEntries(
+        Object.entries(read).filter(([, on]) => typeof on === "boolean"),
+      ) as Partial<Record<Switch, boolean>>;
+  } catch {
+    // Said below.
+  }
+  process.stderr.write(`The switches in ${file} can't be read: every one is off until set.\n`);
+  return { ...OFF };
+}
 export const SWITCHES: Switch[] = ["terminal", "files", "screen", "browser"];
 
 /** How the refusal names each. */
@@ -20,26 +36,24 @@ const WHAT: Record<Switch, string> = {
 
 export class Switches {
   readonly #file: string;
-  readonly #on: Record<Switch, boolean>;
+  readonly #lend: boolean;
+  /** Only those the person set: the rest take the default of the way the service was started. */
+  readonly #set: Partial<Record<Switch, boolean>>;
 
   /** `folder` is the service's own; `lend`, whether it only lends its machine. */
   constructor(folder: string, lend: boolean) {
     this.#file = join(folder, "switches.json");
-    const kept = existsSync(this.#file)
-      ? (JSON.parse(readFileSync(this.#file, "utf8")) as Partial<Record<Switch, boolean>>)
-      : {};
-    this.#on = Object.fromEntries(
-      SWITCHES.map((one) => [one, typeof kept[one] === "boolean" ? kept[one] : !lend]),
-    ) as Record<Switch, boolean>;
+    this.#lend = lend;
+    this.#set = existsSync(this.#file) ? kept(this.#file) : {};
   }
 
   on(which: Switch) {
-    return this.#on[which];
+    return this.#set[which] ?? !this.#lend;
   }
 
   set(which: Switch, on: boolean) {
-    this.#on[which] = on;
-    writePrivate(this.#file, JSON.stringify(this.#on));
+    this.#set[which] = on;
+    writePrivate(this.#file, JSON.stringify(this.#set));
   }
 
   /**
@@ -47,7 +61,7 @@ export class Switches {
    * keeps agents out; everything that refuses asks it.
    */
   refused(which: Switch): string | undefined {
-    if (this.#on[which]) return undefined;
+    if (this.on(which)) return undefined;
     const where = process.platform === "darwin" ? "this Mac" : "this machine";
     return `The person turned off ${WHAT[which]} for agents on ${where}.`;
   }

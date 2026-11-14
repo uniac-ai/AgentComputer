@@ -304,7 +304,7 @@ export class Screen extends Driver {
     log: (line: string) => void,
     exited: () => void,
     noted: () => string | undefined,
-    refused: () => string | undefined = () => undefined,
+    refused: () => string | undefined,
   ) {
     super(program, log, exited);
     this.#noted = noted;

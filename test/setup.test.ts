@@ -7,7 +7,6 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
 import {
   chmodSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -29,6 +28,7 @@ import { Switches } from "../src/switches.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const BROWSER = process.env.AGENTCOMPUTER_BROWSER_PATH;
 const where = process.platform === "darwin" ? "this Mac" : "this machine";
 
 const folderOf = (t: test.TestContext) => {
@@ -88,63 +88,102 @@ async function switchOn(t: test.TestContext, folder: string) {
   writeFileSync(join(folder, "DevToolsActivePort"), `${port}\n/devtools/browser/one\n`);
 }
 
+const partOf = async (setup: Setup, capability: string) =>
+  (await setup.capabilities()).capabilities.find((one) => one.capability === capability);
 const needsOf = async (setup: Setup, capability: string) =>
-  (await setup.capabilities()).capabilities.find((one) => one.capability === capability)?.needs;
+  (await partOf(setup, capability))?.needs;
+const readyOf = async (setup: Setup, capability: string) =>
+  (await partOf(setup, capability))?.ready;
 
-test("every switch is off where the service only lends, on elsewhere, and kept", (t) => {
+const all = (switches: Switches) =>
+  (["terminal", "files", "screen", "browser"] as const).map((one) => switches.on(one));
+
+test("every switch is off where the service only lends, on elsewhere, and only those set are kept", (t) => {
   const folder = folderOf(t);
   const lent = new Switches(folder, true);
-  assert.deepEqual(
-    ["terminal", "files", "screen", "browser"].map((one) => lent.on(one as never)),
-    [false, false, false, false],
-  );
+  assert.deepEqual(all(lent), [false, false, false, false]);
   assert.equal(lent.refused("screen"), `The person turned off the screen for agents on ${where}.`);
   lent.set("screen", true);
-  assert.equal(new Switches(folder, true).on("screen"), true);
   assert.equal(new Switches(folder, true).refused("screen"), undefined);
-  assert.equal(new Switches(folderOf(t), false).on("terminal"), true);
+  // The rest keep the default of the way it is started.
+  assert.deepEqual(all(new Switches(folder, true)), [false, false, true, false]);
+  lent.set("files", false);
+  assert.deepEqual(all(new Switches(folder, false)), [true, false, true, true]);
 });
 
-test("the terminal and files need nothing, and the screen needs the driver and its two grants", async (t) => {
+test("switches that can't be read are every one off", (t) => {
+  const folder = folderOf(t);
+  writeFileSync(join(folder, "switches.json"), "{");
+  assert.deepEqual(all(new Switches(folder, false)), [false, false, false, false]);
+});
+
+test("the terminal and files need nothing, and the screen needs the driver and, on macOS, its two grants", async (t) => {
   const folder = folderOf(t);
   const switches = new Switches(folder, false);
   const answering = join(folder, "answering");
   writeFileSync(answering, "");
-  const app = join(folder, "AgentOrg Computer Use.app");
+  const app = join(folder, "Example Computer Use.app");
   const driver = driverAt(join(app, "Contents", "MacOS", "cua-driver"), answering);
   const mac = new Setup(switches, driver, undefined, machine("darwin", folder).stands);
   assert.deepEqual(await needsOf(mac, "terminal"), []);
   assert.deepEqual(await needsOf(mac, "files"), []);
+  assert.equal(await readyOf(mac, "files"), true);
+  assert.equal(await readyOf(mac, "screen"), false);
   // Under the app's name, as System Settings lists it.
   assert.deepEqual(await needsOf(mac, "screen"), [
-    { need: "screen-recording", holder: "AgentOrg Computer Use", state: "not-granted" },
-    { need: "accessibility", holder: "AgentOrg Computer Use", state: "granted" },
+    { need: "screen-recording", holder: "Example Computer Use", state: "not-granted" },
+    { need: "accessibility", holder: "Example Computer Use", state: "granted" },
   ]);
-  const granted = driverAt(join(folder, "granted", "cua-driver"), answering, true);
-  assert.deepEqual(
-    await needsOf(
-      new Setup(switches, granted, undefined, machine("darwin", folder).stands),
-      "screen",
-    ),
-    [],
+  // A driver inside an app that isn't its own program, as one the app carries, is under that app.
+  const carried = driverAt(
+    join(folder, "Example.app", "Contents", "Resources", "cua-driver"),
+    answering,
   );
   assert.deepEqual(
     await needsOf(
-      new Setup(switches, driver, undefined, machine("linux", folder).stands),
+      new Setup(switches, carried, undefined, machine("darwin", folder).stands),
       "screen",
     ),
-    [],
+    [
+      { need: "screen-recording", holder: "Example", state: "not-granted" },
+      { need: "accessibility", holder: "Example", state: "granted" },
+    ],
   );
+  // A driver in no app has no app to name.
+  const bare = driverAt(join(folder, "bin", "cua-driver"), answering);
   assert.deepEqual(
-    await needsOf(
-      new Setup(switches, join(folder, "none"), undefined, machine("darwin", folder).stands),
-      "screen",
-    ),
-    [{ need: "install", state: "missing" }],
+    await needsOf(new Setup(switches, bare, undefined, machine("darwin", folder).stands), "screen"),
+    [
+      { need: "screen-recording", state: "not-granted" },
+      { need: "accessibility", state: "granted" },
+    ],
   );
+  // Granted, each is still listed, and the screen is ready.
+  const granted = new Setup(
+    switches,
+    driverAt(join(folder, "granted", "cua-driver"), answering, true),
+    undefined,
+    machine("darwin", folder).stands,
+  );
+  assert.deepEqual(await needsOf(granted, "screen"), [
+    { need: "screen-recording", state: "granted" },
+    { need: "accessibility", state: "granted" },
+  ]);
+  assert.equal(await readyOf(granted, "screen"), true);
+  const linux = new Setup(switches, driver, undefined, machine("linux", folder).stands);
+  assert.deepEqual(await needsOf(linux, "screen"), []);
+  assert.equal(await readyOf(linux, "screen"), true);
+  const none = new Setup(
+    switches,
+    join(folder, "none"),
+    undefined,
+    machine("darwin", folder).stands,
+  );
+  assert.deepEqual(await needsOf(none, "screen"), [{ need: "install", state: "missing" }]);
+  assert.equal(await readyOf(none, "screen"), false);
 });
 
-test("the browser needs one with its switch on, and while none is, lists each off", async (t) => {
+test("the browser lists Chrome and Edge, each as it stands, and is ready with one on", async (t) => {
   const home = folderOf(t);
   const switches = new Switches(home, false);
   mkdirSync(join(home, "Applications", "Google Chrome.app"), { recursive: true });
@@ -154,28 +193,41 @@ test("the browser needs one with its switch on, and while none is, lists each of
     { need: "chrome", name: "Chrome", state: "off" },
     { need: "edge", name: "Edge", state: "off" },
   ]);
+  assert.equal(await readyOf(setup, "browser"), false);
   await switchOn(t, join(home, "Library", "Application Support", "Microsoft Edge"));
-  assert.deepEqual(await needsOf(setup, "browser"), []);
-  // The one that is on is the one used: Edge, until Chrome is on too.
+  assert.deepEqual(await needsOf(setup, "browser"), [
+    { need: "chrome", name: "Chrome", state: "off" },
+    { need: "edge", name: "Edge", state: "on" },
+  ]);
+  assert.equal(await readyOf(setup, "browser"), true);
+  const none = new Setup(switches, undefined, undefined, machine("darwin", folderOf(t)).stands);
+  assert.deepEqual(await needsOf(none, "browser"), [
+    { need: "chrome", name: "Chrome", state: "missing" },
+    { need: "edge", name: "Edge", state: "missing" },
+  ]);
+  const named = new Setup(switches, undefined, join(home, "named"), machine("darwin", home).stands);
+  assert.deepEqual(await needsOf(named, "browser"), [
+    { need: "named", name: "the browser", state: "off" },
+  ]);
+});
+
+test("the browser used is the one whose switch is on, Chrome where both are", async (t) => {
+  const home = folderOf(t);
+  mkdirSync(join(home, "Applications", "Google Chrome.app"), { recursive: true });
+  mkdirSync(join(home, "Applications", "Microsoft Edge.app"), { recursive: true });
   const darwin = { platform: "darwin" as const, home, applications: [join(home, "Applications")] };
+  await switchOn(t, join(home, "Library", "Application Support", "Microsoft Edge"));
   const edge = await ownBrowser(undefined, darwin);
   assert.equal(edge.ready && edge.name, "Edge");
   await switchOn(t, join(home, "Library", "Application Support", "Google", "Chrome"));
   const both = await ownBrowser(undefined, darwin);
   assert.equal(both.ready && both.name, "Chrome");
-  assert.deepEqual(
-    await needsOf(
-      new Setup(switches, undefined, undefined, machine("darwin", folderOf(t)).stands),
-      "browser",
-    ),
-    [{ need: "install", state: "missing" }],
-  );
 });
 
 test("turning the screen on starts the driver's app through the system, then its own grant", async (t) => {
   const folder = folderOf(t);
   const answering = join(folder, "answering");
-  const app = join(folder, "AgentOrg Computer Use.app");
+  const app = join(folder, "Example Computer Use.app");
   const driver = driverAt(join(app, "Contents", "MacOS", "cua-driver"), answering);
   // Its app, once open, answers for the grants.
   const mac = machine("darwin", folder, () => writeFileSync(answering, ""));
@@ -209,6 +261,57 @@ test("turning the browser on opens Chrome at its switch, and turning off asks no
   assert.equal(switches.on("browser"), false);
 });
 
+test("each grant is asked for by itself, and its own pane opens", async (t) => {
+  const folder = folderOf(t);
+  const answering = join(folder, "answering");
+  writeFileSync(answering, "");
+  const driver = driverAt(join(folder, "bin", "cua-driver"), answering);
+  const pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
+  const mac = machine("darwin", folder);
+  const setup = new Setup(new Switches(folder, true), driver, undefined, mac.stands);
+  await setup.ask("screen", "screen-recording");
+  assert.deepEqual(mac.ran, [
+    [driver, ["permissions", "grant"]],
+    ["/usr/bin/open", [pane]],
+  ]);
+  // Granted, only its pane opens.
+  const granted = driverAt(join(folder, "granted", "cua-driver"), answering, true);
+  const done = machine("darwin", folder);
+  await new Setup(new Switches(folder, true), granted, undefined, done.stands).ask(
+    "screen",
+    "accessibility",
+  );
+  assert.deepEqual(done.ran, [
+    [
+      "/usr/bin/open",
+      ["x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"],
+    ],
+  ]);
+  await assert.rejects(setup.ask("files", "accessibility"), {
+    status: 409,
+    message: 'There\'s no "accessibility" for files here.',
+  });
+  const none = new Setup(new Switches(folder, true), join(folder, "none"), undefined, mac.stands);
+  await assert.rejects(none.ask("screen", "install"), {
+    status: 409,
+    message: "Cua Driver isn't installed on this machine.",
+  });
+});
+
+test("each browser is asked for by itself, at its own switch", async (t) => {
+  const home = folderOf(t);
+  const edge = join(home, "Applications", "Microsoft Edge.app");
+  mkdirSync(edge, { recursive: true });
+  const mac = machine("darwin", home);
+  const setup = new Setup(new Switches(home, true), undefined, undefined, mac.stands);
+  await setup.ask("browser", "edge");
+  assert.deepEqual(mac.ran, [["/usr/bin/open", ["-a", edge, "edge://inspect/#remote-debugging"]]]);
+  await assert.rejects(setup.ask("browser", "chrome"), {
+    status: 409,
+    message: "Chrome isn't installed on this machine.",
+  });
+});
+
 test("off macOS turning a part on asks nothing", async (t) => {
   const folder = folderOf(t);
   const linux = machine("linux", folder);
@@ -231,6 +334,15 @@ test("a step that can't be started leaves the part on, and says why", async (t) 
     },
   );
   assert.equal(switches.on("browser"), true);
+  // One the service was given only the folder of, the person opens.
+  await assert.rejects(
+    new Setup(switches, undefined, join(home, "named"), failing.stands).set("browser", true),
+    {
+      status: 409,
+      message:
+        "It is on, but asking for what it needs didn't start: Open the browser yourself, and switch on remote debugging at its inspect page, chrome://inspect/#remote-debugging.",
+    },
+  );
 });
 
 test("a part switched off isn't ready, and its tools refuse, until the person turns it on", async (t) => {
@@ -252,6 +364,7 @@ test("a part switched off isn't ready, and its tools refuse, until the person tu
       join(home, "none"),
       "--own-browser-data",
       join(home, "browser"),
+      ...(BROWSER ? ["--browser-name", "chromium", "--browser-path", BROWSER] : []),
     ],
     { env: { PATH: process.env.PATH ?? "", HOME: home }, stdio: ["ignore", "pipe", "inherit"] },
   );
@@ -305,31 +418,66 @@ test("a part switched off isn't ready, and its tools refuse, until the person tu
     message: off("their own browser"),
   });
 
-  // Attached while its files are off, the agent's file tools refuse; on, they answer.
-  const computer = await Computer.attach({ ...to, access: "read", workspace });
-  const client = new Client({ name: "switches", version: "1" });
-  await client.connect(
-    new StreamableHTTPClientTransport(
-      new URL((await computer.getInfo()).endpoints.computer as string),
-      {
-        requestInit: { headers: { Authorization: `Bearer ${computer.getMcpToken()}` } },
-      },
-    ),
-  );
-  t.after(() => client.close());
-  const list = async () =>
-    (await client.callTool({ name: "list", arguments: { path: "." } })) as {
-      isError?: boolean;
-      content: { text?: string }[];
+  // Attached while its terminal and files are off, the agent's tools that reach them refuse, the
+  // browser's too; on, they answer.
+  const computer = await Computer.attach({
+    ...to,
+    access: "terminal",
+    workspace,
+    browser: Boolean(BROWSER),
+  });
+  const endpoints = (await computer.getInfo()).endpoints;
+  const auth = { Authorization: `Bearer ${computer.getMcpToken()}` };
+  const connect = async (url: string) => {
+    const client = new Client({ name: "switches", version: "1" });
+    const transport = new StreamableHTTPClientTransport(new URL(url), {
+      requestInit: { headers: auth },
+    });
+    await client.connect(transport);
+    t.after(() => client.close());
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const answer = (await client.callTool({ name, arguments: args })) as {
+        isError?: boolean;
+        content: { text?: string }[];
+      };
+      return answer.isError ? answer.content[0]?.text : "answered";
     };
-  const refused = await list();
-  assert.deepEqual([refused.isError, refused.content[0]?.text], [true, off("the files")]);
+    return Object.assign(call, { end: () => transport.terminateSession() });
+  };
+  const call = await connect(endpoints.computer as string);
+  const list = () => call("list", { path: "." });
+  assert.equal(await list(), off("the files"));
+  assert.equal(await call("exec_command", { cmd: "true" }), off("the terminal"));
+  // A batch, whose calls couldn't each be refused, is refused whole; a notification gets nothing.
+  const post = (body: unknown) =>
+    fetch(endpoints.computer as string, {
+      method: "POST",
+      headers: {
+        ...auth,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify(body),
+    });
+  const batch = await post([{ jsonrpc: "2.0", id: 1, method: "tools/list" }]);
+  assert.equal(batch.status, 400);
+  assert.match(((await batch.json()) as { error: { message: string } }).error.message, /own POST/);
+  const listing = { name: "list", arguments: { path: "." } };
+  assert.equal((await post({ jsonrpc: "2.0", method: "tools/call", params: listing })).status, 202);
+  if (BROWSER) {
+    const browse = await connect(endpoints.browser as string);
+    assert.equal(await browse("browser_run_code_unsafe", { code: "1" }), off("the terminal"));
+    assert.equal(await browse("browser_file_upload", { paths: [] }), off("the files"));
+    assert.equal(await browse("browser_tabs", { action: "list" }), "answered");
+  }
   const turned = await fetch(`${apiUrl}/v1/setup/files`, {
     method: "PUT",
     headers,
     body: JSON.stringify({ on: true }),
   });
   assert.equal(turned.status, 200);
-  assert.notEqual((await list()).isError, true);
-  assert.equal(existsSync(join(data, "switches.json")), true);
+  assert.equal(await list(), "answered");
+  assert.equal(await call("exec_command", { cmd: "true" }), off("the terminal"));
+  // Ending its session isn't a call, and goes through while the terminal is off.
+  await call.end();
 });
