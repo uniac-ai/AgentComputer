@@ -3,6 +3,7 @@
 import type { ExtraTool } from "@agentorg/exec";
 import type { components } from "./generated/schema.js";
 import type { LoadLive } from "./load-live.ts";
+import type { Presence } from "./presence.ts";
 
 type Access = components["schemas"]["Access"];
 interface Row {
@@ -35,7 +36,7 @@ const GB = 1000 ** 3;
 const tenths = (count: number) => String(Math.round(count * 10) / 10);
 const whole = (count: number) => String(Math.round(count));
 
-export function aboutTool(facts: Facts, load: LoadLive): ExtraTool {
+export function aboutTool(facts: Facts, load: LoadLive, presence: Presence): ExtraTool {
   return {
     name: "about",
     description:
@@ -57,6 +58,8 @@ export function aboutTool(facts: Facts, load: LoadLive): ExtraTool {
               value: "None: it acts as you, on the whole machine",
               caution: true,
             },
+        // Who else is acting on it now, as the person is shown who acts.
+        { label: "Others acting", value: presence.others() },
       ];
       const reading = await load.now();
       if (reading)

@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Duplex } from "node:stream";
 import { VERSION } from "./handlers.ts";
-import type { Surface } from "./live.ts";
+import { PROTOCOLS, type Surface } from "./live.ts";
 import { type Access, ApiError, ProcessRuntime } from "./runtime.ts";
 import { digestOf, privateFolder, sameToken } from "./store.ts";
 
@@ -17,7 +17,7 @@ export const OUTSIDE_MACHINE_VARIABLE = "AGENTCOMPUTER_OUTSIDE_MACHINE";
 /** Where the image puts its browser. */
 const BROWSER = "/opt/browsers/headless-shell";
 
-export async function serveInside(options: { access: Access; browser: boolean }) {
+export async function serveInside(options: { access: Access; browser: boolean; name: string }) {
   const token = process.env[INNER_TOKEN_VARIABLE];
   if (!token) throw new Error(`${INNER_TOKEN_VARIABLE} is not set.`);
   // What runs in here has no need of it.
@@ -69,9 +69,15 @@ export async function serveInside(options: { access: Access; browser: boolean })
     // URL.parse gives null for an address it can't read; a throw in this handler would end the
     // process.
     const url = URL.parse(request.url ?? "/", "http://localhost");
-    const surface = /^\/live\/(terminal|files|browser|load)$/.exec(url?.pathname ?? "")?.[1];
+    const surface = /^\/live\/([a-z]+)$/.exec(url?.pathname ?? "")?.[1];
     const mode = url?.searchParams.get("mode");
-    if (!given || !sameToken(given, digest) || !surface || (mode !== "watch" && mode !== "operate"))
+    if (
+      !given ||
+      !sameToken(given, digest) ||
+      !surface ||
+      !Object.hasOwn(PROTOCOLS, surface) ||
+      (mode !== "watch" && mode !== "operate")
+    )
       return void socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
     running
       .then((computer) => computer.openLive(surface as Surface, mode, request, socket, head))

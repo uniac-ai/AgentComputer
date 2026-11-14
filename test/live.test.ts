@@ -147,6 +147,7 @@ for (const [kind, extra] of KINDS) {
           ["terminal", true, null],
           ["files", true, null],
           ["load", false, null],
+          ["presence", false, null],
         ],
       );
 
@@ -168,7 +169,7 @@ for (const [kind, extra] of KINDS) {
       const reader = await make(Computer, kind, { ...to, access: "files", workspace });
       assert.deepEqual(
         (await reader.getInfo()).surfaces.map((one) => one.surface),
-        ["files", "load"],
+        ["files", "load", "presence"],
       );
       await assert.rejects(reader.liveSession("terminal"), /no terminal to open/);
     },
@@ -388,13 +389,14 @@ test("a shell that can't start is refused or heard ending, and nothing else does
 test("where a shell can't run on a terminal device, opening one is refused with why", async (t) => {
   const { Live } = await import("../src/live.ts");
   const { LoadLive } = await import("../src/load-live.ts");
+  const { Presence } = await import("../src/presence.ts");
   const { createAgentExec } = await import("@agentorg/exec");
   const workspace = realpathSync(mkdtempSync(join(tmpdir(), "ac-")));
   const pty = () => {
     throw new Error("there is no device here.");
   };
   const exec = createAgentExec({ workspace, level: "terminal", pty });
-  const live = new Live(exec, "terminal", new LoadLive(workspace, false));
+  const live = new Live(exec, "terminal", new LoadLive(workspace, false), new Presence("agent"));
   const server = createServer().on("upgrade", (request, socket, head) =>
     live.open("terminal", "operate", request, socket, head),
   );
@@ -420,6 +422,7 @@ test("where a shell can't run on a terminal device, opening one is refused with 
 test("a viewer more than 4 MiB behind is closed, and one that opens is shown all", async (t) => {
   const { Live } = await import("../src/live.ts");
   const { LoadLive } = await import("../src/load-live.ts");
+  const { Presence } = await import("../src/presence.ts");
   type Exec = import("@agentorg/exec").AgentExec;
   type Heard = Parameters<Parameters<Exec["onCommand"]>[0]>[0];
   const at = new Date().toISOString();
@@ -439,7 +442,7 @@ test("a viewer more than 4 MiB behind is closed, and one that opens is shown all
         })),
     },
   } as unknown as Exec;
-  const live = new Live(exec, "terminal", new LoadLive(tmpdir(), false));
+  const live = new Live(exec, "terminal", new LoadLive(tmpdir(), false), new Presence("agent"));
   const server = createServer().on("upgrade", (request, socket, head) =>
     live.open("terminal", "watch", request, socket, head),
   );

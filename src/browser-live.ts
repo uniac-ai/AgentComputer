@@ -89,8 +89,12 @@ export class BrowserLive implements BrowserGate {
   /** Counts each time everyone has left, so a connection begun before that knows it is stale. */
   #ended = 0;
 
-  constructor(endpoint: Promise<string>) {
+  /** Heard each time a person acts in the browser. */
+  readonly #used: () => void;
+
+  constructor(endpoint: Promise<string>, used: () => void = () => {}) {
     this.#endpoint = endpoint;
+    this.#used = used;
   }
 
   // ---- The agent's side
@@ -361,6 +365,7 @@ export class BrowserLive implements BrowserGate {
   }
 
   #input(ws: WebSocket, viewer: Viewer, message: ClientMessage) {
+    this.#used();
     const page = viewer.shown;
     switch (message.type) {
       case "mouse":

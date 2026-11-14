@@ -180,6 +180,8 @@ export class Browser {
   /** The tools it offers, read once it is up. */
   tools: string[] = [];
   gate: BrowserGate | undefined;
+  /** The line to add to the answer to each of the agent's calls, asked as the call begins. */
+  noted: (() => string | undefined) | undefined;
 
   constructor(
     config: BrowserConfig,
@@ -338,6 +340,7 @@ export class Browser {
         .then((answer) => answer.text())
         .catch(() => {});
     if (tool === "browser_file_upload") this.gate?.agentAnsweredChooser();
+    const line = tool ? this.noted?.() : undefined;
     if (message) headers["content-type"] = "application/json";
     const upstream = await served(MCP, {
       method: request.method as string,
@@ -348,7 +351,14 @@ export class Browser {
     if (message?.method === "tools/list" && this.#hidden.size > 0)
       change = withoutHidden(this.#hidden);
     else if (tool === SCREENSHOT) change = withoutLarge;
-    // Every other answer goes on as it comes; these two are read whole first.
+    if (line) {
+      const before = change;
+      change = (answer) => {
+        before?.(answer);
+        answer.result?.content?.push({ type: "text", text: line });
+      };
+    }
+    // Every other answer goes on as it comes; these are read whole first.
     if (!change) return sendAnswer(upstream, response);
     sendAnswer(new Response(changed(await upstream.text(), change), upstream), response);
   }

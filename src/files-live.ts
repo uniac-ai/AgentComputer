@@ -33,10 +33,14 @@ export class FilesLive {
   /** How many files are part written, over every socket. */
   #uploads = 0;
 
+  /** Heard when a person writes a file. */
+  readonly #wrote: () => void;
+
   /** `workspace` is what the workspace is called: its folder's own name, not where it is. */
-  constructor(files: Files, workspace: string) {
+  constructor(files: Files, workspace: string, wrote: () => void = () => {}) {
     this.#files = files;
     this.#workspace = workspace;
+    this.#wrote = wrote;
   }
 
   close() {
@@ -174,6 +178,7 @@ export class FilesLive {
               "A write names a path, where it starts, 0 to 1,048,576 bytes, and last.",
             );
           awaited = request;
+          this.#wrote();
           return;
         }
         default:

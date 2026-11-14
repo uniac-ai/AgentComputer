@@ -80,6 +80,7 @@ A computer in a container:
 | `Folder`    | The workspace's path on that machine, as a path                                           |
 | `Reaches`   | `Read-only files`, `Files`, or `Files and terminal`; with a browser, `, Browser` after it |
 | `Isolation` | `None: it acts as you, on the whole machine`, as a caution, or `A container of its own`   |
+| `Others acting` | Who else acted on it in the last 10 s, and on what: `The person: terminal s_…, the files`, or `Nobody` |
 | `CPU`       | Used, of all the machine's CPUs, as a whole percentage: `37%`                             |
 | `Memory`    | Used of the machine's total, counted in 1024s and written GB: `9.2 of 16 GB`              |
 | `Disk`      | Used of total, of the volume the workspace is on, counted in 1000s: `212 of 494 GB`       |
@@ -232,12 +233,17 @@ A computer with `--browser` has another:
   - **A dialog, a file chooser and a list belong to a page.** A dialog is told to the sockets shown its page until someone answers it, you or the agent. Nothing says when the agent answers a file chooser, so when it answers one every open chooser is taken as closed: press again if yours was.
   - **A client written for the earlier `screencast@1` still connects.** Its `release` is ignored and no `driver` event comes: nobody holds the browser any more.
 
-Every running computer has one more, to watch only:
+Every running computer has two more, to watch only:
 
 - **`load`** (protocol `metrics@1`): how busy it is. The service sends a reading every two seconds while a socket is open, the first two seconds after the first socket opens, and the last one at once to a socket that opens later: `{"type":"reading","scope":"machine","cpuUsedPct":37.2,"memUsed":…,"memTotal":…,"diskUsed":…,"diskTotal":…}`, in bytes. `openapi.yaml` has each field, as `LoadReading`.
   - **`scope` says whose numbers they are.** A computer in a container reads its own (`computer`), against the machine's totals, since a container has no limit of its own. This computer has no edge to measure at, so it reads the whole machine's (`machine`); so does a container that can't read its own.
   - **The disk is the volume its workspace is on,** not the workspace's own size.
   - **Nothing depends on it.** Nothing is read while nobody watches or asks, a reading that can't be taken is left out, and a socket that hasn't read the one before is not sent the next.
+- **`presence`** (protocol `presence@1`): who is acting on it now, which is within the last 10 seconds, and on what. It sends `{"type":"presence","acting":[…]}` when it opens, and again each time someone starts or stops acting on something; `openapi.yaml` has each field, as `PresenceEvent`.
+  - **Who:** the person, through a live view at operate (typing into a terminal, writing a file, using the browser), or the agent, by its computer's name (starting a command or typing into one, the file tools, the browser's tools). Watching is not acting.
+  - **On what:** a terminal, by its id, the files, or the browser.
+  - **The agent is told too.** `about` names who else is acting, and the answer to the agent's call on something the person acted on since its last call there ends with a line: `The person typed in this terminal 3 s ago.`, `The person changed files here 2 s ago.` or `The person used the browser 4 s ago.`
+  - **Nothing is refused by it,** for the person or the agent.
 
 `POST /v1/computers/{computerID}/live` with `{ "surface": "terminal", "mode": "operate" }` gives a ticket: a `url` to open once within a minute, which needs no token. A request with an `Origin` header is refused unless `serve --allow-origin` names that origin, so a page can't open one. The SDK does the same with `computer.terminals.connect({ onEvent })`, or gives the ticket alone with `computer.liveSession("files")` or `computer.liveSession("browser", "operate")`, and the CLI with `agentcomputer live <id> --surface terminal --mode operate`.
 

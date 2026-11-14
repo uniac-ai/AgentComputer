@@ -181,6 +181,7 @@ async function main() {
     return serveInside({
       access: values.access as CreateOpts["access"],
       browser: values.browser === true,
+      name: values.name ?? "",
     });
   const connection = connectionTo(data);
   /** What create and attach both take. */

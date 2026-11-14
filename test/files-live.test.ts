@@ -395,6 +395,7 @@ for (const [kind, extra] of KINDS) {
       assert.deepEqual((await reader.getInfo()).surfaces, [
         { surface: "files", protocol: "files@1", operate: false },
         { surface: "load", protocol: "metrics@1", operate: false },
+        { surface: "presence", protocol: "presence@1", operate: false },
       ]);
       await assert.rejects(reader.liveSession("files", "operate"), /watched, not operated/);
       const reading = await window((await reader.liveSession("files")).url);

@@ -10,6 +10,7 @@ import type { BrowserLive } from "./browser-live.ts";
 import { type FilesLive, MAX_PART, reason } from "./files-live.ts";
 import type { components } from "./generated/schema.js";
 import type { LoadLive } from "./load-live.ts";
+import type { Presence } from "./presence.ts";
 import { pieces } from "./text.ts";
 
 type Schemas = components["schemas"];
@@ -22,6 +23,7 @@ export const PROTOCOLS: Record<Surface, string> = {
   files: "files@1",
   browser: "screencast@1",
   load: "metrics@1",
+  presence: "presence@1",
 };
 
 /** No terminal@1 message is larger, either way. A larger one closes its socket. */
@@ -48,6 +50,7 @@ const SERVERS: Record<Surface, WebSocketServer> = {
   files: new WebSocketServer({ noServer: true, maxPayload: MAX_PART }),
   browser: new WebSocketServer({ noServer: true }),
   load: new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE }),
+  presence: new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE }),
 };
 
 const MALFORMED = "That isn't a terminal@1 message.";
@@ -74,18 +77,25 @@ export class Live {
   readonly #writes: boolean;
 
   readonly #load: LoadLive;
+  readonly #presence: Presence;
+  readonly #watchers = new Set<WebSocket>();
 
   constructor(
     exec: AgentExec | undefined,
     access: Schemas["Access"],
     load: LoadLive,
+    presence: Presence,
     files?: FilesLive,
     browser?: BrowserLive,
   ) {
     this.#load = load;
+    this.#presence = presence;
     if (exec && access === "terminal") {
       this.#terminals = exec.terminals;
       exec.onCommand((event) => {
+        // The agent acts on a terminal it starts; one it types into is heard through its calls.
+        if (event.type === "start" && event.by === "agent")
+          presence.acted("agent", { capability: "terminal", terminal: event.id });
         for (const message of messages(event)) for (const ws of this.#viewers) deliver(ws, message);
       });
     }
@@ -103,6 +113,7 @@ export class Live {
     if (this.#browser)
       surfaces.push({ surface: "browser", protocol: PROTOCOLS.browser, operate: true });
     surfaces.push({ surface: "load", protocol: PROTOCOLS.load, operate: false });
+    surfaces.push({ surface: "presence", protocol: PROTOCOLS.presence, operate: false });
     return surfaces;
   }
 
@@ -115,6 +126,7 @@ export class Live {
       else if (surface === "files" && this.#files) this.#files.open(ws, mode);
       else if (surface === "browser" && this.#browser) this.#browser.open(ws, mode);
       else if (surface === "load") this.#load.open(ws);
+      else if (surface === "presence") this.#watch(ws);
       else ws.close(1011, `There's no ${surface} here.`);
     });
   }
@@ -124,7 +136,19 @@ export class Live {
     void this.#browser?.close();
     this.#files?.close();
     this.#load.close();
-    for (const ws of this.#viewers) ws.close(1001, "It stopped.");
+    for (const ws of [...this.#viewers, ...this.#watchers]) ws.close(1001, "It stopped.");
+  }
+
+  /** presence@1: who is acting now, when it opens and at each change. What it sends is dropped. */
+  #watch(ws: WebSocket) {
+    const send = () => ws.send(JSON.stringify({ type: "presence", acting: this.#presence.now() }));
+    send();
+    const stop = this.#presence.onChange(send);
+    this.#watchers.add(ws);
+    ws.on("close", () => {
+      stop();
+      this.#watchers.delete(ws);
+    });
   }
 
   /**
@@ -154,12 +178,18 @@ export class Live {
         const sent = (JSON.parse(data.toString()) ?? {}) as Record<string, unknown>;
         const { type, id, text } = sent;
         const [columns, rows] = [sent.columns as number, sent.rows as number];
-        if (type === "open") terminals.open({ columns, rows });
+        const acted = (terminal: string) =>
+          this.#presence.acted("person", { capability: "terminal", terminal });
+        if (type === "open") acted(terminals.open({ columns, rows }));
         else if (typeof id !== "string") throw new Error(MALFORMED);
-        else if (type === "input" && typeof text === "string") terminals.write(id, text);
-        else if (type === "resize") terminals.resize(id, columns, rows);
-        else if (type === "stop") terminals.stop(id).catch(refuse);
-        else throw new Error(MALFORMED);
+        else if (type === "input" && typeof text === "string") {
+          terminals.write(id, text);
+          acted(id);
+        } else if (type === "resize") terminals.resize(id, columns, rows);
+        else if (type === "stop") {
+          terminals.stop(id).catch(refuse);
+          acted(id);
+        } else throw new Error(MALFORMED);
       } catch (error) {
         refuse(error instanceof SyntaxError ? MALFORMED : error);
       }

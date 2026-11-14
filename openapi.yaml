@@ -432,7 +432,7 @@ components:
                 browser: { type: array, items: { type: string } }
     Surface:
       type: string
-      enum: [terminal, files, browser, load]
+      enum: [terminal, files, browser, load, presence]
       description: >-
         terminal: every terminal on it, the agent's commands and a person's shells alike, on one
         socket in terminal@1: text messages are TerminalEvent one way and TerminalInput the other.
@@ -450,6 +450,8 @@ components:
         open, the first two seconds after the first socket opens, and the last one at once to a
         socket that opens later. One that can't be taken is left out, and a socket that hasn't
         read the one before is not sent the next. Nothing is read while nobody watches or asks.
+        presence: who is acting on it now, in presence@1, to watch only: a PresenceEvent when the
+        socket opens, and another each time someone starts or stops acting on something.
     LiveMode:
       type: string
       enum: [watch, operate]
@@ -745,6 +747,31 @@ components:
             Bytes used on the volume its workspace is on, or its own folder where it has no
             workspace. The volume's, not the workspace's own size.
         diskTotal: { type: integer, description: Bytes on that volume. }
+    Acting:
+      description: >-
+        Someone acting on a computer now: within the last 10 seconds. The person acts through a
+        live view at operate: typing into a terminal, writing a file, using the browser. Watching
+        is not acting. The agent acts through its endpoints, reading files among it. It is shown,
+        and nothing is refused by it.
+      type: object
+      required: [who, capability, at]
+      properties:
+        who: { type: string, enum: [person, agent] }
+        name: { type: string, description: The agent's name, which is its computer's. }
+        capability: { type: string, enum: [terminal, files, browser] }
+        terminal: { type: string, description: Which terminal, by its id, for a terminal. }
+        at: { type: string, format: date-time, description: When it last acted there. }
+    PresenceEvent:
+      description: >-
+        What the service sends on a presence@1 socket, as JSON text: everyone acting now, the most
+        recent first, and nobody where it is empty. What a socket sends is dropped.
+      type: object
+      required: [type, acting]
+      properties:
+        type: { const: presence }
+        acting:
+          type: array
+          items: { $ref: "#/components/schemas/Acting" }
     FilesRequest:
       description: >-
         What a socket sends on files@1, as JSON text. Each has an id of its own choosing, which the

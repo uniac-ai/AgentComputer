@@ -205,7 +205,7 @@ test(
     ]);
     assert.deepEqual(
       rows.slice(4).map((row) => row.label),
-      ["CPU", "Memory", "Disk"],
+      ["Others acting", "CPU", "Memory", "Disk"],
     );
   },
 );

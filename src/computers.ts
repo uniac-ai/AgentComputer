@@ -512,6 +512,7 @@ export class Computers {
     live.running = await runtime.start(
       {
         id: stored.id,
+        name: stored.name,
         access: stored.access,
         browser: stored.browser,
         workspace: stored.workspace,
