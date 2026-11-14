@@ -5,12 +5,16 @@ import assert from "node:assert/strict";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { connect } from "node:net";
@@ -321,6 +325,20 @@ test("a workspace can start as a copy of a folder, which is left as it was", opt
   await computer.kill();
   assert.equal(existsSync(workspace as string), false);
   assert.equal(readFileSync(join(from, "notes", "b.txt"), "utf8"), "b\n");
+
+  // A folder that can't be written is copied so, and the copy is still removed; a pipe is left
+  // out; and a link to the folder is copied as the folder.
+  chmodSync(join(from, "notes"), 0o555);
+  await run("mkfifo", [join(from, "pipe")]);
+  symlinkSync(from, join(root, "link"));
+  const again = await Computer.create({ ...to(), access: "read", copyFrom: join(root, "link") });
+  chmodSync(join(from, "notes"), 0o755);
+  t.after(() => again.close());
+  const copy = (await again.getInfo()).workspace as string;
+  assert.deepEqual(readdirSync(copy).sort(), ["a.txt", "notes"]);
+  assert.equal(statSync(join(copy, "notes")).mode & 0o777, 0o555);
+  await again.kill();
+  assert.equal(existsSync(copy), false);
 });
 
 test(

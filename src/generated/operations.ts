@@ -549,7 +549,7 @@ export const OPENAPI = {
           "copyFrom": {
             "type": "string",
             "maxLength": 4096,
-            "description": "The full path of a folder that exists, on the service's machine, that the workspace the service makes starts as a copy of. It is copied once, when the computer is made, and is never mounted or changed. Not with workspace, nor with access none."
+            "description": "The full path of a folder on the service's machine. The workspace the service makes starts with a copy of what is in it, taken once when the computer is made; the folder itself is never mounted or changed. Links are copied as they are, and sockets, pipes and devices are left out. Use it instead of workspace; it needs access other than none."
           },
           "isolation": {
             "$ref": "#/components/schemas/Isolation",
@@ -2453,7 +2453,7 @@ export const OPERATIONS: Operation[] = [
         "copyFrom": {
           "type": "string",
           "maxLength": 4096,
-          "description": "The full path of a folder that exists, on the service's machine, that the workspace the service makes starts as a copy of. It is copied once, when the computer is made, and is never mounted or changed. Not with workspace, nor with access none."
+          "description": "The full path of a folder on the service's machine. The workspace the service makes starts with a copy of what is in it, taken once when the computer is made; the folder itself is never mounted or changed. Links are copied as they are, and sockets, pipes and devices are left out. Use it instead of workspace; it needs access other than none."
         },
         "isolation": {
           "type": "string",

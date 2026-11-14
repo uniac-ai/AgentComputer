@@ -45,7 +45,7 @@ export interface CreateOpts extends ConnectionOpts {
   /** How it is isolated: a container by default, and no other is offered now. */
   isolation?: Schemas["Isolation"];
   workspace?: string;
-  /** A folder its own workspace starts as a copy of, copied once when it is made. */
+  /** A folder whose files its workspace starts with, copied once when it is made. */
   copyFrom?: string;
   name?: string;
   /** How long until it stops, in milliseconds. By default it doesn't. */

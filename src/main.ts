@@ -142,8 +142,9 @@ async function main() {
   };
   const milliseconds = (seconds: string) => Number(seconds) * 1000;
   const { isolation } = values;
-  if (isolation !== undefined && command !== "create")
-    throw new UsageError("Only create takes --isolation.");
+  for (const flag of ["isolation", "copy-from"] as const)
+    if (values[flag] !== undefined && command !== "create")
+      throw new UsageError(`Only create takes --${flag}.`);
   if (command === "serve") {
     const { "tls-cert": cert, "tls-key": key } = values;
     if (Boolean(cert) !== Boolean(key))

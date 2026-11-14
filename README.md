@@ -44,7 +44,7 @@ This computer:
 - **`serve` and `up` no longer take `--isolation`, and won't start with it.** Remove it from whatever starts the service: a shell profile, a launchd or systemd unit, a `docker run` line.
 - **A computer made with no isolation isn't started again.** Its record and folder are kept.
   - One that was running when the service last stopped is failed when it starts, and its `logs` say why. One that was stopped stays stopped.
-  - Starting it is refused with 409, in words that say where its folder is and what to do instead: `A computer with no isolation is no longer made. Its folder is kept at <path>. Attach this computer with that folder as its work folder, or make a container with it as its workspace.`
+  - Starting it is refused with 409, in words that say where its folder is and what to do instead: `A computer with no isolation is no longer made. Its folder is kept at <path>. Attach this computer with that folder as its work folder, or make a container whose workspace starts as a copy of it.`
   - In the API it is the one computer with `isolation` `none` and `attached` false, and its `workspace` is that folder.
   - Killing it removes the rest of it and keeps that folder, even one the service made in its data folder. Kill it first, then attach this computer with the folder as its `--workspace`, or make a container whose workspace starts as a copy of it: `create --copy-from <path>`.
 - **A computer recorded by 0.0.14 or earlier kept no isolation,** and is taken as made with none, which was the default then. If you made computers in containers with 0.0.14 or earlier, run 0.0.18 once first, started as it was last started, so that each one's isolation is recorded. Otherwise each is refused as above, and killing one leaves its container behind.
@@ -53,7 +53,7 @@ A computer in a container:
 
 - Its image holds AgentExec, Playwright MCP and a headless Chromium. It is `ghcr.io/uniac-ai/agentcomputer/computer` at the service's version; `--image` names another.
 - `--workspace` is mounted at `/workspace`, read-only at `--access read`, and nothing else of the machine is visible. The computer is told that folder's path on the machine and the machine's name, which `about` answers. Docker has to be able to share that folder, and the data folder, where its home is. Without `--workspace`, the service makes one, in the data folder.
-- `--copy-from DIR` (`copyFrom`) has the folder the service makes start as a copy of `DIR`, copied once when the computer is made. `DIR` itself is never mounted or changed. It goes with neither `--workspace` nor `--access none`.
+- `--copy-from DIR` (`copyFrom`), used instead of `--workspace`, has the folder the service makes start with a copy of what is in `DIR`, taken once when the computer is made. `DIR` itself is never mounted or changed. Links are copied as they are, and sockets, pipes and devices are left out. It needs `--access` other than `none`.
 - The image is fetched the first time it is needed, which can take minutes: when the first computer in a container is made, a call that then waits for it. `docker pull` it beforehand to spare that wait.
 - It runs as the user who started the service, with no capabilities.
 - Its home, `/home/computer`, is a folder of the machine's, in the computer's own folder in the data folder, mounted as the workspace is. What the agent keeps there stays, the browser's profile with its sign-ins among it. `stop` stops the container and keeps it, and `kill` removes it with the computer's folder.
