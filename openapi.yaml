@@ -362,10 +362,17 @@ components:
         name: { type: string, minLength: 1, maxLength: 128 }
         access: { $ref: "#/components/schemas/Access" }
         browser:
-          type: boolean
+          oneOf:
+            - type: boolean
+            - { type: string, const: own }
           default: false
           description: >-
-            Whether it has a headless browser of its own. With access none, it must, or have the
+            Its browser. true: a headless one of its own. own: the person's own, Chrome or else
+            Edge, signed in, reached through the browser's own attach, which asks the person to
+            allow the connection; attaching waits up to 2 minutes for that, and is refused with 409
+            if it isn't allowed, or where `info` says it isn't ready. Its agent works only in tabs
+            it opens: the person's own tabs are left alone. It is never closed: when the computer
+            stops, it is only let go. With access none, the computer must have a browser or the
             screen.
         screen:
           type: boolean
@@ -458,7 +465,11 @@ components:
             made again. It is kept from its last start, so a stopped computer's can be older than
             the service's until it starts. Compare it with the service's to show that a computer
             runs an older program.
-        browser: { type: boolean }
+        browser:
+          oneOf:
+            - type: boolean
+            - { type: string, const: own }
+          description: Its browser, as it was given, or false where it has none.
         screen:
           {
             type: boolean,
@@ -1086,10 +1097,14 @@ components:
             capability: { $ref: "#/components/schemas/Capability" }
     BrowserKind:
       type: string
-      enum: [headless]
+      enum: [headless, own]
       description: >-
         headless: a headless browser with a profile of its own, beside the computer, which a
-        person watches and controls through its live view.
+        person watches and controls through its live view. own: the person's own browser on the
+        service's machine, Chrome or else Edge, signed in, offered for this computer: ready where
+        it is open with its remote debugging switched on, which the person does once on its
+        inspect page; the browser then asks them to allow each connection. Not ready, the reason
+        names the browser and what to do on that machine.
     BrowserState:
       allOf:
         - $ref: "#/components/schemas/Readiness"

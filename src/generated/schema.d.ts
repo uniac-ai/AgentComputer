@@ -252,10 +252,10 @@ export interface components {
             name?: string;
             access: components["schemas"]["Access"];
             /**
-             * @description Whether it has a headless browser of its own. With access none, it must, or have the screen.
+             * @description Its browser. true: a headless one of its own. own: the person's own, Chrome or else Edge, signed in, reached through the browser's own attach, which asks the person to allow the connection; attaching waits up to 2 minutes for that, and is refused with 409 if it isn't allowed, or where `info` says it isn't ready. Its agent works only in tabs it opens: the person's own tabs are left alone. It is never closed: when the computer stops, it is only let go. With access none, the computer must have a browser or the screen.
              * @default false
              */
-            browser: boolean;
+            browser: boolean | "own";
             /**
              * @description Whether its agent has the machine's screen: to see it, act on it and bring apps forward, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. It acts as the person, whatever `access` says. Refused with 409 where `info` says the screen isn't ready.
              * @default false
@@ -295,7 +295,8 @@ export interface components {
             attached: boolean;
             /** @description The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program. */
             version: string | null;
-            browser: boolean;
+            /** @description Its browser, as it was given, or false where it has none. */
+            browser: boolean | "own";
             /** @description Whether its agent has the screen: only this computer can have one. */
             screen: boolean;
             workspace: string | null;
@@ -693,10 +694,10 @@ export interface components {
             capability: components["schemas"]["Capability"];
         };
         /**
-         * @description headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view.
+         * @description headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or else Edge, signed in, offered for this computer: ready where it is open with its remote debugging switched on, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine.
          * @enum {string}
          */
-        BrowserKind: "headless";
+        BrowserKind: "headless" | "own";
         BrowserState: components["schemas"]["Readiness"] & {
             kind: components["schemas"]["BrowserKind"];
         };

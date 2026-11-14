@@ -18,5 +18,8 @@ export const needs = (kind: Kind) =>
 export const named = (kind: Kind) => (kind === "this" ? "this computer" : "a container");
 
 /** Attach this computer, or make a container, with the same options. */
-export const make = (Computer: Sdk["Computer"], kind: Kind, opts: AttachOpts) =>
-  kind === "this" ? Computer.attach(opts) : Computer.create(opts);
+export const make = (
+  Computer: Sdk["Computer"],
+  kind: Kind,
+  opts: AttachOpts & { browser?: boolean },
+) => (kind === "this" ? Computer.attach(opts) : Computer.create(opts));

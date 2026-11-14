@@ -28,7 +28,7 @@ import type * as Http from "node:http";
 import { createRequire } from "node:module";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
-import type { Browser, BrowserContext } from "playwright-core";
+import type { Browser, BrowserContext, Page } from "playwright-core";
 import { playwright } from "./playwright.ts";
 
 const require = createRequire(import.meta.url);
@@ -60,7 +60,149 @@ export interface McpOptions {
   /** The browser's socket, from its host. */
   endpoint: string;
   outputDir: string;
+  /** Whether it is the person's own browser, where the agent works only in pages it opened. */
+  own?: boolean;
 }
+
+type Listener = (page: Page) => void;
+type Any = (...args: never[]) => unknown;
+
+/** What the agent's tools may not do to the person's browser as a whole. */
+const NOT_THEIRS = new Set([
+  "addCookies",
+  "addInitScript",
+  "clearCookies",
+  "clearPermissions",
+  "close",
+  "exposeBinding",
+  "exposeFunction",
+  "grantPermissions",
+  "route",
+  "routeFromHAR",
+  "routeWebSocket",
+  "setExtraHTTPHeaders",
+  "setGeolocation",
+  "setHTTPCredentials",
+  "setOffline",
+  "storageState",
+  "unroute",
+  "unrouteAll",
+]);
+
+/**
+ * The person's own browser as the agent's tools see it: only the pages they opened, and the pages
+ * those open. The person's own tabs are left alone: the tools neither list nor act on them, nor
+ * watch them, which would answer their dialogs and take their file choosers; nor change the
+ * browser as a whole. One connection serves every session, so a later session finds the pages an
+ * earlier one opened. A page opened with a modifier or middle click has no opener, and so isn't
+ * the agent's.
+ */
+class AgentsPages {
+  readonly #context: BrowserContext;
+  readonly #mine = new WeakSet<Page>();
+  /** Pages that came while the tools were opening one, until it is known which is theirs. */
+  readonly #held = new Set<Page>();
+  #opening = 0;
+  /** Each session's listeners for its pages. */
+  readonly #listeners = new Set<Listener>();
+
+  constructor(context: BrowserContext) {
+    this.#context = context;
+    // One listener for good, so that a page a page of theirs opens is theirs, session or none.
+    context.on("page", (page) => {
+      if (this.#opening > 0) this.#held.add(page);
+      else void this.#byOpener(page);
+    });
+  }
+
+  async #byOpener(page: Page) {
+    const opener = await page.opener().catch(() => null);
+    if (opener && this.#mine.has(opener)) this.#take(page);
+  }
+
+  #take(page: Page) {
+    if (this.#mine.has(page)) return;
+    this.#mine.add(page);
+    for (const listener of this.#listeners) listener(page);
+  }
+
+  /** Its page is theirs, and told to every session before it is given. */
+  async #newPage() {
+    this.#opening++;
+    try {
+      const page = await this.#context.newPage();
+      this.#held.delete(page);
+      this.#take(page);
+      return page;
+    } finally {
+      if (--this.#opening === 0) {
+        const held = [...this.#held];
+        this.#held.clear();
+        for (const page of held) void this.#byOpener(page);
+      }
+    }
+  }
+
+  /** The context as one session sees it; its listeners go when it ends. */
+  session() {
+    const added: [{ off(event: string, listener: Any): unknown }, string, Any][] = [];
+    const listen =
+      <T extends object>(target: T, proxy: () => T) =>
+      (key: "on" | "once" | "addListener") =>
+      (event: string, listener: Any) => {
+        const on = (target as Record<string, Any>)[key]?.bind(target) as (
+          event: string,
+          listener: Any,
+        ) => void;
+        on(event, listener);
+        added.push([target as never, event, listener]);
+        return proxy();
+      };
+    const browser = this.#context.browser() as NonNullable<ReturnType<BrowserContext["browser"]>>;
+    const browserView: typeof browser = new Proxy(browser, {
+      get: (target, key) =>
+        key === "on" || key === "once" || key === "addListener"
+          ? listen(target, () => browserView)(key)
+          : bound(target, key),
+    });
+    const context: BrowserContext = new Proxy(this.#context, {
+      get: (target, key) => {
+        if (key === "pages") return () => target.pages().filter((page) => this.#mine.has(page));
+        if (key === "newPage") return () => this.#newPage();
+        if (key === "browser") return () => browserView;
+        if (key === "on" || key === "addListener" || key === "once")
+          return (event: string, listener: Listener) => {
+            if (event !== "page") return listen(target, () => context)(key)(event, listener as Any);
+            this.#listeners.add(listener);
+            return context;
+          };
+        if (key === "off" || key === "removeListener")
+          return (event: string, listener: Listener) => {
+            if (event === "page") this.#listeners.delete(listener);
+            else target.off(event as "close", listener as never);
+            return context;
+          };
+        if (typeof key === "string" && NOT_THEIRS.has(key))
+          return () => {
+            throw new Error("The person's browser as a whole isn't the agent's to change.");
+          };
+        return bound(target, key);
+      },
+    });
+    return {
+      context,
+      dispose: async () => {
+        for (const [target, event, listener] of added) target.off(event, listener);
+      },
+    };
+  }
+}
+
+/** A property of a target, its methods bound to it. */
+const bound = (target: object, key: string | symbol) => {
+  const value = Reflect.get(target, key, target) as unknown;
+  return typeof value === "function" ? value.bind(target) : value;
+};
 
 /**
  * Have the next HTTP server made in this process listen on `socket`, whatever port it is asked
@@ -97,6 +239,16 @@ export async function serveBrowserMcp(options: McpOptions) {
     sharedBrowserContext: true,
   });
   const tools = parts.filteredTools(config);
+  const own = options.own
+    ? playwright()
+        .chromium.connect(options.endpoint)
+        .then((browser) => {
+          const context = browser.contexts()[0];
+          if (!context) throw new Error("The browser has no context to work in.");
+          return new AgentsPages(context);
+        })
+    : undefined;
+  own?.catch(() => {});
   listenOnSocket(socket);
   // Its banner names the placeholder address as where it listens. Errors are thrown, not printed.
   const say = console.error;
@@ -112,6 +264,11 @@ export async function serveBrowserMcp(options: McpOptions) {
         ignoreRoots: config.ignoreRoots,
         /** One for each client's session: a connection of its own to the one browser. */
         create: async () => {
+          // The person's browser: its one connection stays when a session ends.
+          if (own) {
+            const { context, dispose } = (await own).session();
+            return new parts.BrowserBackend(config, context, tools, { dispose });
+          }
           const browser: Browser = await playwright().chromium.connect(options.endpoint);
           const context = browser.contexts()[0];
           if (!context) {

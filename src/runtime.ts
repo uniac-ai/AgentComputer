@@ -15,6 +15,7 @@ import { FilesLive } from "./files-live.ts";
 import type { components } from "./generated/schema.js";
 import { Live, type LiveMode, type Surface, type SurfaceInfo } from "./live.ts";
 import { LoadLive } from "./load-live.ts";
+import { ownBrowser } from "./own-browser.ts";
 import { channelProgram, DEFAULT_CHANNEL, playwright } from "./playwright.ts";
 import { Board, Presence } from "./presence.ts";
 import { driverProgram, Screen, screenReadiness } from "./screen.ts";
@@ -48,7 +49,8 @@ export interface ComputerSpec {
   /** What its agent is called, as a person is shown it. */
   name: string;
   access: Access;
-  browser: boolean;
+  /** A headless browser of its own, or the person's own. */
+  browser: boolean | "own";
   /** Whether its agent has the machine's screen, which only this computer can. */
   screen?: boolean | undefined;
   workspace?: string | undefined;
@@ -132,6 +134,10 @@ const loadPty = () => {
 };
 
 /** Whether the browser it starts is on this machine, and if it isn't, why not. */
+/** What `info` says of a browser: ready, or why not. */
+const readiness = (found: { ready: boolean; reason?: string }): Schemas["Readiness"] =>
+  found.ready ? { ready: true } : { ready: false, reason: found.reason as string };
+
 function browserProgram(config: BrowserConfig): Schemas["Readiness"] {
   const channel = config.browser ?? DEFAULT_CHANNEL;
   let path: string | undefined;
@@ -163,6 +169,8 @@ export class ProcessRuntime implements Runtime {
   readonly #contained: boolean;
   /** Cua Driver, where it was named; otherwise it is looked for. */
   readonly #screenDriver: string | undefined;
+  /** The person's browser's user data folder, where named; otherwise Chrome's, then Edge's. */
+  readonly #ownBrowserData: string | undefined;
   /**
    * Whether the screen can be reached, as last checked. Asking the driver can take seconds, which
    * `info` doesn't wait for: it is checked when the service starts, again when it is more than 10 s
@@ -182,7 +190,13 @@ export class ProcessRuntime implements Runtime {
    * for inside one, where the computer and its load are its own and its files stay in its
    * workspace.
    */
-  constructor(config: BrowserConfig, contained = false, screenDriver?: string) {
+  constructor(
+    config: BrowserConfig,
+    contained = false,
+    screenDriver?: string,
+    ownBrowserData?: string,
+  ) {
+    this.#ownBrowserData = ownBrowserData;
     this.#config = config;
     this.#contained = contained;
     this.#screenDriver = screenDriver;
@@ -215,7 +229,13 @@ export class ProcessRuntime implements Runtime {
         { capability: "files", ready: true },
         { capability: "screen", ...this.#screenNow() },
       ],
-      browsers: [{ kind: "headless", ...browserProgram(this.#config) }],
+      browsers: [
+        { kind: "headless", ...browserProgram(this.#config) },
+        // The person's own, which only this computer has.
+        ...(this.#contained
+          ? []
+          : [{ kind: "own" as const, ...readiness(await ownBrowser(this.#ownBrowserData)) }]),
+      ],
     };
   }
 
@@ -279,8 +299,20 @@ export class ProcessRuntime implements Runtime {
     let browserDown = false;
     if (spec.browser) {
       const own = privateFolder(join(folder, "browser"));
+      // The person's own browser, where it is reached now, asked afresh.
+      let connect: string | undefined;
+      let name = "";
+      if (spec.browser === "own") {
+        const found = await ownBrowser(this.#ownBrowserData);
+        if (!found.ready) {
+          await exec?.close();
+          throw new ApiError(409, found.reason);
+        }
+        ({ endpoint: connect, name } = found);
+        events.log(`Its browser is the person's own: ${name}.`);
+      }
       browser = new Browser(
-        this.#config,
+        { ...this.#config, connect },
         own,
         spec.workspace ?? own,
         spec.access === "terminal",
@@ -294,6 +326,14 @@ export class ProcessRuntime implements Runtime {
         await browser.ready();
       } catch (error) {
         await Promise.all([exec?.close(), browser.stop()]);
+        // Most likely the person didn't allow it, or wasn't there to.
+        if (connect) {
+          const Name = name[0]?.toUpperCase() + name.slice(1);
+          throw new ApiError(
+            409,
+            `${Name} didn't allow the connection, or nobody answered it within 2 minutes. Allow it when ${name} asks, on this machine.`,
+          );
+        }
         throw error;
       }
     }
@@ -332,8 +372,10 @@ export class ProcessRuntime implements Runtime {
     }
     let browserLive: BrowserLive | undefined;
     if (browser) {
-      browserLive = new BrowserLive(browser.endpoint, () =>
-        presence.acted("person", { capability: "browser" }),
+      browserLive = new BrowserLive(
+        browser.endpoint,
+        () => presence.acted("person", { capability: "browser" }),
+        spec.browser === "own",
       );
       browser.gate = browserLive;
       browser.noted = () => presence.agentCalled({ capability: "browser" });

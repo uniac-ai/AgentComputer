@@ -9,6 +9,7 @@ import { createInterface } from "node:readline";
 import { pipeline, Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { CONNECT_VARIABLE } from "./browser-host.ts";
 import { DEFAULT_CHANNEL } from "./playwright.ts";
 
 /** Its own README calls this equivalent to remote code execution. */
@@ -19,6 +20,8 @@ const MAX_BODY = 8 * MIB;
 // The most a screenshot may be and still be passed on: what `read` takes for a picture.
 const MAX_PICTURE = 3 * MIB;
 const START_MS = 30_000;
+/** The person's own browser waits on them to allow the connection. */
+const OWN_START_MS = 120_000;
 const STOP_MS = 2_000;
 const ONE_REQUEST =
   "A body is one JSON-RPC request, as a JSON object: send each request in its own POST.";
@@ -38,6 +41,8 @@ export interface BrowserConfig {
   path?: string | undefined;
   /** False where the browser can't have its own sandbox, as in a container without privileges. */
   sandbox?: boolean | undefined;
+  /** Where the person's own browser is reached: it is theirs, connected to, never started here. */
+  connect?: string | undefined;
 }
 
 /** What the proxy asks of the live view, where a person may answer what a page asks. */
@@ -176,6 +181,7 @@ export class Browser {
   /** The bound browser's socket, for the live viewer. */
   readonly endpoint: Promise<string>;
   readonly #hidden: ReadonlySet<string>;
+  readonly #startMs: number;
   #stopping = false;
   /** The tools it offers, read once it is up. */
   tools: string[] = [];
@@ -195,6 +201,7 @@ export class Browser {
     exited: () => void,
   ) {
     this.#hidden = new Set(terminal ? [] : [RUNS_CODE]);
+    this.#startMs = config.connect ? OWN_START_MS : START_MS;
     const ended = (what: string) => (code: number | null) => {
       if (!this.#stopping) {
         log(`${what} exited with ${code}.`);
@@ -213,7 +220,10 @@ export class Browser {
           : ["--channel", config.browser ?? DEFAULT_CHANNEL]),
         ...(config.sandbox === false ? ["--no-sandbox"] : []),
       ],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: config.connect ? { ...process.env, [CONNECT_VARIABLE]: config.connect } : process.env,
+      },
     );
     this.endpoint = new Promise((done, failed) => {
       this.#host.on("error", failed);
@@ -237,9 +247,29 @@ export class Browser {
           if (this.#stopping) return failed(new Error("It stopped."));
           const mcp = spawn(
             process.execPath,
-            [self, "browser-mcp", "--endpoint", endpoint, "--output", join(folder, "output")],
-            // Its own limit on which files it touches is the folder it starts in.
-            { cwd, stdio: ["ignore", "pipe", "pipe"] },
+            [
+              self,
+              "browser-mcp",
+              "--endpoint",
+              endpoint,
+              "--output",
+              join(folder, "output"),
+              ...(config.connect ? ["--own"] : []),
+            ],
+            // Its own limit on which files it touches is the folder it starts in. For the person's
+            // browser, no setting of theirs for Playwright MCP reaches it: one could route or
+            // script every tab they have.
+            {
+              cwd,
+              stdio: ["ignore", "pipe", "pipe"],
+              env: config.connect
+                ? Object.fromEntries(
+                    Object.entries(process.env).filter(
+                      ([name]) => !name.startsWith("PLAYWRIGHT_MCP_"),
+                    ),
+                  )
+                : process.env,
+            },
           );
           this.#mcp = mcp;
           mcp.on("error", failed);
@@ -268,7 +298,7 @@ export class Browser {
     const served = await Promise.race([
       this.#served,
       new Promise<never>((_, failed) =>
-        setTimeout(() => failed(new Error("The browser's server didn't start.")), START_MS),
+        setTimeout(() => failed(new Error("The browser's server didn't start.")), this.#startMs),
       ),
     ]);
     const client = new Client({ name: "agentcomputer", version: "0" });

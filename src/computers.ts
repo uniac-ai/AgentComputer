@@ -47,7 +47,8 @@ interface Stored {
   attached?: true;
   /** The version of the program it ran at its last start, where that is known. */
   version?: string;
-  browser: boolean;
+  /** A headless browser of its own, or the person's own. */
+  browser: boolean | "own";
   /** Its agent has the machine's screen: only this computer, attached with it. */
   screen?: true;
   workspace?: string;
@@ -212,11 +213,14 @@ export class Computers {
   }
 
   async #make(
-    input: Schemas["NewComputer"] & { screen?: boolean },
+    input: Omit<Schemas["NewComputer"], "browser"> &
+      Pick<Schemas["AttachComputer"], "browser"> & {
+        screen?: boolean;
+      },
     isolation: Isolation,
   ): Promise<Schemas["CreatedComputer"]> {
     const { access, name, timeout, metadata } = input;
-    const browser = input.browser === true;
+    const browser = input.browser ?? false;
     if (access === "none" && !browser && !input.screen)
       throw new ApiError(
         400,
