@@ -68,6 +68,13 @@ interface Live {
   failed?: string;
 }
 
+/** Why a service started with `--lend` makes nothing. */
+export const LENDS_ONLY =
+  "This service only lends this machine: it makes no computers. A container comes from a service started without --lend, at another address: one elsewhere, or one on this machine with its own --data and --listen.";
+/** Why such a service can't start or remove a container made before, from the same data folder. */
+const MADE_ELSEWHERE =
+  "This service only lends this machine, so a computer made in a container can't be started or removed here. A service started without --lend, with this data folder, can.";
+
 /** How long a live session's ticket can wait to be opened. */
 const TICKET_MS = 60_000;
 
@@ -125,8 +132,8 @@ const refusalOf = (error: unknown) =>
 export class Computers {
   readonly #data: string;
   readonly #base: () => string;
-  /** This computer's way of running, as `none`, and each way of making one. */
-  readonly #runtimes: Record<Isolation, Runtime>;
+  /** This computer's way of running, as `none`, and each way of making one, where it makes any. */
+  readonly #runtimes: { none: Runtime } & Partial<Record<Isolation, Runtime>>;
   /** Why this computer isn't offered here, where it isn't. */
   readonly #notHere: string | undefined;
   readonly #stored = new Map<string, Stored>();
@@ -137,7 +144,7 @@ export class Computers {
   constructor(
     data: string,
     base: () => string,
-    runtimes: Record<Isolation, Runtime>,
+    runtimes: { none: Runtime } & Partial<Record<Isolation, Runtime>>,
     notHere?: string,
   ) {
     this.#data = data;
@@ -161,7 +168,10 @@ export class Computers {
     const made = await Promise.all(
       (Object.keys(this.#runtimes) as Isolation[])
         .filter((isolation) => isolation !== "none")
-        .map(async (isolation) => ({ isolation, ...(await this.#runtimes[isolation].offer()) })),
+        .map(async (isolation) => ({
+          isolation,
+          ...(await this.#runtime(isolation).offer()),
+        })),
     );
     return { thisComputer, made };
   }
@@ -175,8 +185,8 @@ export class Computers {
       if (stored.state !== "running") return;
       if (stored.endAt && Date.parse(stored.endAt) <= Date.now()) {
         stored.state = "stopped";
-        await this.#runtimes[stored.isolation]
-          .stopLeftover(stored.id)
+        await Promise.resolve()
+          .then(() => this.#runtime(stored.isolation).stopLeftover(stored.id))
           .catch((error: unknown) =>
             this.#log(stored.id, `What it left running wasn't stopped: ${messageOf(error)}`),
           );
@@ -204,7 +214,37 @@ export class Computers {
         400,
         "A computer with no isolation is no longer made. Attach this computer, or make a container.",
       );
-    return this.#make(input, input.isolation ?? "container");
+    const isolation = input.isolation ?? "container";
+    if (!this.#runtimes[isolation]) throw new ApiError(409, LENDS_ONLY);
+    return this.#make(input, isolation);
+  }
+
+  /** The way of running one made so, or why a service that only lends can't, for one made before. */
+  #runtime(isolation: Isolation): Runtime {
+    const runtime = this.#runtimes[isolation];
+    if (!runtime) throw new ApiError(409, MADE_ELSEWHERE);
+    return runtime;
+  }
+
+  /**
+   * Who is acting now on every computer attached to this machine, the most recent first. Their
+   * files and screen are one board, which each of them lists: those are listed once. A
+   * computer's terminals and browser are its own, so theirs are listed as each has them.
+   */
+  acting(): Schemas["Acting"][] {
+    const shared = new Map<string, Schemas["Acting"]>();
+    const own: Schemas["Acting"][] = [];
+    for (const live of this.#live.values())
+      for (const one of live.running?.acting?.() ?? []) {
+        if (one.capability !== "files" && one.capability !== "screen") {
+          own.push(one);
+          continue;
+        }
+        const key = JSON.stringify([one.who, one.name, one.capability]);
+        const known = shared.get(key);
+        if (!known || known.at < one.at) shared.set(key, one);
+      }
+    return [...shared.values(), ...own].sort((a, b) => b.at.localeCompare(a.at));
   }
 
   /** This computer, attached with its work folder. Nothing is made for it. */
@@ -286,7 +326,9 @@ export class Computers {
       if (this.#live.get(id) === live) await this.#halt(id);
       this.#stored.delete(id);
       this.#save();
-      await this.#runtimes[stored.isolation].remove(id).catch(() => {});
+      await Promise.resolve()
+        .then(() => this.#runtime(stored.isolation).remove(id))
+        .catch(() => {});
       try {
         removeFolder(this.#folder(id));
       } catch {
@@ -374,7 +416,7 @@ export class Computers {
     const stored = this.#found(id);
     await this.#halt(id);
     try {
-      await this.#runtimes[stored.isolation].remove(id);
+      await this.#runtime(stored.isolation).remove(id);
     } catch (error) {
       // What it left can't be removed now. It stays, stopped, to be killed when that can be done.
       stored.state = "stopped";
@@ -517,7 +559,7 @@ export class Computers {
     const failed = stored.state === "running" ? live?.failed : undefined;
     const starting =
       stored.state === "running" && !failed && live?.starting
-        ? this.#runtimes[stored.isolation].starting()
+        ? this.#runtime(stored.isolation).starting()
         : undefined;
     return {
       computerID: stored.id,
@@ -556,7 +598,7 @@ export class Computers {
     if (stored.attached && this.#notHere) throw new ApiError(409, this.#notHere);
     stored.startedAt = new Date().toISOString();
     // In the isolation it was made in, and never another.
-    const runtime = this.#runtimes[stored.isolation];
+    const runtime = this.#runtime(stored.isolation);
     live.starting = true;
     try {
       await runtime.prepare();

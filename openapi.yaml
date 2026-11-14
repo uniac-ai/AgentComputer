@@ -29,6 +29,37 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ServiceInfo" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/connection:
+    get:
+      operationId: getConnection
+      summary: >-
+        Who is connected to the service: each client that holds a WebSocket open at this same
+        path, with the control token in its Authorization header and its name as `?name=`. It
+        carries nothing either way, and one that stops answering the service's pings is dropped.
+      responses:
+        "200":
+          description: Who is connected.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Connection" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/acting:
+    get:
+      operationId: getActing
+      summary: >-
+        Who is acting now on the computers attached to this machine, all of them at once: each
+        one, on what, and when they last acted there, the most recent first, as each computer's
+        presence surface has it. A computer in a container isn't included: its own presence
+        surface has it.
+      responses:
+        "200":
+          description: Who is acting now.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Acting" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /v1/computers:
     get:
       operationId: listComputers
@@ -116,6 +147,13 @@ paths:
         "204": { description: Gone. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/Error" }
+        "409":
+          description: >-
+            It can't be removed here: a container while Docker doesn't answer, or one made before
+            under a service that now only lends this machine.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /v1/computers/{computerID}/timeout:
     parameters:
       - $ref: "#/components/parameters/computerID"
@@ -892,6 +930,27 @@ components:
             Bytes used on the volume its workspace is on, or its own folder where it has no
             workspace. The volume's, not the workspace's own size.
         diskTotal: { type: integer, description: Bytes on that volume. }
+    Connection:
+      type: object
+      required: [connected, clients]
+      properties:
+        connected: { type: boolean, description: Whether any client holds a connection now. }
+        clients:
+          type: array
+          description: Each client holding one, the earliest first.
+          items:
+            type: object
+            required: [name, since, local]
+            properties:
+              name:
+                type: string
+                description: "The name it gave, its first 100 characters, or empty: such as AgentOrg 0.0.15."
+              since: { type: string, format: date-time }
+              local:
+                type: boolean
+                description: >-
+                  Whether it connects from this machine, by the address it connects from. False
+                  behind --tls-proxy, where every client comes from the proxy.
     Acting:
       description: >-
         Someone who acted on a computer in the last 10 seconds. The person acts in a live view at

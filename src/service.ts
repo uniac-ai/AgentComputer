@@ -14,6 +14,7 @@ import type { Duplex } from "node:stream";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { fromJsonSchema, McpServer } from "@modelcontextprotocol/server";
 import { Computers } from "./computers.ts";
+import { Connections } from "./connection.ts";
 import { OPENAPI, OPERATIONS, type Operation } from "./generated/operations.ts";
 import { createHandlers, VERSION } from "./handlers.ts";
 import { recordOf, running } from "./running.ts";
@@ -27,8 +28,8 @@ const MAX_BODY = 64 * 1024;
 export interface ServeOptions {
   listen: string;
   data: string;
-  /** How this computer is run, as `none`, and how a computer is made in each isolation. */
-  runtimes: Record<Isolation, Runtime>;
+  /** How this computer is run, as `none`, and how a computer is made in each isolation, where it makes any. */
+  runtimes: { none: Runtime } & Partial<Record<Isolation, Runtime>>;
   /** Files holding the certificate and its key, to terminate TLS here. */
   tls?: { cert: string; key: string } | undefined;
   /** A proxy in front of the service terminates TLS, so it may listen in the clear. */
@@ -56,6 +57,11 @@ export const onlyThisMachine = (
 /** Refuse what would send tokens in the clear or give clients an address they can't use. */
 function checkExposure(host: string, options: ServeOptions) {
   const { tls, tlsProxy, publicUrl } = options;
+  // It would offer nothing: this computer is offered only to this machine.
+  if (!options.runtimes.container && !onlyThisMachine(host, options))
+    throw new Error(
+      "--lend lends only this machine, which a service other machines reach doesn't offer: listen on loopback, with no --tls-proxy and no --public-url.",
+    );
   if (tls && tlsProxy) throw new Error("--tls-cert and --tls-proxy are alternatives.");
   if (!LOOPBACK.has(host) && !tls && !tlsProxy)
     throw new Error(
@@ -117,7 +123,9 @@ export async function serve(options: ServeOptions) {
     options.runtimes,
     onlyThisMachine(host, options) ? undefined : NOT_HERE,
   );
-  const handlers = createHandlers(computers) as unknown as Record<
+  // Behind a proxy every client comes from it, so where one connects from tells nothing.
+  const connections = new Connections(options.tlsProxy === true);
+  const handlers = createHandlers(computers, connections) as unknown as Record<
     string,
     (input: unknown) => Promise<unknown>
   >;
@@ -226,7 +234,15 @@ export async function serve(options: ServeOptions) {
       );
     // URL.parse, not new URL: a throw in this handler ends the service. A ticket is base64url,
     // so it is looked up as it comes, not decoded.
-    const pathname = URL.parse(request.url ?? "/", "http://localhost")?.pathname ?? "";
+    const url = URL.parse(request.url ?? "/", "http://localhost");
+    const pathname = url?.pathname ?? "";
+    // A client holding a connection: with the control token, as for any control call, which a
+    // page can't send on a WebSocket.
+    if (pathname === "/v1/connection") {
+      const token = bearerOf(request);
+      if (!token || !sameToken(token, control)) return refuse(401, "Unauthorized.");
+      return connections.open(request, socket, head, url?.searchParams.get("name") ?? "");
+    }
     const ticket = /^\/v1\/live\/([^/]+)$/.exec(pathname)?.[1];
     if (!ticket) return refuse(404, "Not found.");
     // A browser doesn't keep a page's WebSockets to its own origin, so the origin is checked here.
@@ -260,6 +276,7 @@ export async function serve(options: ServeOptions) {
   const stop = async () => {
     if (stopping) return;
     stopping = true;
+    connections.close();
     await computers.close().catch((error: unknown) => {
       process.stderr.write(`${String(error)}\n`);
     });

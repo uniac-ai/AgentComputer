@@ -23,7 +23,7 @@ That gives an agent this computer instead: the machine the service runs on, whol
 
 ## This computer and containers
 
-Each computer is this computer, attached with `attach`, or one made in a container of its own with `create`. A container needs Docker on the service's machine. The service follows your `DOCKER_HOST` or current context and never changes them, and comes up without Docker.
+Each computer is this computer, attached with `attach`, or one made in a container of its own with `create`. A service started with `serve --lend` only lends this computer: it makes nothing, `info.made` is empty, and `create` is refused with 409. It listens only on loopback, as this computer is offered only there, and a container it finds in its data folder from before can't be started or removed until a service without `--lend` has the folder. A container needs Docker on the service's machine. The service follows your `DOCKER_HOST` or current context and never changes them, and comes up without Docker.
 
 - **`info` says what the service offers**, each part ready or not and why, in a line a person reads:
   - `thisComputer`: its capabilities (`about`, `terminal`, `files` and `screen`) and the browsers that can go with it. The screen is ready where Cua Driver is installed and granted.
@@ -166,6 +166,8 @@ The data folder is `--data`, else `$AGENTCOMPUTER_DATA`, else `$XDG_DATA_HOME/ag
 | `POST /v1/computers/{computerID}/start`   | `computer_start`       |
 | `GET /v1/computers/{computerID}/logs`     | `computer_logs`        |
 | `POST /v1/computers/{computerID}/live`    | `computer_live`        |
+| `GET /v1/connection`                      |                        |
+| `GET /v1/acting`                          |                        |
 
 These take the control token, kept in the data folder. A computer's own endpoints take its `accessToken`, and neither token works for the other:
 
@@ -175,6 +177,9 @@ These take the control token, kept in the data folder. A computer's own endpoint
 ```
 
 `POST /v1/computers` and `POST /v1/computers/attach` are the only places an `accessToken` is shown. Failures are `{ "code": 404, "message": "..." }`.
+
+- **A client that relies on the service can hold a connection to it:** a WebSocket at `/v1/connection?name=NAME`, with the control token in its `Authorization` header. Nothing is sent either way; the service pings, and drops one that stops answering. `GET /v1/connection` says who holds one: `{ "connected": true, "clients": [{ "name", "since", "local" }] }`, where `name` is its first 100 characters and `local` is whether it connects from the service's machine, false behind `--tls-proxy`.
+- **`GET /v1/acting`** is who is acting now on every computer attached to this machine, in one list, as each one's `presence` surface has it. A computer in a container isn't included: its own `presence` surface has it.
 
 ## SDK
 
@@ -288,7 +293,7 @@ A shell of your own needs [node-pty](https://github.com/microsoft/node-pty), an 
 
 ## Tests
 
-`npm test` runs the built service through the official MCP client, and one scenario through HTTP, MCP, the SDK and the CLI that fails if any operation in the schema isn't reached by each. Set `AGENTCOMPUTER_TEST_IMAGE` to a built image (`npm run build`, then `docker build .`) to run the same suite on containers, and `AGENTCOMPUTER_TEST_SERVICE_IMAGE` to one from `Dockerfile.service` to run the service itself as a container, with `AGENTCOMPUTER_TEST_ROOT` naming a folder Docker can mount if the temporary one isn't. After changing `openapi.yaml`, `npm run generate` writes what comes from it; CI fails if that changes anything. Set `AGENTCOMPUTER_BROWSER_PATH` to a Chromium program, such as Playwright's headless shell, to run the browser tests that are skipped without it.
+`npm test` runs the built service through the official MCP client, and one scenario through HTTP, MCP, the SDK and the CLI that fails if any operation in the schema with an MCP tool isn't reached by each. Set `AGENTCOMPUTER_TEST_IMAGE` to a built image (`npm run build`, then `docker build .`) to run the same suite on containers, and `AGENTCOMPUTER_TEST_SERVICE_IMAGE` to one from `Dockerfile.service` to run the service itself as a container, with `AGENTCOMPUTER_TEST_ROOT` naming a folder Docker can mount if the temporary one isn't. After changing `openapi.yaml`, `npm run generate` writes what comes from it; CI fails if that changes anything. Set `AGENTCOMPUTER_BROWSER_PATH` to a Chromium program, such as Playwright's headless shell, to run the browser tests that are skipped without it.
 
 ## Licence
 

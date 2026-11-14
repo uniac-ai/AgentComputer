@@ -71,6 +71,8 @@ export interface Running {
   readonly version?: string | undefined;
   /** What it can open live. */
   readonly surfaces: SurfaceInfo[];
+  /** Who is acting on it now, where the runtime keeps that itself. */
+  acting?(): Schemas["Acting"][];
   handle(endpoint: Endpoint, request: IncomingMessage, response: ServerResponse): Promise<void>;
   /** Take an upgraded request as a live socket on one surface. */
   openLive(
@@ -407,6 +409,7 @@ export class ProcessRuntime implements Runtime {
               : one,
         );
       },
+      acting: () => presence.acting(),
       openLive: async (surface, mode, request, socket, head) =>
         live.open(surface, mode, request, socket, head),
       handle: async (endpoint, request, response) => {

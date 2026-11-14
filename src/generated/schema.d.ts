@@ -21,6 +21,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Who is connected to the service: each client that holds a WebSocket open at this same path, with the control token in its Authorization header and its name as `?name=`. It carries nothing either way, and one that stops answering the service's pings is dropped. */
+        get: operations["getConnection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/acting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Who is acting now on the computers attached to this machine, all of them at once: each one, on what, and when they last acted there, the most recent first, as each computer's presence surface has it. A computer in a container isn't included: its own presence surface has it. */
+        get: operations["getActing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/computers": {
         parameters: {
             query?: never;
@@ -566,6 +600,19 @@ export interface components {
             /** @description Bytes on that volume. */
             diskTotal: number;
         };
+        Connection: {
+            /** @description Whether any client holds a connection now. */
+            connected: boolean;
+            /** @description Each client holding one, the earliest first. */
+            clients: {
+                /** @description The name it gave, its first 100 characters, or empty: such as AgentOrg 0.0.15. */
+                name: string;
+                /** Format: date-time */
+                since: string;
+                /** @description Whether it connects from this machine, by the address it connects from. False behind --tls-proxy, where every client comes from the proxy. */
+                local: boolean;
+            }[];
+        };
         /** @description Someone who acted on a computer in the last 10 seconds. The person acts in a live view at operate: opening a shell, typing into or stopping a terminal, writing a file, any input to the browser but moving the pointer, or any input to the screen that Cua Driver did. Watching is not acting, and the person's own use of the screen, outside a live view, can't be seen. The agent acts by calling its endpoints: starting a command or typing into one (waiting on its output is not acting), any file tool, reads among them, any browser tool that is answered, and any screen tool. Computers attached to the same machine share its files and its screen: each is shown the person and the other computers' agents acting on them, by name. */
         Acting: {
             /** @enum {string} */
@@ -766,6 +813,48 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    getConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Who is connected. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Connection"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getActing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Who is acting now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Acting"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
     listComputers: {
         parameters: {
             query?: {
@@ -888,6 +977,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["Error"];
+            /** @description It can't be removed here: a container while Docker doesn't answer, or one made before under a service that now only lends this machine. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     setComputerTimeout: {
