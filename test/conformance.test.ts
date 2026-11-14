@@ -14,6 +14,7 @@ import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { OPENAPI, OPERATIONS, type Operation } from "../src/generated/operations.ts";
+import { CONTAINER, type Kind, make, named } from "./kinds.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 type Input = Record<string, any>;
@@ -26,11 +27,10 @@ const CLI = join(dist, "agentcomputer.js");
 const run = promisify(execFile);
 /** Every operation but opening a live session, which is a WebSocket and has its own tests. */
 const TOOLS = OPERATIONS.filter((one) => one.tool);
-const IMAGE = process.env.AGENTCOMPUTER_TEST_IMAGE;
 /** This computer, attached, and a container, made, each with what the service is started with. */
-const KINDS: ["this" | "container", string[]][] = [
+const KINDS: [Kind, string[]][] = [
   ["this", []],
-  ...(IMAGE ? ([["container", ["--image", IMAGE]]] as ["container", string[]][]) : []),
+  ...(CONTAINER ? [["container", CONTAINER] as [Kind, string[]]] : []),
 ];
 
 function http(url: string, token: string): Surface {
@@ -176,7 +176,7 @@ function checked(surface: Surface, reached: Set<string>) {
   };
 }
 
-async function scenario(surface: Surface, workspace: string, kind: "this" | "container") {
+async function scenario(surface: Surface, workspace: string, kind: Kind) {
   const reached = new Set<string>();
   const call = checked(surface, reached);
 
@@ -306,7 +306,7 @@ async function service(t: test.TestContext, extra: string[] = []) {
 const loadSdk = () => import(pathToFileURL(join(dist, "sdk.js")).href) as Promise<Sdk>;
 
 for (const [kind, extra] of KINDS)
-  test(`for ${kind === "this" ? "this computer" : "a container"}, the operations are the same through HTTP, MCP, the SDK and the CLI`, {
+  test(`for ${named(kind)}, the operations are the same through HTTP, MCP, the SDK and the CLI`, {
     timeout: 240_000,
   }, async (t) => {
     const { url, data, workspace, token } = await service(t, extra);
@@ -333,13 +333,17 @@ test("the service publishes the file it was built from, to anyone", async (t) =>
 });
 
 for (const [kind, extra] of KINDS)
-  test(`for ${kind === "this" ? "this computer" : "a container"}, a computer's commands and files through the SDK`, {
+  test(`for ${named(kind)}, a computer's commands and files through the SDK`, {
     timeout: 120_000,
   }, async (t) => {
     const { url, workspace, token } = await service(t, extra);
     const { Computer, ComputerError } = await loadSdk();
-    const opts = { apiUrl: url, apiKey: token, access: "terminal" as const, workspace };
-    const computer = await (kind === "this" ? Computer.attach(opts) : Computer.create(opts));
+    const computer = await make(Computer, kind, {
+      apiUrl: url,
+      apiKey: token,
+      access: "terminal",
+      workspace,
+    });
     t.after(() => computer.close());
 
     const ran = await computer.commands.run("echo out; exit 3");

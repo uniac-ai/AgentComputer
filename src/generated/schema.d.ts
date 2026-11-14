@@ -48,7 +48,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Killing it detaches it and removes nothing of the machine's. */
+        /** Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Each call attaches it as a computer of its own, with its own id and token. Killing one detaches it and removes nothing of the machine's. */
         post: operations["attachComputer"];
         delete?: never;
         options?: never;
@@ -261,7 +261,7 @@ export interface components {
             access: components["schemas"]["Access"];
             /** @description The isolation it was made in. It is never run in another. */
             isolation: components["schemas"]["Isolation"];
-            /** @description Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. */
+            /** @description Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept. */
             attached: boolean;
             /** @description The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program. */
             version: string | null;
@@ -484,7 +484,7 @@ export interface components {
             /** @constant */
             type: "reading";
             /**
-             * @description Whose numbers these are. computer: this computer's own, which a container's are. machine: the whole machine's, which a computer with no isolation shares with whatever else runs there, so every computer of that service reads the same; and a container's where it can't read its own.
+             * @description Whose numbers these are. computer: the computer's own, as a container's are. machine: the whole machine's, as this computer's are, which it shares with whatever else runs there; and a container's where it can't read its own.
              * @enum {string}
              */
             scope: "computer" | "machine";
@@ -612,18 +612,18 @@ export interface components {
         BrowserState: components["schemas"]["Readiness"] & {
             kind: components["schemas"]["BrowserKind"];
         };
-        Offer: {
+        Offer: components["schemas"]["Readiness"] & {
             /** @description What such a computer has, each ready or not. */
             capabilities: components["schemas"]["CapabilityState"][];
             /** @description The browsers that can go with it, each ready or not. */
             browsers: components["schemas"]["BrowserState"][];
         };
-        MadeKind: components["schemas"]["Readiness"] & components["schemas"]["Offer"] & {
+        MadeKind: components["schemas"]["Offer"] & {
             isolation: components["schemas"]["Isolation"];
         };
         ServiceInfo: {
             version: string;
-            /** @description This computer, the machine the service runs on, which is always offered: attached whole, as whoever started the service. */
+            /** @description This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready, which this service always is. */
             thisComputer: components["schemas"]["Offer"];
             /** @description Each kind of computer it makes, ready while it can be made now. A container is ready while Docker answers on the service's machine: asked for a second here and for ten when one is made, so one that is slow can be not ready here and still be made. */
             made: components["schemas"]["MadeKind"][];

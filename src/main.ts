@@ -141,12 +141,8 @@ async function main() {
   };
   const milliseconds = (seconds: string) => Number(seconds) * 1000;
   const { isolation } = values;
-  if (command === "serve" && isolation !== undefined)
-    throw new UsageError(
-      "serve takes no --isolation: computers are made in containers, and this computer is attached.",
-    );
-  if (isolation !== undefined && isolation !== "none" && isolation !== "container")
-    throw new UsageError("--isolation is none or container.");
+  if (isolation !== undefined && command !== "create")
+    throw new UsageError("Only create takes --isolation.");
   if (command === "serve") {
     const { "tls-cert": cert, "tls-key": key } = values;
     if (Boolean(cert) !== Boolean(key))
@@ -207,22 +203,24 @@ async function main() {
         : {}),
     };
   };
-  const made = async (computer: Computer) =>
+  const printMade = async (computer: Computer) =>
     out({ ...(await computer.getInfo()), accessToken: computer.getMcpToken() });
   switch (command) {
     case "info":
       return out(await Computer.serviceInfo(connection));
     case "create":
-      return made(
+      return printMade(
         await Computer.create({
           ...making(),
-          ...(isolation ? { isolation } : {}),
+          ...(isolation ? { isolation: isolation as CreateOpts["isolation"] } : {}),
           ...(values.workspace ? { workspace: resolve(values.workspace) } : {}),
         }),
       );
     case "attach":
       if (!values.workspace) throw new UsageError("attach takes --workspace.");
-      return made(await Computer.attach({ ...making(), workspace: resolve(values.workspace) }));
+      return printMade(
+        await Computer.attach({ ...making(), workspace: resolve(values.workspace) }),
+      );
     case "list":
       return out(
         await Computer.list({

@@ -11,7 +11,7 @@ import { createInterface } from "node:readline";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { CONTAINER, type Kind, make, named } from "./kinds.ts";
+import { CONTAINER, type Kind, make, named, needs } from "./kinds.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 const here = dirname(fileURLToPath(import.meta.url));
@@ -116,9 +116,7 @@ async function setup(t: test.TestContext, kind: Kind, extra: string[]) {
 for (const [kind, extra] of KINDS)
   test(`on ${named(kind)}: its browser outlives its clients, and isn't theirs to close`, {
     timeout: 180_000,
-    skip:
-      !extra &&
-      (kind === "this" ? "needs AGENTCOMPUTER_BROWSER_PATH" : "needs AGENTCOMPUTER_TEST_IMAGE"),
+    skip: !extra && needs(kind),
   }, async (t) => {
     const { computer, session, known } = await setup(t, kind, extra as string[]);
     /** The computer runs, and a new client finds the page where it was left. */

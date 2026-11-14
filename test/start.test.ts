@@ -109,7 +109,7 @@ test("its log keeps the end of what it wrote, and up says why it failed", async 
   assert.equal(refused.code, 1);
   assert.match(
     refused.err,
-    /^The service didn't start\. It said:\nserve takes no --isolation: computers are made in containers, and this computer is attached\.\n/,
+    /^The service didn't start\. It said:\nOnly create takes --isolation\.\n/,
   );
   assert.ok(statSync(log).size < 1024 * 1024 + 4096);
 

@@ -12,7 +12,7 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { CONTAINER, type Kind, make, named } from "./kinds.ts";
+import { CONTAINER, type Kind, make, named, needs } from "./kinds.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 const here = dirname(fileURLToPath(import.meta.url));
@@ -103,9 +103,7 @@ async function setup(t: test.TestContext, extra: string[]) {
 for (const [kind, given] of KINDS) {
   const options = {
     timeout: 120_000,
-    skip:
-      !given &&
-      (kind === "this" ? "needs AGENTCOMPUTER_BROWSER_PATH" : "needs AGENTCOMPUTER_TEST_IMAGE"),
+    skip: !given && needs(kind),
   };
   const extra = given ?? [];
 

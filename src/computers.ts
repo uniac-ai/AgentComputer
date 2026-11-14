@@ -99,14 +99,15 @@ export class Computers {
     this.#runtimes = runtimes;
     this.#file = join(data, "computers.json");
     if (existsSync(this.#file))
-      // One recorded before computers kept their isolation was made with none, the default then.
+      // One recorded by 0.0.14 or earlier, which kept no isolation, is taken as made with none,
+      // the default then. The README says how to bring over one made in a container then.
       for (const entry of JSON.parse(readFileSync(this.#file, "utf8")) as Stored[])
         this.#stored.set(entry.id, { ...entry, isolation: entry.isolation ?? "none" });
   }
 
   /** What it offers: this computer, and each kind it makes, with whether it can be now. */
   async offers() {
-    const { ready: _, reason: __, ...thisComputer } = await this.#runtimes.none.offer();
+    const thisComputer = await this.#runtimes.none.offer();
     const made = await Promise.all(
       (Object.keys(this.#runtimes) as Isolation[])
         .filter((isolation) => isolation !== "none")
@@ -293,11 +294,7 @@ export class Computers {
     // made with no isolation can't start again, so its workspace is all that is left of it: that
     // stays, to be attached or made a container's.
     const folder = this.#folder(id);
-    if (
-      stored.isolation === "none" &&
-      !stored.attached &&
-      stored.workspace === join(folder, "workspace")
-    )
+    if (stored.isolation === "none" && !stored.attached && existsSync(join(folder, "workspace")))
       for (const entry of readdirSync(folder)) {
         if (entry !== "workspace") rmSync(join(folder, entry), { recursive: true, force: true });
       }

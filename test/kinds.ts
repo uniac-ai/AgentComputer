@@ -10,6 +10,10 @@ const IMAGE = process.env.AGENTCOMPUTER_TEST_IMAGE;
 /** What the service is started with for a container, or undefined where there is no image. */
 export const CONTAINER = IMAGE ? ["--image", IMAGE] : undefined;
 
+/** Why a case on this kind is skipped, where what it needs isn't given. */
+export const needs = (kind: Kind) =>
+  kind === "this" ? "needs AGENTCOMPUTER_BROWSER_PATH" : "needs AGENTCOMPUTER_TEST_IMAGE";
+
 /** How a case names the kind it runs on. */
 export const named = (kind: Kind) => (kind === "this" ? "this computer" : "a container");
 

@@ -39,7 +39,7 @@ async function disk(folder: string) {
   return { diskUsed: Number(used) * 1024, diskTotal: Number(total) * 1024 };
 }
 
-/** The whole machine's, which a computer with no isolation shares with whatever else runs there. */
+/** The whole machine's, which this computer shares with whatever else runs there. */
 async function machine(): Promise<Sample> {
   const cpu = { used: 0, total: 0 };
   for (const { times } of cpus()) {

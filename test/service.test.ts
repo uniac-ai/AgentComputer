@@ -513,14 +513,21 @@ test(
   },
 );
 
-for (const [why, args] of [
-  ["another address without TLS", ["--listen", "0.0.0.0:0"]],
-  ["an isolation of its own", ["--listen", "127.0.0.1:0", "--isolation", "container"]],
+for (const [why, reason, args] of [
+  ["another address without TLS", /TLS/, ["--listen", "0.0.0.0:0"]],
+  [
+    "an isolation of its own",
+    /Only create takes --isolation\./,
+    ["--listen", "127.0.0.1:0", "--isolation", "container"],
+  ],
 ] as const)
   test(`serve refuses ${why}`, async (t) => {
     const data = mkdtempSync(join(tmpdir(), "agentcomputer-"));
     t.after(() => rmSync(data, { recursive: true, force: true }));
-    await assert.rejects(run(process.execPath, [CLI, "serve", ...args, "--data", data]));
+    await assert.rejects(
+      run(process.execPath, [CLI, "serve", ...args, "--data", data]),
+      (error: Error & { stderr: string }) => reason.test(error.stderr),
+    );
   });
 
 test("info says what this computer offers, each ready or not and why", async (t) => {
@@ -531,6 +538,7 @@ test("info says what this computer offers, each ready or not and why", async (t)
     reason: "This service can't reach the screen yet.",
   };
   const offered = (browser: object) => ({
+    ready: true,
     capabilities: [
       { capability: "about", ready: true },
       { capability: "terminal", ready: true },
@@ -542,14 +550,19 @@ test("info says what this computer offers, each ready or not and why", async (t)
   const { thisComputer } = JSON.parse(await cli("info")) as Record<string, unknown>;
   assert.deepEqual(
     thisComputer,
-    offered({ ready: false, reason: "There's no browser at /nonexistent/browser." }),
+    offered({
+      ready: false,
+      reason:
+        "There's no browser at /nonexistent/browser. Start the service with a --browser-path that exists.",
+    }),
   );
   const other = await setup(t, ["--browser-name", "no-such-channel"]);
   assert.deepEqual(
     (JSON.parse(await other.cli("info")) as Record<string, unknown>).thisComputer,
     offered({
       ready: false,
-      reason: "Its browser, no-such-channel, isn't installed on this machine.",
+      reason:
+        "The browser no-such-channel isn't installed on this machine. Install it, or start the service with --browser-name or --browser-path.",
     }),
   );
   if (realBrowser)
@@ -587,7 +600,12 @@ test("where Docker doesn't answer, nothing is made and this computer is still at
   );
   await assert.rejects(
     create(...asked, "--isolation", "vm"),
-    refused(/--isolation is none or container\./),
+    refused(/isolation must be equal to one of the allowed values/),
+  );
+  // Only create takes an isolation: attach, which has none, refuses one.
+  await assert.rejects(
+    attach(...asked, "--isolation", "container"),
+    refused(/Only create takes --isolation\./),
   );
   // A computer with no isolation is no longer made: what does that is this computer, attached.
   const none = await api("", {
@@ -631,16 +649,19 @@ test("a computer made with no isolation before can't start again, and its folder
   const { attach, restart, cli, api, workspace, data, url } = await setup(t);
   const named = await attach("--access", "files", "--workspace", workspace);
   const own = await attach("--access", "files", "--workspace", workspace);
-  // Their records as a service before this one wrote them: made with no isolation, one in a
-  // folder someone named and one in a folder the service made, and neither attached.
+  // Their records as services before this one wrote them, made with no isolation and neither
+  // attached: one as 0.0.15 to 0.0.18 did, in a folder someone named, and one as 0.0.14 and
+  // earlier did, keeping no isolation, in a folder the service made.
   const ownFolder = join(data, "computers", own.computerID, "workspace");
   await restart(() => {
     const file = join(data, "computers.json");
     const records = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>[];
     for (const record of records) {
       delete record.attached;
-      delete record.isolation;
-      if (record.id === own.computerID) record.workspace = ownFolder;
+      if (record.id === own.computerID) {
+        delete record.isolation;
+        record.workspace = ownFolder;
+      }
     }
     writeFileSync(file, JSON.stringify(records));
     mkdirSync(ownFolder);
@@ -677,6 +698,7 @@ test("a computer made with no isolation before can't start again, and its folder
   await cli("kill", named.computerID);
   await cli("kill", own.computerID);
   assert.ok(existsSync(workspace));
+  assert.equal(existsSync(join(data, "computers", named.computerID)), false);
   assert.equal(readFileSync(join(ownFolder, "work.txt"), "utf8"), "work\n");
   assert.deepEqual(readdirSync(dirname(ownFolder)), ["workspace"]);
   assert.equal((await api("")).status, 200);

@@ -119,7 +119,7 @@ export const OPENAPI = {
       "post": {
         "operationId": "attachComputer",
         "x-mcp-tool": "computer_attach",
-        "summary": "Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Killing it detaches it and removes nothing of the machine's.",
+        "summary": "Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Each call attaches it as a computer of its own, with its own id and token. Killing one detaches it and removes nothing of the machine's.",
         "requestBody": {
           "required": true,
           "content": {
@@ -660,7 +660,7 @@ export const OPENAPI = {
           },
           "attached": {
             "type": "boolean",
-            "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation."
+            "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
           },
           "version": {
             "type": [
@@ -1451,7 +1451,7 @@ export const OPENAPI = {
               "computer",
               "machine"
             ],
-            "description": "Whose numbers these are. computer: this computer's own, which a container's are. machine: the whole machine's, which a computer with no isolation shares with whatever else runs there, so every computer of that service reads the same; and a container's where it can't read its own."
+            "description": "Whose numbers these are. computer: the computer's own, as a container's are. machine: the whole machine's, as this computer's are, which it shares with whatever else runs there; and a container's where it can't read its own."
           },
           "cpuUsedPct": {
             "type": "number",
@@ -1892,33 +1892,37 @@ export const OPENAPI = {
         ]
       },
       "Offer": {
-        "type": "object",
-        "required": [
-          "capabilities",
-          "browsers"
-        ],
-        "properties": {
-          "capabilities": {
-            "type": "array",
-            "description": "What such a computer has, each ready or not.",
-            "items": {
-              "$ref": "#/components/schemas/CapabilityState"
-            }
-          },
-          "browsers": {
-            "type": "array",
-            "description": "The browsers that can go with it, each ready or not.",
-            "items": {
-              "$ref": "#/components/schemas/BrowserState"
-            }
-          }
-        }
-      },
-      "MadeKind": {
         "allOf": [
           {
             "$ref": "#/components/schemas/Readiness"
           },
+          {
+            "type": "object",
+            "required": [
+              "capabilities",
+              "browsers"
+            ],
+            "properties": {
+              "capabilities": {
+                "type": "array",
+                "description": "What such a computer has, each ready or not.",
+                "items": {
+                  "$ref": "#/components/schemas/CapabilityState"
+                }
+              },
+              "browsers": {
+                "type": "array",
+                "description": "The browsers that can go with it, each ready or not.",
+                "items": {
+                  "$ref": "#/components/schemas/BrowserState"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "MadeKind": {
+        "allOf": [
           {
             "$ref": "#/components/schemas/Offer"
           },
@@ -1948,7 +1952,7 @@ export const OPENAPI = {
           },
           "thisComputer": {
             "$ref": "#/components/schemas/Offer",
-            "description": "This computer, the machine the service runs on, which is always offered: attached whole, as whoever started the service."
+            "description": "This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready, which this service always is."
           },
           "made": {
             "type": "array",
@@ -2008,93 +2012,112 @@ export const OPERATIONS: Operation[] = [
           "type": "string"
         },
         "thisComputer": {
-          "type": "object",
-          "required": [
-            "capabilities",
-            "browsers"
-          ],
-          "properties": {
-            "capabilities": {
-              "type": "array",
-              "description": "What such a computer has, each ready or not.",
-              "items": {
-                "allOf": [
-                  {
-                    "type": "object",
-                    "required": [
-                      "ready"
-                    ],
-                    "properties": {
-                      "ready": {
-                        "type": "boolean"
-                      },
-                      "reason": {
-                        "type": "string",
-                        "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
-                      }
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "required": [
-                      "capability"
-                    ],
-                    "properties": {
-                      "capability": {
-                        "type": "string",
-                        "enum": [
-                          "about",
-                          "terminal",
-                          "files",
-                          "screen"
-                        ],
-                        "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen."
-                      }
-                    }
-                  }
-                ]
+          "allOf": [
+            {
+              "type": "object",
+              "required": [
+                "ready"
+              ],
+              "properties": {
+                "ready": {
+                  "type": "boolean"
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
+                }
               }
             },
-            "browsers": {
-              "type": "array",
-              "description": "The browsers that can go with it, each ready or not.",
-              "items": {
-                "allOf": [
-                  {
-                    "type": "object",
-                    "required": [
-                      "ready"
-                    ],
-                    "properties": {
-                      "ready": {
-                        "type": "boolean"
-                      },
-                      "reason": {
-                        "type": "string",
-                        "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
-                      }
-                    }
-                  },
-                  {
-                    "type": "object",
-                    "required": [
-                      "kind"
-                    ],
-                    "properties": {
-                      "kind": {
-                        "type": "string",
-                        "enum": [
-                          "headless"
+            {
+              "type": "object",
+              "required": [
+                "capabilities",
+                "browsers"
+              ],
+              "properties": {
+                "capabilities": {
+                  "type": "array",
+                  "description": "What such a computer has, each ready or not.",
+                  "items": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "ready"
                         ],
-                        "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view."
+                        "properties": {
+                          "ready": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "type": "string",
+                            "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "capability"
+                        ],
+                        "properties": {
+                          "capability": {
+                            "type": "string",
+                            "enum": [
+                              "about",
+                              "terminal",
+                              "files",
+                              "screen"
+                            ],
+                            "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen."
+                          }
+                        }
                       }
-                    }
+                    ]
                   }
-                ]
+                },
+                "browsers": {
+                  "type": "array",
+                  "description": "The browsers that can go with it, each ready or not.",
+                  "items": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "ready"
+                        ],
+                        "properties": {
+                          "ready": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "type": "string",
+                            "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "headless"
+                            ],
+                            "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view."
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
               }
             }
-          },
-          "description": "This computer, the machine the service runs on, which is always offered: attached whole, as whoever started the service."
+          ],
+          "description": "This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready, which this service always is."
         },
         "made": {
           "type": "array",
@@ -2102,107 +2125,111 @@ export const OPERATIONS: Operation[] = [
           "items": {
             "allOf": [
               {
-                "type": "object",
-                "required": [
-                  "ready"
-                ],
-                "properties": {
-                  "ready": {
-                    "type": "boolean"
-                  },
-                  "reason": {
-                    "type": "string",
-                    "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "capabilities",
-                  "browsers"
-                ],
-                "properties": {
-                  "capabilities": {
-                    "type": "array",
-                    "description": "What such a computer has, each ready or not.",
-                    "items": {
-                      "allOf": [
-                        {
-                          "type": "object",
-                          "required": [
-                            "ready"
-                          ],
-                          "properties": {
-                            "ready": {
-                              "type": "boolean"
-                            },
-                            "reason": {
-                              "type": "string",
-                              "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
-                            }
-                          }
-                        },
-                        {
-                          "type": "object",
-                          "required": [
-                            "capability"
-                          ],
-                          "properties": {
-                            "capability": {
-                              "type": "string",
-                              "enum": [
-                                "about",
-                                "terminal",
-                                "files",
-                                "screen"
-                              ],
-                              "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen."
-                            }
-                          }
-                        }
-                      ]
+                "allOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "ready"
+                    ],
+                    "properties": {
+                      "ready": {
+                        "type": "boolean"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
+                      }
                     }
                   },
-                  "browsers": {
-                    "type": "array",
-                    "description": "The browsers that can go with it, each ready or not.",
-                    "items": {
-                      "allOf": [
-                        {
-                          "type": "object",
-                          "required": [
-                            "ready"
-                          ],
-                          "properties": {
-                            "ready": {
-                              "type": "boolean"
-                            },
-                            "reason": {
-                              "type": "string",
-                              "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
-                            }
-                          }
-                        },
-                        {
-                          "type": "object",
-                          "required": [
-                            "kind"
-                          ],
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "enum": [
-                                "headless"
+                  {
+                    "type": "object",
+                    "required": [
+                      "capabilities",
+                      "browsers"
+                    ],
+                    "properties": {
+                      "capabilities": {
+                        "type": "array",
+                        "description": "What such a computer has, each ready or not.",
+                        "items": {
+                          "allOf": [
+                            {
+                              "type": "object",
+                              "required": [
+                                "ready"
                               ],
-                              "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view."
+                              "properties": {
+                                "ready": {
+                                  "type": "boolean"
+                                },
+                                "reason": {
+                                  "type": "string",
+                                  "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
+                                }
+                              }
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "capability"
+                              ],
+                              "properties": {
+                                "capability": {
+                                  "type": "string",
+                                  "enum": [
+                                    "about",
+                                    "terminal",
+                                    "files",
+                                    "screen"
+                                  ],
+                                  "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen."
+                                }
+                              }
                             }
-                          }
+                          ]
                         }
-                      ]
+                      },
+                      "browsers": {
+                        "type": "array",
+                        "description": "The browsers that can go with it, each ready or not.",
+                        "items": {
+                          "allOf": [
+                            {
+                              "type": "object",
+                              "required": [
+                                "ready"
+                              ],
+                              "properties": {
+                                "ready": {
+                                  "type": "boolean"
+                                },
+                                "reason": {
+                                  "type": "string",
+                                  "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
+                                }
+                              }
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "kind"
+                              ],
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "headless"
+                                  ],
+                                  "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view."
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
                     }
                   }
-                }
+                ]
               },
               {
                 "type": "object",
@@ -2310,7 +2337,7 @@ export const OPERATIONS: Operation[] = [
           },
           "attached": {
             "type": "boolean",
-            "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation."
+            "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
           },
           "version": {
             "type": [
@@ -2500,7 +2527,7 @@ export const OPERATIONS: Operation[] = [
             },
             "attached": {
               "type": "boolean",
-              "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation."
+              "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
             },
             "version": {
               "type": [
@@ -2587,7 +2614,7 @@ export const OPERATIONS: Operation[] = [
     "method": "POST",
     "path": "/v1/computers/attach",
     "tool": "computer_attach",
-    "summary": "Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Killing it detaches it and removes nothing of the machine's.",
+    "summary": "Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Each call attaches it as a computer of its own, with its own id and token. Killing one detaches it and removes nothing of the machine's.",
     "status": 201,
     "hasBody": true,
     "pathParameters": [],
@@ -2696,7 +2723,7 @@ export const OPERATIONS: Operation[] = [
             },
             "attached": {
               "type": "boolean",
-              "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation."
+              "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
             },
             "version": {
               "type": [
@@ -2859,7 +2886,7 @@ export const OPERATIONS: Operation[] = [
             },
             "attached": {
               "type": "boolean",
-              "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation."
+              "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
             },
             "version": {
               "type": [
@@ -3113,7 +3140,7 @@ export const OPERATIONS: Operation[] = [
         },
         "attached": {
           "type": "boolean",
-          "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation."
+          "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
         },
         "version": {
           "type": [
@@ -3260,7 +3287,7 @@ export const OPERATIONS: Operation[] = [
         },
         "attached": {
           "type": "boolean",
-          "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation."
+          "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
         },
         "version": {
           "type": [
@@ -3412,7 +3439,7 @@ export const OPERATIONS: Operation[] = [
         },
         "attached": {
           "type": "boolean",
-          "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation."
+          "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
         },
         "version": {
           "type": [

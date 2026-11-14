@@ -26,17 +26,28 @@ That gives an agent this computer instead: the machine the service runs on, whol
 Each computer is this computer, attached with `attach`, or one made in a container of its own with `create`. A container needs Docker on the service's machine. The service follows your `DOCKER_HOST` or current context and never changes them, and comes up without Docker.
 
 - **`info` says what the service offers**, each part ready or not and why, in a line a person reads:
-  - `thisComputer`, always offered: its capabilities (`about`, `terminal`, `files` and `screen`) and the browsers that can go with it. Its screen isn't reached yet: `This service can't reach the screen yet.`
+  - `thisComputer`, which this service always offers: its capabilities (`about`, `terminal`, `files` and `screen`) and the browsers that can go with it. Its screen isn't reached yet: `This service can't reach the screen yet.`
   - `made`, each kind it makes: today a container, ready while Docker answers, with its capabilities and browsers.
-- **A container is refused with 409 where Docker doesn't answer:** `A container needs Docker, which isn't answering on this machine.` A computer is never run in an isolation it wasn't made in. So one in a container isn't started where Docker doesn't answer, and isn't killed there either, since its container couldn't be removed: both are refused with the same words, and it is kept.
-- **A computer with no isolation is no longer made.** `create --isolation none` is refused with 400.
-- **One made with no isolation by an earlier version isn't started again.** Its record and folder are kept. When the service starts, it is failed. Starting it is refused with 409, in words that say where its folder is and what to do instead: `A computer with no isolation is no longer made. Its folder is kept at <path>. Attach this computer with that folder as its work folder, or make a container with it as its workspace.` Killing it removes the rest of it and keeps that folder, even one the service made.
+- **A container is refused with 409 where Docker doesn't answer:** `A container needs Docker, which isn't answering on this machine.` One already made isn't started there, and isn't killed there either, since its container couldn't be removed: both are refused with the same words, and it is kept.
+- **A computer with no isolation is no longer made.** `create --isolation none` is refused with 400, and `attach` is what does that now.
+- **Attach can be called as often as you like.** Each call attaches this computer as a computer of its own, with its own id, token and name, to give to one agent.
 
 This computer:
 
 - **`--workspace`, which `attach` needs, is its work folder.** Commands and relative paths start there, and `about` names it. But its files reach the whole machine, as whoever started the service, and so do its commands at `--access terminal`.
 - **`kill` detaches it.** What the service kept for it goes, and nothing of the machine's.
 - **Its browser,** with `--browser`, is a headless one with a profile of its own. It runs the Chrome installed on the machine, or what `serve --browser-name` or `--browser-path` names. `info` says whether that program is there.
+
+**Upgrading from 0.0.18 or earlier:**
+
+- **`create` with no `--isolation` used to make a computer with no isolation.** It now makes a container, which needs Docker, and is refused with 409 without it. To work on this machine as before, `attach` with `--workspace`.
+- **`serve` and `up` no longer take `--isolation`, and won't start with it.** Remove it from whatever starts the service: a shell profile, a launchd or systemd unit, a `docker run` line.
+- **A computer made with no isolation isn't started again.** Its record and folder are kept.
+  - One that was running when the service last stopped is failed when it starts, and its `logs` say why. One that was stopped stays stopped.
+  - Starting it is refused with 409, in words that say where its folder is and what to do instead: `A computer with no isolation is no longer made. Its folder is kept at <path>. Attach this computer with that folder as its work folder, or make a container with it as its workspace.`
+  - In the API it is the one computer with `isolation` `none` and `attached` false, and its `workspace` is that folder.
+  - Killing it removes the rest of it and keeps that folder, even one the service made in its data folder. Kill it first, then attach or make a container with the folder.
+- **A computer recorded by 0.0.14 or earlier kept no isolation,** and is taken as made with none, which was the default then. If you made computers in containers with 0.0.14 or earlier, run 0.0.18 once first, started as it was last started, so that each one's isolation is recorded. Otherwise each is refused as above, and killing one leaves its container behind.
 
 A computer in a container:
 
@@ -77,11 +88,11 @@ A computer in a container:
 
 A client that calls a computer's tools can put the commands it starts in a group, and stop them together. At `--access terminal` it sends a word as `agentexec/group` in the `_meta` of an `exec_command` call, and the request `agentexec/group/stop` with `{"group": "<word>"}` on the `computer` endpoint, which ends every running command of that group and answers `{"stopped": <how many>}`. Giving up a call does not stop its command; only that request does. A shell a person opened is in no group. This is AgentExec's, described in [its README](https://github.com/uniac-ai/AgentExec#sessions), and the service passes both through, on this computer and in a container.
 
-The file tools stay inside the workspace. That's a check, not a boundary. Below `terminal`, the browser's `browser_run_code_unsafe` tool is hidden and refused, because it would otherwise be a terminal. The browser's endpoint takes one JSON-RPC request in each POST, as a JSON object, and refuses anything else with 400, a batch among them: it checks each request before passing it on, and passes on only what it read. The service enforces all of this, whatever the client does.
+In a container the file tools stay inside the workspace, which is a check and not a boundary: the container is the boundary. On this computer they reach the whole machine. Below `terminal`, the browser's `browser_run_code_unsafe` tool is hidden and refused, because it would otherwise be a terminal. The browser's endpoint takes one JSON-RPC request in each POST, as a JSON object, and refuses anything else with 400, a batch among them: it checks each request before passing it on, and passes on only what it read. The service enforces all of this, whatever the client does.
 
 Before 0.0.14 the browser's endpoint passed on a body it couldn't read as one request, unchecked. So on a computer made with `--access none`, `read` or `files` and `--browser`, a caller holding that computer's token could run code in its browser by sending the call in a batch or behind a byte order mark. It needed the computer's own token and a client that sends such a body, which MCP clients don't. 0.0.14 fixes it; a computer in a container made by an earlier version keeps the fault until its container is made again.
 
-`--browser` drives the Google Chrome installed on the machine, in a profile of the computer's own. `serve --browser-name` and `--browser-path` choose another. The browser has no debug port: a small host process starts it and shares it on a Unix socket in a folder only its user can enter, which the agent's tools and the live view both use. Playwright MCP, which serves the tools, listens on a Unix socket in a second such folder, and no port either. Only the service's user can reach them; callers go through the computer's `browser` endpoint and its token. It lives as long as its computer does: a client that ends its session or goes away leaves the browser and its pages as they are, and the agent's `browser_close` is refused. Only an agent with `--access terminal` can stop it, with `browser_run_code_unsafe` or from its terminal.
+The browser has no debug port: a small host process starts it and shares it on a Unix socket in a folder only its user can enter, which the agent's tools and the live view both use. Playwright MCP, which serves the tools, listens on a Unix socket in a second such folder, and no port either. Only the service's user can reach them; callers go through the computer's `browser` endpoint and its token. It lives as long as its computer does: a client that ends its session or goes away leaves the browser and its pages as they are, and the agent's `browser_close` is refused. Only an agent with `--access terminal` can stop it, with `browser_run_code_unsafe` or from its terminal.
 
 ## Commands
 
@@ -105,7 +116,7 @@ Before 0.0.14 the browser's endpoint passed on a body it couldn't read as one re
 - `up`, `down` and `status` are for a service on this machine that this machine can reach at its address.
 - `start` and `stop` are a computer's and take its id. With the id left out they stop nothing, and say so.
 
-Made with no `--workspace`, a computer has a folder the service makes, which goes when it is killed. A folder you name is never deleted. A computer with a `--timeout` stops when it runs out, and its folder stays.
+Made with no `--workspace`, a computer has a folder the service makes, which goes when it is killed, unless it was made with no isolation by an earlier version. A folder you name is never deleted. A computer with a `--timeout` stops when it runs out, and its folder stays.
 
 The service listens on loopback unless you give it TLS; see [Across a network](#across-a-network).
 

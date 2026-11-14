@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import WebSocket from "ws";
-import { CONTAINER, type Kind, make, named } from "./kinds.ts";
+import { CONTAINER, type Kind, make, named, needs } from "./kinds.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 // biome-ignore lint/suspicious/noExplicitAny: each event is JSON the test reads.
@@ -186,9 +186,7 @@ async function setup(t: test.TestContext, kind: Kind, extra: string[]) {
 for (const [kind, extra] of KINDS) {
   const options = {
     timeout: 180_000,
-    skip:
-      !extra &&
-      (kind === "this" ? "needs AGENTCOMPUTER_BROWSER_PATH" : "needs AGENTCOMPUTER_TEST_IMAGE"),
+    skip: !extra && needs(kind),
   };
 
   test(

@@ -11,6 +11,9 @@ export const playwright = (): Playwright => {
   return loaded;
 };
 
+/** Playwright's browser channel when none is named: the Google Chrome installed on the machine. */
+export const DEFAULT_CHANNEL = "chrome";
+
 interface Registry {
   findExecutable(
     name: string,

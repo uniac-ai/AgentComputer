@@ -15,14 +15,14 @@ import { FilesLive } from "./files-live.ts";
 import type { components } from "./generated/schema.js";
 import { Live, type LiveMode, type Surface, type SurfaceInfo } from "./live.ts";
 import { LoadLive } from "./load-live.ts";
-import { channelProgram } from "./playwright.ts";
+import { channelProgram, DEFAULT_CHANNEL, playwright } from "./playwright.ts";
 import { privateFolder } from "./store.ts";
 
 type Schemas = components["schemas"];
 export type Access = Schemas["Access"];
 export type Isolation = Schemas["Isolation"];
 /** What a computer run one way offers, and whether one can be run that way now. */
-export type Offer = Schemas["Offer"] & Schemas["Readiness"];
+export type Offer = Schemas["Offer"];
 export type Endpoint = "computer" | "browser";
 
 /** A refusal of the request, with the HTTP status that says so. */
@@ -119,14 +119,21 @@ const loadPty = () => {
 
 /** Whether the browser it starts is on this machine, and if it isn't, why not. */
 function browserProgram(config: BrowserConfig): Schemas["Readiness"] {
-  const channel = config.browser ?? "chrome";
-  const path = config.path ?? channelProgram(channel);
+  const channel = config.browser ?? DEFAULT_CHANNEL;
+  let path: string | undefined;
+  try {
+    // The service's image for a server has no Playwright beside it, and so no browser.
+    playwright();
+    path = config.path ?? channelProgram(channel);
+  } catch {
+    return { ready: false, reason: "Playwright isn't installed with this service." };
+  }
   if (path && existsSync(path)) return { ready: true };
   return {
     ready: false,
     reason: config.path
-      ? `There's no browser at ${config.path}.`
-      : `Its browser, ${channel}, isn't installed on this machine.`,
+      ? `There's no browser at ${config.path}. Start the service with a --browser-path that exists.`
+      : `The browser ${channel} isn't installed on this machine. Install it, or start the service with --browser-name or --browser-path.`,
   };
 }
 

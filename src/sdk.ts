@@ -79,7 +79,7 @@ export class ComputerError extends Error {
 const seconds = (ms: number) => Math.max(1, Math.ceil(ms / 1000));
 
 /** What making and attaching a computer both send, and where to. */
-function bodyOf(opts: Omit<CreateOpts, "isolation" | "workspace">) {
+function requestOf(opts: Omit<CreateOpts, "isolation" | "workspace">) {
   const { access, browser, name, timeoutMs, metadata, apiKey, apiUrl } = opts;
   return {
     connection: { ...(apiKey ? { apiKey } : {}), ...(apiUrl ? { apiUrl } : {}) },
@@ -359,7 +359,7 @@ export class Computer {
 
   static async create(opts: CreateOpts): Promise<Computer> {
     const { isolation, workspace } = opts;
-    const { connection, body } = bodyOf(opts);
+    const { connection, body } = requestOf(opts);
     const created = answered(
       await apiOf(connection).POST("/v1/computers", {
         body: {
@@ -374,7 +374,7 @@ export class Computer {
 
   /** This computer, attached whole. Killing it detaches it and removes nothing of the machine's. */
   static async attach(opts: AttachOpts): Promise<Computer> {
-    const { connection, body } = bodyOf(opts);
+    const { connection, body } = requestOf(opts);
     const attached = answered(
       await apiOf(connection).POST("/v1/computers/attach", {
         body: { ...body, workspace: opts.workspace },
