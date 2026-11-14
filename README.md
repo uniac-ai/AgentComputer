@@ -38,7 +38,7 @@ This computer:
 - **`--workspace`, which `attach` needs, is its work folder.** Commands and relative paths start there, and `about` names it. But its files reach the whole machine, as whoever started the service, and so do its commands at `--access terminal`.
 - **`kill` detaches it.** What the service kept for it goes, and nothing of the machine's.
 - **Its browser,** with `--browser`, is a headless one with a profile of its own. It runs the Chrome installed on the machine, or what `serve --browser-name` or `--browser-path` names. `info` says whether that program is there.
-- **Or the person's own browser,** with `--own-browser` (`browser: "own"`): their Chrome, or Edge where there is no Chrome, as they use it, signed in. Its agent works in it with the same tools, and the person watches it in the same live view.
+- **Or the person's own browser,** with `--own-browser` (`browser: "own"`): their Chrome or Edge, whichever has remote debugging on, Chrome where both do, as they use it, signed in. Its agent works in it with the same tools, and the person watches it in the same live view.
   - **The agent has the person's sign-ins, not their open tabs.** It works only in tabs it opens, and in the pages those open: its first call opens a tab of its own, and its tools list and act on its tabs alone. The person's own tabs are left as they are: no dialog of theirs is answered and no file picker of theirs taken over, and nothing that changes the browser as a whole, such as its cookies or its network, is the agent's to do. A page opened with a modifier or middle click has no opener, so it isn't the agent's. Sharing one of their tabs with the agent can come later. The live view shows the person every tab, and takes over no file picker here, so theirs open as they always do.
   - It is reached through the browser's own attach, from version 144, with nothing installed. The person switches on remote debugging once, on the machine, at `chrome://inspect/#remote-debugging` (`edge://inspect/#remote-debugging` in Edge), with the browser open. The browser then asks them to allow each connection: attaching waits up to 2 minutes for that, and is refused with 409 if it isn't allowed. That and Edge's switch are as their makers describe them; here they have been tried only against a browser started with its remote debugging on, which asks nobody.
   - `info` says whether it is ready (`browsers`, `kind` `own`), and if not, which browser and what to do on that machine. Attaching with it is refused with 409 until then. `serve --own-browser-data DIR` names the browser's user data folder in place of looking for Chrome's and Edge's. It is connected to only where what listens on its port is the person's own: another user's process can't stand in for it.
@@ -59,12 +59,16 @@ This computer:
 
 **Upgrading from 0.0.19:**
 
-- **A computer's `browser` can be `"own"`,** for this computer attached with the person's own browser, as well as `true` or `false`. Test it as truthy to know whether a computer has a browser.
+- **A computer's `browser` can be `"own"`,** for this computer attached with the person's own browser, where it was only `true` or `false`. At run time this breaks only for such a computer, in a client that reads `browser` as a boolean: `browser === true` takes it for a computer with no browser, and a strict schema that expects a boolean refuses it. At build time it breaks TypeScript code that puts `browser` into a `boolean`, whatever the computer, as the SDK's type is now `boolean | "own"`. Test it as truthy to know whether a computer has a browser.
 - **A computer has a new `state`, `starting`:** while it is made, started, or brought back as the service starts, until it is running. A client that knows only `running`, `stopped` and `failed` should take it as neither running nor stopped. `list --state running`, and the SDK's `isRunning()`, leave it out.
 - **The service says it is up, with `AgentComputer on …` and its record, before what was running is back.** That is brought back after, all at once, each `starting` until it is running: `Its container is being started.`, or for this computer `It is being started.` A script that starts the service and then uses a computer should wait until its `state` isn't `starting`; meanwhile what needs it running is refused with 409 and its `reason`.
-- **While `create` waits, `list` shows the computer as `starting`;** it showed `running`. `create` and `start` still answer once it is running.
+- **While `create` waits, `list` shows the computer as `starting`;** it showed `running`. `create` and `start` still answer once it is running, except `start` on one already starting, which answers at once, still `starting`.
 - **Every computer has `reason` and `progress`.** `reason` says why a failed one failed, which only its logs said.
+- **Computers carry other new fields,** which a client with a strict schema needs: `screen` and `endpoints.screen`, and in `get`, `tools.screen`. Every running computer's `surfaces` now lists `presence`, and `screen` where it was attached with it. `info` lists the person's own browser, `kind: "own"`, beside `headless`.
+- **`about` has a new row, `Acting now`,** before `CPU`, so `CPU`, `Memory` and `Disk` each come one later.
+- **A file a browser call names,** by `paths` or `filename`, has to be in the computer's workspace or its output folder. The MCP client's roots no longer move or widen that, so a path under a client's root elsewhere is refused.
 - **An image that can't be fetched is refused with 409,** `Its image couldn't be fetched: ` and Docker's words; it was 500.
+- **This computer's own endpoint takes one JSON-RPC request in each POST,** as the browser's does, and refuses a batch with 400. MCP clients send no batches.
 
 **Upgrading from 0.0.18 or earlier:**
 
@@ -94,12 +98,12 @@ A computer in a container:
 
 ## Access
 
-| `--access` | Tools at the `computer` endpoint                          |
-| ---------- | --------------------------------------------------------- |
-| `read`     | `about`, `read`, `list`, `search`                         |
-| `files`    | Those, and `edit`                                         |
-| `terminal` | Those, and `exec_command`, `write_stdin`, `list_sessions` |
-| `none`     | No `computer` endpoint; needs `--browser`                 |
+| `--access` | Tools at the `computer` endpoint                                   |
+| ---------- | ------------------------------------------------------------------ |
+| `read`     | `about`, `read`, `list`, `search`                                  |
+| `files`    | Those, and `edit`                                                  |
+| `terminal` | Those, and `exec_command`, `write_stdin`, `list_sessions`          |
+| `none`     | No `computer` endpoint; needs a browser, or `--screen` on `attach` |
 
 `read` answers a text file as numbered lines, and a PNG, JPEG, GIF or WebP of up to 3 MiB as the picture itself: an image an MCP client can pass on to a model. The browser's `browser_take_screenshot` answers an image too, but not one of more than 3 MiB, which a `fullPage` screenshot of a long page can be many times over: it answers an error that gives the size and says to take it again without `fullPage`, or of one element. The most counts bytes only: a model may still refuse a smaller picture for its height or width.
 
