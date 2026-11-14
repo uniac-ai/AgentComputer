@@ -52,6 +52,25 @@ const program = (path: string) => {
 };
 
 /**
+ * Cua Driver as `serve` names it: its program, and the socket of one that an app hosting it
+ * already runs, embedded, as the driver's embedding guide has a host do. Through that socket the
+ * driver is the host app's, and so are its grants.
+ */
+export interface DriverGiven {
+  program?: string | undefined;
+  socket?: string | undefined;
+}
+/** Cua Driver found: its program, and the socket it is reached on, where its host runs it. */
+export interface DriverFound {
+  program: string;
+  socket?: string | undefined;
+}
+export function findDriver(given: DriverGiven = {}): DriverFound | undefined {
+  const program = driverProgram(given.program);
+  return program ? { program, socket: given.socket } : undefined;
+}
+
+/**
  * Where Cua Driver is: the program given, or else the one on the path, where its installer links
  * it, or inside its app.
  */
@@ -74,7 +93,7 @@ const older = (version: string, than: string) => {
 };
 
 /** Whether the screen can be reached through Cua Driver here, and if not, what to do. */
-export const screenReadiness = async (given?: string): Promise<Readiness> =>
+export const screenReadiness = async (given?: DriverGiven): Promise<Readiness> =>
   (await screenCheck(given)).readiness;
 
 /**
@@ -82,11 +101,11 @@ export const screenReadiness = async (given?: string): Promise<Readiness> =>
  * found, and on macOS the two grants as the driver read them.
  */
 export async function screenCheck(
-  given?: string,
+  given?: DriverGiven,
   platform = process.platform,
-): Promise<{ readiness: Readiness; program?: string; grants?: Grants }> {
-  const program = driverProgram(given);
-  if (!program)
+): Promise<{ readiness: Readiness; driver?: DriverFound; grants?: Grants }> {
+  const driver = findDriver(given);
+  if (!driver)
     return {
       readiness: {
         ready: false,
@@ -95,24 +114,26 @@ export async function screenCheck(
     };
   const doesntRun = { ready: false, reason: `Cua Driver doesn't run. ${INSTALL} again.` };
   try {
-    const { stdout } = await run(program, ["--version"], { timeout: 5_000, env: quiet() });
+    const { stdout } = await run(driver.program, ["--version"], { timeout: 5_000, env: quiet() });
     const version = /(\d+\.\d+\.\d+)/.exec(stdout)?.[1];
-    if (!version) return { readiness: doesntRun, program };
+    if (!version) return { readiness: doesntRun, driver };
     if (older(version, DRIVER_VERSION))
       return {
         readiness: {
           ready: false,
           reason: `Cua Driver ${version} is older than ${DRIVER_VERSION}. ${INSTALL} to update it.`,
         },
-        program,
+        driver,
       };
   } catch {
-    return { readiness: doesntRun, program };
+    return { readiness: doesntRun, driver };
   }
-  // Only macOS asks for grants, and the driver answers for its own app, not for whoever asks.
-  if (platform !== "darwin") return { readiness: { ready: true }, program };
-  const unknown = "Can't tell whether Cua Driver is granted Screen Recording and Accessibility";
-  const grants = await driverGrants(program);
+  // Only macOS asks for grants, and the driver answers for the app whose grants it uses, its own
+  // or its host's, not for whoever asks.
+  if (platform !== "darwin") return { readiness: { ready: true }, driver };
+  const who = driver.socket ? "The app running Cua Driver" : "Cua Driver";
+  const unknown = `Can't tell whether ${who} is granted Screen Recording and Accessibility`;
+  const grants = await driverGrants(driver);
   const missing = [
     ...(grants.screen_recording ? [] : ["Screen Recording"]),
     ...(grants.accessibility ? [] : ["Accessibility"]),
@@ -124,9 +145,9 @@ export async function screenCheck(
         ? { ready: true }
         : {
             ready: false,
-            reason: `Cua Driver needs Screen Recording and Accessibility, and is missing ${missing.join(" and ")}. Grant it in System Settings, under Privacy & Security.`,
+            reason: `${who} needs Screen Recording and Accessibility, and is missing ${missing.join(" and ")}. Grant it in System Settings, under Privacy & Security.`,
           };
-  return { readiness, program, grants };
+  return { readiness, driver, grants };
 }
 
 /** Cua Driver's two grants, as it reads them for its own app, and why where it can't. */
@@ -137,15 +158,16 @@ export interface Grants {
 }
 
 /**
- * Whether Cua Driver has its two grants on macOS, as it says for its own app. A grant it can't
+ * Whether Cua Driver has its two grants on macOS, as it says for the app whose grants it uses: its
+ * own, or, embedded, its host's, which only the driver its host runs can say. A grant it can't
  * read, as when its app isn't running, is left out, with its reason where it gives one.
  */
-export async function driverGrants(program: string): Promise<Grants> {
+export async function driverGrants({ program, socket }: DriverFound): Promise<Grants> {
+  const ask = socket
+    ? ["call", "check_permissions", JSON.stringify({ prompt: false }), "--socket", socket]
+    : ["permissions", "status", "--json"];
   try {
-    const { stdout } = await run(program, ["permissions", "status", "--json"], {
-      timeout: 15_000,
-      env: quiet(),
-    });
+    const { stdout } = await run(program, ask, { timeout: 15_000, env: quiet() });
     const said: unknown = JSON.parse(stdout);
     return said && typeof said === "object" ? (said as Grants) : {};
   } catch {
@@ -257,11 +279,14 @@ export class Driver {
   #said = "";
   #stopping = false;
 
-  /** `program` is Cua Driver; `log` hears what it writes, and `exited` that it stopped by itself. */
-  constructor(program: string, log: (line: string) => void, exited: () => void) {
+  /**
+   * `driver` is Cua Driver, reached through its own runtime, or its host's embedded one; `log` hears
+   * what it writes, and `exited` that it stopped by itself.
+   */
+  constructor({ program, socket }: DriverFound, log: (line: string) => void, exited: () => void) {
     this.#transport = new StdioClientTransport({
       command: program,
-      args: ["mcp"],
+      args: socket ? ["mcp", "--embedded", "--socket", socket] : ["mcp"],
       env: quiet() as Record<string, string>,
       stderr: "pipe",
     });
@@ -315,13 +340,13 @@ export class Screen extends Driver {
    * no call is answered now, while the person has it switched off.
    */
   constructor(
-    program: string,
+    driver: DriverFound,
     log: (line: string) => void,
     exited: () => void,
     noted: () => string | undefined,
     refused: () => string | undefined,
   ) {
-    super(program, log, exited);
+    super(driver, log, exited);
     this.#noted = noted;
     this.#refused = refused;
   }

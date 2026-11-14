@@ -11,7 +11,14 @@ import { promisify } from "node:util";
 import type { components } from "./generated/schema.js";
 import { browsers, here, reachedAt, type Where } from "./own-browser.ts";
 import { ApiError } from "./runtime.ts";
-import { driverGrants, driverProgram, quiet, screenCheck } from "./screen.ts";
+import {
+  type DriverFound,
+  type DriverGiven,
+  driverGrants,
+  findDriver,
+  quiet,
+  screenCheck,
+} from "./screen.ts";
 import { SWITCHES, type Switch, type Switches } from "./switches.ts";
 
 type Schemas = components["schemas"];
@@ -62,22 +69,29 @@ const APP_MS = 10_000;
 
 /**
  * The app the driver is inside, where it is in one: its name as System Settings lists the grants,
- * and whether the driver is its own program.
+ * its own program, and whether the driver is that program.
  */
 async function driverApp(program: string) {
   const found = IN_APP.exec(realpathSync(program));
   if (!found) return undefined;
   const app = found[1] as string;
   const own = found[2] !== undefined;
+  let info: { CFBundleDisplayName?: string; CFBundleName?: string; CFBundleExecutable?: string } =
+    {};
   try {
     const plist = join(app, "Contents", "Info.plist");
     const { stdout } = await exec("/usr/bin/plutil", ["-convert", "json", "-o", "-", plist]);
-    const info = JSON.parse(stdout) as { CFBundleDisplayName?: string; CFBundleName?: string };
-    const name = info.CFBundleDisplayName ?? info.CFBundleName ?? basename(app, ".app");
-    return { app, name, own };
+    info = JSON.parse(stdout);
   } catch {
-    return { app, name: basename(app, ".app"), own };
+    // Named, and its program found, as an app's usually are.
   }
+  const named = basename(app, ".app");
+  return {
+    app,
+    name: info.CFBundleDisplayName ?? info.CFBundleName ?? named,
+    program: join(app, "Contents", "MacOS", info.CFBundleExecutable ?? named),
+    own,
+  };
 }
 
 const grant = (value: boolean | undefined): Granted =>
@@ -97,14 +111,14 @@ const NOTHING: Part = { ready: true, needs: [] };
 
 export class Setup {
   readonly #switches: Switches;
-  readonly #driver: string | undefined;
+  readonly #driver: DriverGiven;
   readonly #browserData: string | undefined;
   readonly #machine: Machine;
 
   /** `driver` and `browserData` are as `serve` names them: Cua Driver, and the browser's folder. */
   constructor(
     switches: Switches,
-    driver?: string,
+    driver: DriverGiven = {},
     browserData?: string,
     machine: Machine = thisMachine(),
   ) {
@@ -136,10 +150,10 @@ export class Setup {
    * its two grants, which System Settings lists under the outermost app the driver is inside.
    */
   async #screen(): Promise<Part> {
-    const { readiness, program, grants } = await screenCheck(this.#driver, this.#machine.platform);
-    if (!program) return { ready: false, needs: [{ need: "install", state: "missing" }] };
+    const { readiness, driver, grants } = await screenCheck(this.#driver, this.#machine.platform);
+    if (!driver) return { ready: false, needs: [{ need: "install", state: "missing" }] };
     if (!grants) return { ready: readiness.ready, needs: [] };
-    const app = await driverApp(program);
+    const app = await driverApp(driver.program);
     const holder = app && { holder: app.name };
     return {
       ready: readiness.ready,
@@ -199,9 +213,12 @@ export class Setup {
       throw new Error(`There's no "${need}" for ${capability} here.`);
     if (this.#machine.platform !== "darwin") return;
     if (capability === "screen") {
-      const program = driverProgram(this.#driver);
-      if (!program) throw new Error("Cua Driver isn't installed on this machine.");
-      if (needs.some((one) => one.state !== "granted")) await this.#askScreen(program);
+      const driver = findDriver(this.#driver);
+      if (!driver) throw new Error("Cua Driver isn't installed on this machine.");
+      const missing = needs.filter((one) => one.state !== "granted").map((one) => one.need);
+      const asked = need ? [need] : missing;
+      if (driver.socket) await this.#askHost(driver, asked);
+      else if (missing.length > 0) await this.#askScreen(driver);
       const pane = need && PANE[need];
       if (pane) await this.#machine.run("/usr/bin/open", [pane]);
     }
@@ -214,10 +231,10 @@ export class Setup {
    * Mac names CuaDriver in what it asks, not whatever started the service. It asks in its own
    * order, Accessibility first. Neither sends telemetry.
    */
-  async #askScreen(program: string) {
-    const answers = async () => (await driverGrants(program)).accessibility !== undefined;
+  async #askScreen(driver: DriverFound) {
+    const answers = async () => (await driverGrants(driver)).accessibility !== undefined;
     // Started through the system, where the driver is its app's own program.
-    const app = await driverApp(program);
+    const app = await driverApp(driver.program);
     if (app?.own && !(await answers())) {
       await this.#machine.run("/usr/bin/open", [
         "-g",
@@ -231,7 +248,21 @@ export class Setup {
       for (const end = Date.now() + APP_MS; Date.now() < end && !(await answers()); )
         await sleep(500);
     }
-    await this.#machine.start(program, ["permissions", "grant"], quiet());
+    await this.#machine.start(driver.program, ["permissions", "grant"], quiet());
+  }
+
+  /**
+   * The grants of the app hosting the driver, which the driver can't ask for: that app's own
+   * program asks, `grant` and each grant to ask for, in turn.
+   */
+  async #askHost(driver: DriverFound, asked: NeedName[]) {
+    if (asked.length === 0) return;
+    const host = await driverApp(driver.program);
+    if (!host)
+      throw new Error(
+        "The app running Cua Driver can't be told from here: the driver isn't inside it.",
+      );
+    await this.#machine.start(host.program, ["grant", ...asked], quiet());
   }
 
   /**

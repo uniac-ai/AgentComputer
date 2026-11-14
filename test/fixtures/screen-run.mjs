@@ -1,6 +1,8 @@
 // Run inside the screen test image, with the built service mounted at /repo: a virtual display with
 // a terminal window, the service on loopback, and this computer attached with the screen. It
-// prints what each step answered, as JSON, for the test outside to judge.
+// prints what each step answered, as JSON, for the test outside to judge. With --embedded, the
+// driver runs as an app hosting it runs it, its own daemon on a private socket, and the service
+// reaches it there.
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,6 +39,12 @@ try {
 
   const data = mkdtempSync(join(tmpdir(), "ac-"));
   const workspace = mkdtempSync(join(tmpdir(), "ws-"));
+  const driverSocket = "/tmp/driver.sock";
+  const embedded = process.argv.includes("--embedded");
+  if (embedded) {
+    start("cua-driver", ["serve", "--embedded", "--socket", driverSocket]);
+    await until(() => existsSync(driverSocket), "the driver's socket");
+  }
   const service = start(process.execPath, [
     "/repo/dist/agentcomputer.js",
     "serve",
@@ -44,6 +52,7 @@ try {
     "127.0.0.1:0",
     "--data",
     data,
+    ...(embedded ? ["--screen-socket", driverSocket] : []),
   ]);
   const url = await new Promise((done, failed) => {
     service.once("exit", (code) => failed(new Error(`The service exited ${code}.`)));
@@ -219,7 +228,7 @@ try {
     await driver.connect(
       new StdioClientTransport({
         command: "cua-driver",
-        args: ["mcp"],
+        args: embedded ? ["mcp", "--embedded", "--socket", driverSocket] : ["mcp"],
         env: { ...process.env },
         stderr: "ignore",
       }),

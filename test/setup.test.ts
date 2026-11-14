@@ -62,7 +62,8 @@ const machine = (platform: NodeJS.Platform, home: string, onRun?: () => void, fa
 /**
  * A stand-in Cua Driver at `path`: with Accessibility and without Screen Recording, or, with
  * `allGranted`, with both. It answers for its grants only once `answering` exists, as the driver
- * can't read them while its app isn't running.
+ * can't read them while its app isn't running; embedded, it answers only through its host's
+ * socket, at /tmp/host.sock.
  */
 const driverAt = (path: string, answering: string, allGranted = false) => {
   mkdirSync(dirname(path), { recursive: true });
@@ -71,6 +72,7 @@ const driverAt = (path: string, answering: string, allGranted = false) => {
     `#!/bin/sh
 case "$1 $2" in
   "permissions status") [ -f "${answering}" ] && echo '{"accessibility":true,"screen_recording":${allGranted}}' || echo '{"status":"unknown"}' ;;
+  "call check_permissions") [ "$4 $5" = "--socket /tmp/host.sock" ] && echo '{"accessibility":true,"screen_recording":${allGranted},"source":{"attribution":"host"}}' ;;
   *) echo "cua-driver 0.49.7" ;;
 esac
 `,
@@ -127,7 +129,7 @@ test("the terminal and files need nothing, and the screen needs the driver and, 
   writeFileSync(answering, "");
   const app = join(folder, "Example Computer Use.app");
   const driver = driverAt(join(app, "Contents", "MacOS", "cua-driver"), answering);
-  const mac = new Setup(switches, driver, undefined, machine("darwin", folder).stands);
+  const mac = new Setup(switches, { program: driver }, undefined, machine("darwin", folder).stands);
   assert.deepEqual(await needsOf(mac, "terminal"), []);
   assert.deepEqual(await needsOf(mac, "files"), []);
   assert.equal(await readyOf(mac, "files"), true);
@@ -144,7 +146,7 @@ test("the terminal and files need nothing, and the screen needs the driver and, 
   );
   assert.deepEqual(
     await needsOf(
-      new Setup(switches, carried, undefined, machine("darwin", folder).stands),
+      new Setup(switches, { program: carried }, undefined, machine("darwin", folder).stands),
       "screen",
     ),
     [
@@ -155,7 +157,10 @@ test("the terminal and files need nothing, and the screen needs the driver and, 
   // A driver in no app has no app to name.
   const bare = driverAt(join(folder, "bin", "cua-driver"), answering);
   assert.deepEqual(
-    await needsOf(new Setup(switches, bare, undefined, machine("darwin", folder).stands), "screen"),
+    await needsOf(
+      new Setup(switches, { program: bare }, undefined, machine("darwin", folder).stands),
+      "screen",
+    ),
     [
       { need: "screen-recording", state: "not-granted" },
       { need: "accessibility", state: "granted" },
@@ -164,7 +169,7 @@ test("the terminal and files need nothing, and the screen needs the driver and, 
   // Granted, each is still listed, and the screen is ready.
   const granted = new Setup(
     switches,
-    driverAt(join(folder, "granted", "cua-driver"), answering, true),
+    { program: driverAt(join(folder, "granted", "cua-driver"), answering, true) },
     undefined,
     machine("darwin", folder).stands,
   );
@@ -173,12 +178,17 @@ test("the terminal and files need nothing, and the screen needs the driver and, 
     { need: "accessibility", state: "granted" },
   ]);
   assert.equal(await readyOf(granted, "screen"), true);
-  const linux = new Setup(switches, driver, undefined, machine("linux", folder).stands);
+  const linux = new Setup(
+    switches,
+    { program: driver },
+    undefined,
+    machine("linux", folder).stands,
+  );
   assert.deepEqual(await needsOf(linux, "screen"), []);
   assert.equal(await readyOf(linux, "screen"), true);
   const none = new Setup(
     switches,
-    join(folder, "none"),
+    { program: join(folder, "none") },
     undefined,
     machine("darwin", folder).stands,
   );
@@ -235,7 +245,7 @@ test("turning the screen on starts the driver's app through the system, then its
   // Its app, once open, answers for the grants.
   const mac = machine("darwin", folder, () => writeFileSync(answering, ""));
   const switches = new Switches(folder, true);
-  await new Setup(switches, driver, undefined, mac.stands).set("screen", true);
+  await new Setup(switches, { program: driver }, undefined, mac.stands).set("screen", true);
   assert.equal(switches.on("screen"), true);
   assert.deepEqual(mac.ran, [
     ["/usr/bin/open", ["-g", "-a", app, "--env", "DO_NOT_TRACK=1", "--args", "serve"]],
@@ -243,7 +253,7 @@ test("turning the screen on starts the driver's app through the system, then its
   ]);
   // On again, while its app answers: only the grant.
   mac.ran.length = 0;
-  await new Setup(switches, driver, undefined, mac.stands).set("screen", true);
+  await new Setup(switches, { program: driver }, undefined, mac.stands).set("screen", true);
   assert.deepEqual(mac.ran, [[driver, ["permissions", "grant"]]]);
 });
 
@@ -271,7 +281,7 @@ test("each grant is asked for by itself, and its own pane opens", async (t) => {
   const driver = driverAt(join(folder, "bin", "cua-driver"), answering);
   const pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
   const mac = machine("darwin", folder);
-  const setup = new Setup(new Switches(folder, true), driver, undefined, mac.stands);
+  const setup = new Setup(new Switches(folder, true), { program: driver }, undefined, mac.stands);
   await setup.ask("screen", "screen-recording");
   assert.deepEqual(mac.ran, [
     [driver, ["permissions", "grant"]],
@@ -280,7 +290,7 @@ test("each grant is asked for by itself, and its own pane opens", async (t) => {
   // Granted, only its pane opens.
   const granted = driverAt(join(folder, "granted", "cua-driver"), answering, true);
   const done = machine("darwin", folder);
-  await new Setup(new Switches(folder, true), granted, undefined, done.stands).ask(
+  await new Setup(new Switches(folder, true), { program: granted }, undefined, done.stands).ask(
     "screen",
     "accessibility",
   );
@@ -294,11 +304,46 @@ test("each grant is asked for by itself, and its own pane opens", async (t) => {
     status: 409,
     message: 'There\'s no "accessibility" for files here.',
   });
-  const none = new Setup(new Switches(folder, true), join(folder, "none"), undefined, mac.stands);
+  const none = new Setup(
+    new Switches(folder, true),
+    { program: join(folder, "none") },
+    undefined,
+    mac.stands,
+  );
   await assert.rejects(none.ask("screen", "install"), {
     status: 409,
     message: "Cua Driver isn't installed on this machine.",
   });
+});
+
+test("a driver an app runs embedded is read, and asked for, through that app", async (t) => {
+  const folder = folderOf(t);
+  const app = join(folder, "Example.app");
+  const driver = driverAt(join(app, "Contents", "Resources", "cua-driver"), join(folder, "never"));
+  const mac = machine("darwin", folder);
+  const setup = new Setup(
+    new Switches(folder, true),
+    { program: driver, socket: "/tmp/host.sock" },
+    undefined,
+    mac.stands,
+  );
+  // Read through the host's socket, under the host's name, though the driver's own app never runs.
+  assert.deepEqual(await needsOf(setup, "screen"), [
+    { need: "screen-recording", holder: "Example", state: "not-granted" },
+    { need: "accessibility", holder: "Example", state: "granted" },
+  ]);
+  // The host's own program asks: for one grant, or for each that is missing.
+  const host = join(app, "Contents", "MacOS", "Example");
+  await setup.ask("screen", "accessibility");
+  await setup.ask("screen");
+  assert.deepEqual(mac.ran, [
+    [host, ["grant", "accessibility"]],
+    [
+      "/usr/bin/open",
+      ["x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"],
+    ],
+    [host, ["grant", "screen-recording"]],
+  ]);
 });
 
 test("each browser is asked for by itself, at its own switch", async (t) => {
@@ -319,7 +364,10 @@ test("off macOS turning a part on asks nothing", async (t) => {
   const folder = folderOf(t);
   const linux = machine("linux", folder);
   const driver = driverAt(join(folder, "bin", "cua-driver"), join(folder, "answering"));
-  await new Setup(new Switches(folder, true), driver, undefined, linux.stands).set("screen", true);
+  await new Setup(new Switches(folder, true), { program: driver }, undefined, linux.stands).set(
+    "screen",
+    true,
+  );
   assert.deepEqual(linux.ran, []);
 });
 

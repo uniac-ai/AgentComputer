@@ -144,29 +144,35 @@ const refused = (answer: Answer | undefined) => {
   return answer.text;
 };
 
+/** One run of the built service and its modules, read-only, inside the image: what it answered. */
+async function ranInImage(...args: string[]): Promise<Ran> {
+  const { stdout } = await run(
+    "docker",
+    [
+      "run",
+      "--rm",
+      "-v",
+      `${root}:/repo:ro`,
+      IMAGE as string,
+      "node",
+      "/repo/test/fixtures/screen-run.mjs",
+      ...args,
+    ],
+    { maxBuffer: 64 * 1024 * 1024 },
+  );
+  const out: Ran = JSON.parse(stdout.trim().split("\n").at(-1) ?? "{}");
+  assert.equal(out.error, undefined, out.error);
+  return out;
+}
+
 describe("in a desktop of its own, with the pinned driver", {
   skip: !IMAGE && "needs AGENTCOMPUTER_TEST_SCREEN_IMAGE",
 }, () => {
   let out: Ran;
-  // One run of the built service and its modules, read-only, inside the image; what it was
-  // answered comes back for each test below.
+  // What it was answered comes back for each test below.
   before(
     async () => {
-      const { stdout } = await run(
-        "docker",
-        [
-          "run",
-          "--rm",
-          "-v",
-          `${root}:/repo:ro`,
-          IMAGE as string,
-          "node",
-          "/repo/test/fixtures/screen-run.mjs",
-        ],
-        { maxBuffer: 64 * 1024 * 1024 },
-      );
-      out = JSON.parse(stdout.trim().split("\n").at(-1) ?? "{}");
-      assert.equal(out.error, undefined, out.error);
+      out = await ranInImage();
     },
     { timeout: 180_000 },
   );
@@ -275,5 +281,27 @@ describe("in a desktop of its own, with the pinned driver", {
         value: "The person: the screen",
       },
     ]);
+  });
+});
+
+describe("with the pinned driver run embedded, as an app hosting it runs it", {
+  skip: !IMAGE && "needs AGENTCOMPUTER_TEST_SCREEN_IMAGE",
+}, () => {
+  let out: Ran;
+  before(
+    async () => {
+      out = await ranInImage("--embedded");
+    },
+    { timeout: 180_000 },
+  );
+
+  test("the service reaches it through the host's socket: the agent sees and acts, and the person watches", () => {
+    assert.deepEqual(out.screenOffered, { capability: "screen", ready: true });
+    assert.deepEqual(out.attached.tools, ["see", "act", "apps"]);
+    assert.match(done(out.see), /"screen-test"/);
+    assert.match(done(out.apps), /"screen-test"/);
+    assert.equal(out.ran, "screen-ok\n");
+    assert.deepEqual(out.watched.frames, ["PNG"]);
+    assert.equal(out.liveRan, "live-ok\n");
   });
 });

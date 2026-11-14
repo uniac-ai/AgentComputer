@@ -20,7 +20,7 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
   serve [--listen HOST:PORT] [--image IMAGE]
         [--tls-cert FILE --tls-key FILE | --tls-proxy] [--public-url URL] [--allow-origin ORIGIN]...
         [--browser-name NAME] [--browser-path PATH] [--screen-driver PATH]
-        [--own-browser-data DIR] [--lend]
+        [--screen-socket PATH] [--own-browser-data DIR] [--lend]
                                     run the service; 127.0.0.1:7878 by default, and
                                     anywhere else only with TLS; with --lend, it lends
                                     this machine and makes no computers
@@ -102,6 +102,7 @@ async function main() {
       browser: { type: "boolean" },
       screen: { type: "boolean" },
       "screen-driver": { type: "string" },
+      "screen-socket": { type: "string" },
       "browser-name": { type: "string" },
       "browser-path": { type: "string" },
       profile: { type: "string" },
@@ -165,6 +166,7 @@ async function main() {
     const { "tls-cert": cert, "tls-key": key } = values;
     if (Boolean(cert) !== Boolean(key))
       throw new UsageError("--tls-cert and --tls-key go together.");
+    const screenDriver = { program: values["screen-driver"], socket: values["screen-socket"] };
     return serve({
       listen: values.listen ?? "127.0.0.1:7878",
       data,
@@ -172,12 +174,12 @@ async function main() {
       tlsProxy: values["tls-proxy"],
       publicUrl: values["public-url"],
       allowOrigins: values["allow-origin"],
-      setup: new Setup(switches, values["screen-driver"], values["own-browser-data"]),
+      setup: new Setup(switches, screenDriver, values["own-browser-data"]),
       runtimes: {
         none: new ProcessRuntime(
           { browser: values["browser-name"], path: values["browser-path"] },
           false,
-          values["screen-driver"],
+          screenDriver,
           values["own-browser-data"],
           switches,
         ),

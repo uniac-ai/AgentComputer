@@ -18,7 +18,13 @@ import { LoadLive } from "./load-live.ts";
 import { ownBrowser } from "./own-browser.ts";
 import { channelProgram, DEFAULT_CHANNEL, playwright } from "./playwright.ts";
 import { Board, Presence } from "./presence.ts";
-import { driverProgram, Screen, screenReadiness } from "./screen.ts";
+import {
+  type DriverFound,
+  type DriverGiven,
+  findDriver,
+  Screen,
+  screenReadiness,
+} from "./screen.ts";
 import { ScreenLive } from "./screen-live.ts";
 import { privateFolder } from "./store.ts";
 import type { Switch, Switches } from "./switches.ts";
@@ -185,8 +191,8 @@ const MAX_CALL = 4 * 1024 * 1024;
 export class ProcessRuntime implements Runtime {
   readonly #config: BrowserConfig;
   readonly #contained: boolean;
-  /** Cua Driver, where it was named; otherwise it is looked for. */
-  readonly #screenDriver: string | undefined;
+  /** Cua Driver as it was named, if it was; otherwise it is looked for. */
+  readonly #screenDriver: DriverGiven;
   /** The person's browser's user data folder, where named; otherwise Chrome's, then Edge's. */
   readonly #ownBrowserData: string | undefined;
   /** The person's switches for this machine; inside a container there are none. */
@@ -213,7 +219,7 @@ export class ProcessRuntime implements Runtime {
   constructor(
     config: BrowserConfig,
     contained = false,
-    screenDriver?: string,
+    screenDriver: DriverGiven = {},
     ownBrowserData?: string,
     switches?: Switches,
   ) {
@@ -386,11 +392,11 @@ export class ProcessRuntime implements Runtime {
       // Asked afresh, not as last seen: it is what this start rests on.
       const ready = await this.#checkScreen();
       const refused = this.#switches?.refused("screen");
-      const program = driverProgram(this.#screenDriver) as string;
+      const driver = findDriver(this.#screenDriver) as DriverFound;
       screen =
         ready.ready && !refused
           ? new Screen(
-              program,
+              driver,
               events.log,
               () => {
                 screenDown = true;
@@ -409,7 +415,7 @@ export class ProcessRuntime implements Runtime {
       }
       // The person's live view of it reaches the driver through a connection of its own.
       screenLive = new ScreenLive(
-        program,
+        driver,
         (line) => events.log(`Live view: ${line}`),
         () => presence.acted("person", { capability: "screen" }),
       );
