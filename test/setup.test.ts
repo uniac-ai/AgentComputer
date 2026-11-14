@@ -38,12 +38,22 @@ const folderOf = (t: test.TestContext) => {
   return folder;
 };
 
-/** A machine that records what it would run and start; `fail` makes each run fail. */
-const machine = (platform: NodeJS.Platform, home: string, onRun?: () => void, fail?: string) => {
+/**
+ * A machine that records what it would run and start; `fail` makes each run fail. Its release is
+ * macOS 26's Darwin, unless given.
+ */
+const machine = (
+  platform: NodeJS.Platform,
+  home: string,
+  onRun?: () => void,
+  fail?: string,
+  release = "25.4.0",
+) => {
   const ran: [string, string[]][] = [];
   const stands: Machine = {
     platform,
     home,
+    release,
     // Only the home's own apps: not whatever this machine has installed.
     applications: [join(home, "Applications")],
     run: async (program, args) => {
@@ -62,18 +72,24 @@ const machine = (platform: NodeJS.Platform, home: string, onRun?: () => void, fa
 
 /**
  * A stand-in Cua Driver at `path`: with Accessibility and without Screen Recording, or, with
- * `allGranted`, with both. It answers for its grants only once `answering` exists, as the driver
- * can't read them while its app isn't running; embedded, it answers only through its host's
- * socket, at /tmp/host.sock.
+ * `allGranted`, with both, or, with `accessibility` false, without Accessibility. It answers for
+ * its grants only once `answering` exists, as the driver can't read them while its app isn't
+ * running; embedded, it answers only through its host's socket, at /tmp/host.sock.
  */
-const driverAt = (path: string, answering: string, allGranted = false, attribution = "host") => {
+const driverAt = (
+  path: string,
+  answering: string,
+  allGranted = false,
+  attribution = "host",
+  accessibility = true,
+) => {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(
     path,
     `#!/bin/sh
 case "$1 $2" in
   "permissions status") [ -f "${answering}" ] && echo '{"accessibility":true,"screen_recording":${allGranted}}' || echo '{"status":"unknown"}' ;;
-  "call check_permissions") [ "$4 $5" = "--socket /tmp/host.sock" ] && echo '{"accessibility":true,"screen_recording":${allGranted},"source":{"attribution":"${attribution}"}}' ;;
+  "call check_permissions") [ "$4 $5" = "--socket /tmp/host.sock" ] && echo '{"accessibility":${accessibility},"screen_recording":${allGranted},"source":{"attribution":"${attribution}"}}' ;;
   *) echo "cua-driver 0.49.7" ;;
 esac
 `,
@@ -238,7 +254,7 @@ test("the browser used is the one whose switch is on, Chrome where both are", as
   assert.equal(both.ready && both.name, "Chrome");
 });
 
-test("turning the screen on starts the driver's app through the system, then its own grant", async (t) => {
+test("turning the screen on asks nothing of Cua Driver's own app; asking for a grant starts its app through the system, then its own grant", async (t) => {
   const folder = folderOf(t);
   const answering = join(folder, "answering");
   const app = join(folder, "Example Computer Use.app");
@@ -246,8 +262,13 @@ test("turning the screen on starts the driver's app through the system, then its
   // Its app, once open, answers for the grants.
   const mac = machine("darwin", folder, () => writeFileSync(answering, ""));
   const switches = new Switches(folder, true);
-  await new Setup(switches, { program: driver }, undefined, mac.stands).set("screen", true);
+  const setup = new Setup(switches, { program: driver }, undefined, mac.stands);
+  // Its own grant window is a window: it waits for the person's click.
+  await setup.set("screen", true);
+  await setup.ask("screen");
   assert.equal(switches.on("screen"), true);
+  assert.deepEqual(mac.ran, []);
+  await setup.ask("screen", "screen-recording");
   assert.deepEqual(mac.ran, [
     [
       "/usr/bin/open",
@@ -265,13 +286,16 @@ test("turning the screen on starts the driver's app through the system, then its
     ],
     [driver, ["permissions", "grant"]],
   ]);
-  // On again, while its app answers: only the grant.
+  // Asked again, while its app answers: only the grant.
   mac.ran.length = 0;
-  await new Setup(switches, { program: driver }, undefined, mac.stands).set("screen", true);
+  await new Setup(switches, { program: driver }, undefined, mac.stands).ask(
+    "screen",
+    "screen-recording",
+  );
   assert.deepEqual(mac.ran, [[driver, ["permissions", "grant"]]]);
 });
 
-test("turning the browser on opens Chrome at its switch, and turning off asks nothing", async (t) => {
+test("turning the browser on or off opens nothing; asking for one opens it at its inspect page", async (t) => {
   const home = folderOf(t);
   const chrome = join(home, "Applications", "Google Chrome.app");
   mkdirSync(chrome, { recursive: true });
@@ -279,16 +303,18 @@ test("turning the browser on opens Chrome at its switch, and turning off asks no
   const switches = new Switches(home, true);
   const setup = new Setup(switches, undefined, undefined, mac.stands);
   await setup.set("browser", true);
-  assert.deepEqual(mac.ran, [
-    ["/usr/bin/open", ["-a", chrome, "chrome://inspect/#remote-debugging"]],
-  ]);
-  mac.ran.length = 0;
+  await setup.ask("browser");
+  assert.equal(switches.on("browser"), true);
   await setup.set("browser", false);
   assert.deepEqual(mac.ran, []);
   assert.equal(switches.on("browser"), false);
+  await setup.ask("browser", "chrome");
+  assert.deepEqual(mac.ran, [
+    ["/usr/bin/open", ["-a", chrome, "chrome://inspect/#remote-debugging"]],
+  ]);
 });
 
-test("each grant is asked for by itself, opening no pane; its pane opens only when asked to", async (t) => {
+test("for Cua Driver's own app each grant is asked for by itself, opening no pane; its pane opens only when asked to", async (t) => {
   const folder = folderOf(t);
   const answering = join(folder, "answering");
   writeFileSync(answering, "");
@@ -370,16 +396,21 @@ test("a driver an app runs embedded is read, and asked for, through that app", a
     { need: "screen-recording", holder: "Example", state: "not-granted" },
     { need: "accessibility", holder: "Example", state: "granted" },
   ]);
-  // The host asks, opened through the system: for one grant, or for each that is missing.
-  const opened = (...asked: string[]) => [
+  // The host asks, opened through the system, for one grant; one already given is only shown.
+  const opened = (asked: string) => [
     "/usr/bin/open",
-    ["-n", "-g", "-a", app, "--args", "grant", ...asked],
+    ["-n", "-g", "-a", app, "--args", "grant", asked],
   ];
-  await setup.ask("screen", "screen-recording");
-  await setup.ask("screen");
   await setup.ask("screen", "accessibility");
-  // Already given, asking for it does nothing; no pane opens.
-  assert.deepEqual(mac.ran, [opened("screen-recording"), opened("screen-recording")]);
+  assert.deepEqual(mac.ran, []);
+  await setup.ask("screen", "screen-recording");
+  assert.deepEqual(mac.ran, [
+    opened("screen-recording"),
+    [
+      "/usr/bin/open",
+      ["x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"],
+    ],
+  ]);
   // A driver on that socket that isn't the host's own, embedded, says nothing of its grants.
   const other = driverAt(
     join(folder, "Other.app", "Contents", "MacOS", "cua-driver"),
@@ -399,6 +430,150 @@ test("a driver an app runs embedded is read, and asked for, through that app", a
   ]);
 });
 
+test("from macOS 26 the screen's switch makes Screen Recording's request alone, which shows nothing, and each click asks again and opens the pane", async (t) => {
+  const folder = folderOf(t);
+  const app = join(folder, "Example.app");
+  const driver = driverAt(
+    join(app, "Contents", "Resources", "cua-driver"),
+    join(folder, "never"),
+    false,
+    "host",
+    false,
+  );
+  const hosted = { program: driver, socket: "/tmp/host.sock" };
+  const opened = (asked: string) => [
+    "/usr/bin/open",
+    ["-n", "-g", "-a", app, "--args", "grant", asked],
+  ];
+  const pane = (of: string) => [
+    "/usr/bin/open",
+    [`x-apple.systempreferences:com.apple.preference.security?Privacy_${of}`],
+  ];
+  const mac = machine("darwin", folder);
+  const switches = new Switches(folder, true);
+  const setup = new Setup(switches, hosted, undefined, mac.stands);
+  await setup.set("screen", true);
+  assert.equal(switches.on("screen"), true);
+  // With no need named, only what the switch makes.
+  await setup.ask("screen");
+  assert.deepEqual(mac.ran, [opened("screen-recording"), opened("screen-recording")]);
+  mac.ran.length = 0;
+  await setup.ask("screen", "screen-recording");
+  assert.deepEqual(mac.ran, [opened("screen-recording"), pane("ScreenCapture")]);
+  // Accessibility's alert waits for its click: the first is the request alone, later ones open
+  // the pane as well, also once the service has started again.
+  mac.ran.length = 0;
+  await setup.ask("screen", "accessibility");
+  assert.deepEqual(mac.ran, [opened("accessibility")]);
+  await setup.ask("screen", "accessibility");
+  await new Setup(new Switches(folder, true), hosted, undefined, mac.stands).ask(
+    "screen",
+    "accessibility",
+  );
+  assert.deepEqual(mac.ran, [
+    opened("accessibility"),
+    opened("accessibility"),
+    pane("Accessibility"),
+    opened("accessibility"),
+    pane("Accessibility"),
+  ]);
+  // Another app hosting a driver is another identity: its first request is alone again. These apps
+  // have no Info.plist, so each is known by its path.
+  const other = join(folder, "Other.app");
+  const theirs = driverAt(
+    join(other, "Contents", "Resources", "cua-driver"),
+    join(folder, "never"),
+    false,
+    "host",
+    false,
+  );
+  mac.ran.length = 0;
+  await new Setup(
+    new Switches(folder, true),
+    { program: theirs, socket: "/tmp/host.sock" },
+    undefined,
+    mac.stands,
+  ).ask("screen", "accessibility");
+  assert.deepEqual(mac.ran, [
+    ["/usr/bin/open", ["-n", "-g", "-a", other, "--args", "grant", "accessibility"]],
+  ]);
+});
+
+test("requests made are kept by the hosting app's bundle identifier, wherever the app is", {
+  skip: process.platform !== "darwin" && "plutil reads an app's Info.plist on macOS only",
+}, async (t) => {
+  const folder = folderOf(t);
+  const at = (name: string) => {
+    const app = join(folder, `${name}.app`);
+    mkdirSync(join(app, "Contents"), { recursive: true });
+    writeFileSync(
+      join(app, "Contents", "Info.plist"),
+      `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.example.host</string></dict></plist>
+`,
+    );
+    const program = driverAt(
+      join(app, "Contents", "Resources", "cua-driver"),
+      join(folder, "never"),
+      false,
+      "host",
+      false,
+    );
+    return { app, hosted: { program, socket: "/tmp/host.sock" } };
+  };
+  const first = at("First");
+  const moved = at("Moved");
+  const mac = machine("darwin", folder);
+  await new Setup(new Switches(folder, true), first.hosted, undefined, mac.stands).ask(
+    "screen",
+    "accessibility",
+  );
+  // The same identifier in another place has been asked: its pane opens as well.
+  await new Setup(new Switches(folder, true), moved.hosted, undefined, mac.stands).ask(
+    "screen",
+    "accessibility",
+  );
+  const opened = (app: string) => [
+    "/usr/bin/open",
+    ["-n", "-g", "-a", app, "--args", "grant", "accessibility"],
+  ];
+  assert.deepEqual(mac.ran, [
+    opened(first.app),
+    opened(moved.app),
+    [
+      "/usr/bin/open",
+      ["x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"],
+    ],
+  ]);
+});
+
+test("before macOS 26 the screen's switch asks nothing, and Screen Recording waits for its click as Accessibility does", async (t) => {
+  const folder = folderOf(t);
+  const app = join(folder, "Example.app");
+  const driver = driverAt(join(app, "Contents", "Resources", "cua-driver"), join(folder, "never"));
+  const mac = machine("darwin", folder, undefined, undefined, "24.6.0");
+  const setup = new Setup(
+    new Switches(folder, true),
+    { program: driver, socket: "/tmp/host.sock" },
+    undefined,
+    mac.stands,
+  );
+  await setup.set("screen", true);
+  assert.deepEqual(mac.ran, []);
+  const opened = ["/usr/bin/open", ["-n", "-g", "-a", app, "--args", "grant", "screen-recording"]];
+  await setup.ask("screen", "screen-recording");
+  assert.deepEqual(mac.ran, [opened]);
+  await setup.ask("screen", "screen-recording");
+  assert.deepEqual(mac.ran, [
+    opened,
+    opened,
+    [
+      "/usr/bin/open",
+      ["x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"],
+    ],
+  ]);
+});
+
 test("each browser is asked for by itself, at its own switch", async (t) => {
   const home = folderOf(t);
   const edge = join(home, "Applications", "Microsoft Edge.app");
@@ -411,6 +586,17 @@ test("each browser is asked for by itself, at its own switch", async (t) => {
     status: 409,
     message: "Chrome isn't installed on this machine.",
   });
+});
+
+test("turning the screen on without Cua Driver asks nothing, and answers", async (t) => {
+  const folder = folderOf(t);
+  const mac = machine("darwin", folder);
+  const switches = new Switches(folder, true);
+  const setup = new Setup(switches, { program: join(folder, "none") }, undefined, mac.stands);
+  await setup.set("screen", true);
+  assert.equal(switches.on("screen"), true);
+  assert.deepEqual(mac.ran, []);
+  assert.deepEqual(await needsOf(setup, "screen"), [{ need: "install", state: "missing" }]);
 });
 
 test("off macOS turning a part on asks nothing", async (t) => {
@@ -429,15 +615,28 @@ test("a step that can't be started leaves the part on, and says why", async (t) 
   mkdirSync(join(home, "Applications", "Google Chrome.app"), { recursive: true });
   const switches = new Switches(home, true);
   const failing = machine("darwin", home, undefined, "No application knows how to open it.");
+  const driver = driverAt(
+    join(home, "Example.app", "Contents", "Resources", "cua-driver"),
+    join(home, "never"),
+  );
   await assert.rejects(
-    new Setup(switches, undefined, undefined, failing.stands).set("browser", true),
+    new Setup(
+      switches,
+      { program: driver, socket: "/tmp/host.sock" },
+      undefined,
+      failing.stands,
+    ).set("screen", true),
     {
       status: 409,
       message:
-        "The browser is on, but asking for what it needs didn't start: No application knows how to open it.",
+        "The screen is on, but asking for what it needs didn't start: No application knows how to open it.",
     },
   );
-  assert.equal(switches.on("browser"), true);
+  assert.equal(switches.on("screen"), true);
+  await assert.rejects(
+    new Setup(switches, undefined, undefined, failing.stands).ask("browser", "chrome"),
+    { status: 409, message: "No application knows how to open it." },
+  );
   // One the service was given only the folder of, the person opens: turning it on opens nothing,
   // and asking for it says so.
   const named = new Setup(switches, undefined, join(home, "named"), failing.stands);
