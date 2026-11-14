@@ -166,6 +166,9 @@ async function main() {
     const { "tls-cert": cert, "tls-key": key } = values;
     if (Boolean(cert) !== Boolean(key))
       throw new UsageError("--tls-cert and --tls-key go together.");
+    // A driver an app runs is the one inside it, never one found on this machine.
+    if (values["screen-socket"] && !values["screen-driver"])
+      throw new UsageError("--screen-socket needs --screen-driver: the driver the app runs.");
     const screenDriver = { program: values["screen-driver"], socket: values["screen-socket"] };
     return serve({
       listen: values.listen ?? "127.0.0.1:7878",

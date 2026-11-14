@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -66,6 +66,90 @@ test("where Cua Driver isn't installed, the screen isn't ready and attaching wit
   const info = await plain.getInfo();
   assert.deepEqual([info.screen, info.endpoints.screen, info.tools.screen], [false, null, []]);
   await plain.kill();
+});
+
+test("a driver an app hosts is reached, and its grants read, only through that app's socket", async (t) => {
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), "ac-")));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  const cli = join(root, "dist", "agentcomputer.js");
+  // Named alone, the socket is refused: the driver is the one inside the app that runs it.
+  await assert.rejects(
+    run(process.execPath, [
+      cli,
+      "serve",
+      "--data",
+      join(folder, "refused"),
+      "--screen-socket",
+      "/tmp/s",
+    ]),
+    (error: { code: number; stderr: string }) =>
+      error.code === 2 && /--screen-socket needs --screen-driver/.test(error.stderr),
+  );
+  // A stand-in for the driver inside the app, which writes down how it was run, and whose own
+  // runtime its host hasn't started.
+  const record = join(folder, "ran");
+  const socket = join(folder, "host.sock");
+  const driver = join(folder, "cua-driver");
+  writeFileSync(
+    driver,
+    `#!/bin/sh
+echo "$*" >> "${record}"
+case "$1" in
+  --version) echo "cua-driver 0.49.7" ;;
+  call) echo '{"accessibility":true,"screen_recording":true,"source":{"attribution":"host"}}' ;;
+  mcp) echo "no Cua Driver daemon listening on $4" >&2; exit 1 ;;
+esac
+`,
+  );
+  chmodSync(driver, 0o755);
+  const child: ChildProcess = spawn(
+    process.execPath,
+    [cli, "serve", "--listen", "127.0.0.1:0", "--data", join(folder, "data")].concat([
+      "--screen-driver",
+      driver,
+      "--screen-socket",
+      socket,
+    ]),
+    { env: { PATH: process.env.PATH ?? "", HOME: folder }, stdio: ["ignore", "pipe", "inherit"] },
+  );
+  t.after(async () => {
+    const gone = once(child, "exit");
+    child.kill("SIGTERM");
+    await gone;
+  });
+  const url = await new Promise<string>((done) =>
+    createInterface({ input: child.stdout as NodeJS.ReadableStream }).on("line", (line) => {
+      const found = /^AgentComputer on (\S+),/.exec(line);
+      if (found) done(found[1] as string);
+    }),
+  );
+  const { Computer } = (await import(pathToFileURL(join(root, "dist", "sdk.js")).href)) as Sdk;
+  const to = {
+    apiUrl: url,
+    apiKey: readFileSync(join(folder, "data", "control-token"), "utf8").trim(),
+  };
+  // Once the service has first looked for the driver.
+  const screen = async () =>
+    (await Computer.serviceInfo(to)).thisComputer.capabilities.find(
+      (one) => one.capability === "screen",
+    );
+  for (let i = 0; i < 50 && (await screen())?.reason?.includes("being looked for"); i++)
+    await new Promise((done) => setTimeout(done, 100));
+  assert.deepEqual(await screen(), { capability: "screen", ready: true });
+  await assert.rejects(
+    Computer.attach({ ...to, access: "read", workspace: folder, screen: true }),
+    (error: Error & { code: number }) =>
+      error.code === 409 && error.message.includes(`no Cua Driver daemon listening on ${socket}`),
+  );
+  const ran = readFileSync(record, "utf8");
+  assert.match(ran, new RegExp(`^mcp --embedded --socket ${socket}$`, "m"));
+  // Only macOS reads grants, and there from the host's driver, never the driver's own app.
+  if (process.platform === "darwin")
+    assert.match(
+      ran,
+      new RegExp(`^call check_permissions {"prompt":false} --socket ${socket}$`, "m"),
+    );
+  assert.doesNotMatch(ran, /permissions status|^mcp$/m);
 });
 
 test("the person's input in the live view is the driver's call, at the whole screen", () => {

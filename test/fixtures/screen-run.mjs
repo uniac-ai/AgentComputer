@@ -42,7 +42,9 @@ try {
   const driverSocket = "/tmp/driver.sock";
   const embedded = process.argv.includes("--embedded");
   if (embedded) {
-    start("cua-driver", ["serve", "--embedded", "--socket", driverSocket]);
+    children.push(
+      spawn("cua-driver", ["serve", "--embedded", "--socket", driverSocket], { stdio: "ignore" }),
+    );
     await until(() => existsSync(driverSocket), "the driver's socket");
   }
   const service = start(process.execPath, [
@@ -52,7 +54,9 @@ try {
     "127.0.0.1:0",
     "--data",
     data,
-    ...(embedded ? ["--screen-socket", driverSocket] : []),
+    ...(embedded
+      ? ["--screen-driver", "/usr/local/bin/cua-driver", "--screen-socket", driverSocket]
+      : []),
   ]);
   const url = await new Promise((done, failed) => {
     service.once("exit", (code) => failed(new Error(`The service exited ${code}.`)));

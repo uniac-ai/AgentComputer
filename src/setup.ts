@@ -2,8 +2,9 @@
 // files, its screen and the person's own browser), the person's switch, and what that part still
 // needs before it works. Asking for what a part needs takes the steps on this machine, so a
 // window, wherever it is drawn, only shows them. The terminal and the files need nothing: on
-// macOS the Mac asks folder by folder. The screen needs Cua Driver's Screen Recording and
-// Accessibility; the browser needs remote debugging on. Only macOS asks.
+// macOS the Mac asks folder by folder. The screen needs Cua Driver, and Screen Recording and
+// Accessibility for the app whose grants it uses, its own or the app hosting it; the browser needs
+// remote debugging on. Only macOS asks.
 import { execFile, spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -11,14 +12,7 @@ import { promisify } from "node:util";
 import type { components } from "./generated/schema.js";
 import { browsers, here, reachedAt, type Where } from "./own-browser.ts";
 import { ApiError } from "./runtime.ts";
-import {
-  type DriverFound,
-  type DriverGiven,
-  driverGrants,
-  findDriver,
-  quiet,
-  screenCheck,
-} from "./screen.ts";
+import { type DriverAt, driverGrants, findDriver, quiet, screenCheck } from "./screen.ts";
 import { SWITCHES, type Switch, type Switches } from "./switches.ts";
 
 type Schemas = components["schemas"];
@@ -67,31 +61,31 @@ const IN_APP = /^(.*?\/[^/]+\.app)\/Contents\/(MacOS\/[^/]+$)?/;
 /** How long the driver's app has to start answering before its grant runs anyway. */
 const APP_MS = 10_000;
 
+/** One string in an app's Info.plist, where it has it. */
+async function infoValue(app: string, key: string) {
+  const plist = join(app, "Contents", "Info.plist");
+  try {
+    return (
+      await exec("/usr/bin/plutil", ["-extract", key, "raw", "-o", "-", plist])
+    ).stdout.trim();
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * The app the driver is inside, where it is in one: its name as System Settings lists the grants,
- * its own program, and whether the driver is that program.
+ * and whether the driver is its own program.
  */
 async function driverApp(program: string) {
   const found = IN_APP.exec(realpathSync(program));
   if (!found) return undefined;
   const app = found[1] as string;
-  const own = found[2] !== undefined;
-  let info: { CFBundleDisplayName?: string; CFBundleName?: string; CFBundleExecutable?: string } =
-    {};
-  try {
-    const plist = join(app, "Contents", "Info.plist");
-    const { stdout } = await exec("/usr/bin/plutil", ["-convert", "json", "-o", "-", plist]);
-    info = JSON.parse(stdout);
-  } catch {
-    // Named, and its program found, as an app's usually are.
-  }
-  const named = basename(app, ".app");
-  return {
-    app,
-    name: info.CFBundleDisplayName ?? info.CFBundleName ?? named,
-    program: join(app, "Contents", "MacOS", info.CFBundleExecutable ?? named),
-    own,
-  };
+  const name =
+    (await infoValue(app, "CFBundleDisplayName")) ??
+    (await infoValue(app, "CFBundleName")) ??
+    basename(app, ".app");
+  return { app, name, own: found[2] !== undefined };
 }
 
 const grant = (value: boolean | undefined): Granted =>
@@ -111,14 +105,14 @@ const NOTHING: Part = { ready: true, needs: [] };
 
 export class Setup {
   readonly #switches: Switches;
-  readonly #driver: DriverGiven;
+  readonly #driver: Partial<DriverAt>;
   readonly #browserData: string | undefined;
   readonly #machine: Machine;
 
   /** `driver` and `browserData` are as `serve` names them: Cua Driver, and the browser's folder. */
   constructor(
     switches: Switches,
-    driver: DriverGiven = {},
+    driver: Partial<DriverAt> = {},
     browserData?: string,
     machine: Machine = thisMachine(),
   ) {
@@ -215,10 +209,12 @@ export class Setup {
     if (capability === "screen") {
       const driver = findDriver(this.#driver);
       if (!driver) throw new Error("Cua Driver isn't installed on this machine.");
-      const missing = needs.filter((one) => one.state !== "granted").map((one) => one.need);
-      const asked = need ? [need] : missing;
-      if (driver.socket) await this.#askHost(driver, asked);
-      else if (missing.length > 0) await this.#askScreen(driver);
+      // What is missing of what was asked for: a grant already given is only shown.
+      const asked = needs
+        .filter((one) => one.state !== "granted" && (!need || one.need === need))
+        .map((one) => one.need);
+      if (asked.length > 0)
+        await (driver.socket ? this.#askHost(driver, asked) : this.#askScreen(driver));
       const pane = need && PANE[need];
       if (pane) await this.#machine.run("/usr/bin/open", [pane]);
     }
@@ -231,7 +227,7 @@ export class Setup {
    * Mac names CuaDriver in what it asks, not whatever started the service. It asks in its own
    * order, Accessibility first. Neither sends telemetry.
    */
-  async #askScreen(driver: DriverFound) {
+  async #askScreen(driver: DriverAt) {
     const answers = async () => (await driverGrants(driver)).accessibility !== undefined;
     // Started through the system, where the driver is its app's own program.
     const app = await driverApp(driver.program);
@@ -252,17 +248,25 @@ export class Setup {
   }
 
   /**
-   * The grants of the app hosting the driver, which the driver can't ask for: that app's own
-   * program asks, `grant` and each grant to ask for, in turn.
+   * The grants of the app hosting the driver, which the driver can't ask for: the app asks, opened
+   * through the system so that what it asks is its own, whatever started the service, with
+   * `grant` and each grant to ask for, in turn.
    */
-  async #askHost(driver: DriverFound, asked: NeedName[]) {
-    if (asked.length === 0) return;
+  async #askHost(driver: DriverAt, asked: NeedName[]) {
     const host = await driverApp(driver.program);
     if (!host)
       throw new Error(
         "The app running Cua Driver can't be told from here: the driver isn't inside it.",
       );
-    await this.#machine.start(host.program, ["grant", ...asked], quiet());
+    await this.#machine.run("/usr/bin/open", [
+      "-n",
+      "-g",
+      "-a",
+      host.app,
+      "--args",
+      "grant",
+      ...asked,
+    ]);
   }
 
   /**

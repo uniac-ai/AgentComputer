@@ -65,14 +65,14 @@ const machine = (platform: NodeJS.Platform, home: string, onRun?: () => void, fa
  * can't read them while its app isn't running; embedded, it answers only through its host's
  * socket, at /tmp/host.sock.
  */
-const driverAt = (path: string, answering: string, allGranted = false) => {
+const driverAt = (path: string, answering: string, allGranted = false, attribution = "host") => {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(
     path,
     `#!/bin/sh
 case "$1 $2" in
   "permissions status") [ -f "${answering}" ] && echo '{"accessibility":true,"screen_recording":${allGranted}}' || echo '{"status":"unknown"}' ;;
-  "call check_permissions") [ "$4 $5" = "--socket /tmp/host.sock" ] && echo '{"accessibility":true,"screen_recording":${allGranted},"source":{"attribution":"host"}}' ;;
+  "call check_permissions") [ "$4 $5" = "--socket /tmp/host.sock" ] && echo '{"accessibility":true,"screen_recording":${allGranted},"source":{"attribution":"${attribution}"}}' ;;
   *) echo "cua-driver 0.49.7" ;;
 esac
 `,
@@ -332,17 +332,43 @@ test("a driver an app runs embedded is read, and asked for, through that app", a
     { need: "screen-recording", holder: "Example", state: "not-granted" },
     { need: "accessibility", holder: "Example", state: "granted" },
   ]);
-  // The host's own program asks: for one grant, or for each that is missing.
-  const host = join(app, "Contents", "MacOS", "Example");
-  await setup.ask("screen", "accessibility");
+  // The host asks, opened through the system: for one grant, or for each that is missing.
+  const opened = (...asked: string[]) => [
+    "/usr/bin/open",
+    ["-n", "-g", "-a", app, "--args", "grant", ...asked],
+  ];
+  await setup.ask("screen", "screen-recording");
   await setup.ask("screen");
+  await setup.ask("screen", "accessibility");
   assert.deepEqual(mac.ran, [
-    [host, ["grant", "accessibility"]],
+    opened("screen-recording"),
+    [
+      "/usr/bin/open",
+      ["x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"],
+    ],
+    opened("screen-recording"),
+    // Already given, only its pane opens.
     [
       "/usr/bin/open",
       ["x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"],
     ],
-    [host, ["grant", "screen-recording"]],
+  ]);
+  // A driver on that socket that isn't the host's own, embedded, says nothing of its grants.
+  const other = driverAt(
+    join(folder, "Other.app", "Contents", "MacOS", "cua-driver"),
+    "",
+    false,
+    "caller",
+  );
+  const notHosted = new Setup(
+    new Switches(folder, true),
+    { program: other, socket: "/tmp/host.sock" },
+    undefined,
+    mac.stands,
+  );
+  assert.deepEqual(await needsOf(notHosted, "screen"), [
+    { need: "screen-recording", holder: "Other", state: "unknown" },
+    { need: "accessibility", holder: "Other", state: "unknown" },
   ]);
 });
 

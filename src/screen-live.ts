@@ -6,7 +6,7 @@ import type { WebSocket } from "ws";
 import { z } from "zod";
 import { reason } from "./files-live.ts";
 import type { components } from "./generated/schema.js";
-import { type Answer, DESKTOP, Driver, type DriverFound, driverCall } from "./screen.ts";
+import { type Answer, DESKTOP, Driver, type DriverAt, driverCall } from "./screen.ts";
 
 type Mode = components["schemas"]["LiveMode"];
 type ScreenEvent = components["schemas"]["ScreenEvent"];
@@ -94,8 +94,8 @@ const said = (answer: Answer) =>
     .join("\n") || "Cua Driver refused it.";
 
 export class ScreenLive {
-  /** Cua Driver, as found. */
-  readonly #found: DriverFound;
+  /** Where Cua Driver is. */
+  readonly #at: DriverAt;
   readonly #log: (line: string) => void;
   /** Heard each time a person acts on the screen. */
   readonly #acted: () => void;
@@ -108,8 +108,8 @@ export class ScreenLive {
   /** The last frame, kept until the picture changes. */
   #frame: Frame | undefined;
 
-  constructor(driver: DriverFound, log: (line: string) => void, acted: () => void) {
-    this.#found = driver;
+  constructor(driver: DriverAt, log: (line: string) => void, acted: () => void) {
+    this.#at = driver;
     this.#log = log;
     this.#acted = acted;
   }
@@ -153,7 +153,7 @@ export class ScreenLive {
   /** The driver, connected once for everyone watching, and the frames it is taken for. */
   #begin() {
     if (this.#started) return this.#started;
-    const driver = new Driver(this.#found, this.#log, () => {
+    const driver = new Driver(this.#at, this.#log, () => {
       if (this.#driver === driver) this.#leave(1011, "Cua Driver stopped.");
     });
     this.#driver = driver;
