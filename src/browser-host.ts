@@ -3,7 +3,7 @@
 // to. There is no debug port, so no page can reach the browser's protocol.
 import { mkdtempSync, rmSync } from "node:fs";
 import { join, sep } from "node:path";
-import { playwright } from "./playwright.ts";
+import { DEFAULT_CHANNEL, playwright } from "./playwright.ts";
 
 export interface HostOptions {
   profile: string;
@@ -19,7 +19,7 @@ const sandboxFor = (options: HostOptions) =>
   options.sandbox ??
   (process.platform !== "linux" ||
     (!options.executable &&
-      !["chromium", "chrome-for-testing"].includes(options.channel ?? "chrome")));
+      !["chromium", "chrome-for-testing"].includes(options.channel ?? DEFAULT_CHANNEL)));
 
 export async function hostBrowser(options: HostOptions) {
   // Playwright puts the socket under XDG_RUNTIME_DIR, or under the temporary folder when that
@@ -36,7 +36,7 @@ export async function hostBrowser(options: HostOptions) {
     chromiumSandbox: sandboxFor(options),
     ...(options.executable
       ? { executablePath: options.executable }
-      : { channel: options.channel ?? "chrome" }),
+      : { channel: options.channel ?? DEFAULT_CHANNEL }),
   });
   const browser = context.browser();
   if (!browser) throw new Error("The browser can't be shared.");

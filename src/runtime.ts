@@ -1,5 +1,6 @@
-// How a computer runs. Without isolation it's processes of the service's user; `container.ts` is
-// the other way. Inside a container the same processes run, through this file.
+// How a computer runs. This computer is processes of the service's user, reaching the whole
+// machine; `container.ts` is the other way. Inside a container the same processes run, through
+// this file, kept to its workspace.
 import { chmodSync, existsSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createRequire } from "node:module";
@@ -14,10 +15,14 @@ import { FilesLive } from "./files-live.ts";
 import type { components } from "./generated/schema.js";
 import { Live, type LiveMode, type Surface, type SurfaceInfo } from "./live.ts";
 import { LoadLive } from "./load-live.ts";
+import { channelProgram, DEFAULT_CHANNEL, playwright } from "./playwright.ts";
 import { privateFolder } from "./store.ts";
 
-export type Access = components["schemas"]["Access"];
-export type Isolation = components["schemas"]["Isolation"];
+type Schemas = components["schemas"];
+export type Access = Schemas["Access"];
+export type Isolation = Schemas["Isolation"];
+/** What a computer run one way offers, and whether one can be run that way now. */
+export type Offer = Schemas["Offer"];
 export type Endpoint = "computer" | "browser";
 
 /** A refusal of the request, with the HTTP status that says so. */
@@ -65,8 +70,8 @@ export interface Running {
 }
 
 export interface Runtime {
-  /** Whether a computer can be made this way now. */
-  available(): Promise<boolean>;
+  /** What a computer run this way offers, and whether one can be now. */
+  offer(): Promise<Offer>;
   /** Check what it needs, before a computer is started this way. */
   prepare(): Promise<void>;
   /** Start one, or start it again, its private folder being `folder`. */
@@ -112,18 +117,51 @@ const loadPty = () => {
   return pty;
 };
 
+/** Whether the browser it starts is on this machine, and if it isn't, why not. */
+function browserProgram(config: BrowserConfig): Schemas["Readiness"] {
+  const channel = config.browser ?? DEFAULT_CHANNEL;
+  let path: string | undefined;
+  try {
+    // The service's image for a server has no Playwright beside it, and so no browser.
+    playwright();
+    path = config.path ?? channelProgram(channel);
+  } catch {
+    return { ready: false, reason: "Playwright isn't installed with this service." };
+  }
+  if (path && existsSync(path)) return { ready: true };
+  return {
+    ready: false,
+    reason: config.path
+      ? `There's no browser at ${config.path}. Start the service with a --browser-path that exists.`
+      : `The browser ${channel} isn't installed on this machine. Install it, or start the service with --browser-name or --browser-path.`,
+  };
+}
+
 export class ProcessRuntime implements Runtime {
   readonly #config: BrowserConfig;
   readonly #contained: boolean;
 
-  /** `contained` is for inside a container, where the computer and its load are its own. */
+  /**
+   * Outside a container it is this computer, its files reaching the whole machine. `contained` is
+   * for inside one, where the computer and its load are its own and its files stay in its
+   * workspace.
+   */
   constructor(config: BrowserConfig, contained = false) {
     this.#config = config;
     this.#contained = contained;
   }
 
-  async available() {
-    return true;
+  async offer(): Promise<Offer> {
+    return {
+      ready: true,
+      capabilities: [
+        { capability: "about", ready: true },
+        { capability: "terminal", ready: true },
+        { capability: "files", ready: true },
+        { capability: "screen", ready: false, reason: "This service can't reach the screen yet." },
+      ],
+      browsers: [{ kind: "headless", ...browserProgram(this.#config) }],
+    };
   }
 
   async prepare() {}
@@ -150,6 +188,7 @@ export class ProcessRuntime implements Runtime {
       exec = createAgentExec({
         workspace,
         level: spec.access,
+        reach: this.#contained ? "workspace" : "machine",
         pty: await loadPty(),
         extraTools: [about],
       });

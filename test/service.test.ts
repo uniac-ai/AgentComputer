@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -38,6 +39,7 @@ interface Created {
   computerID: string;
   state: string;
   isolation: string;
+  attached: boolean;
   version: string | null;
   accessToken: string;
   workspace: string | null;
@@ -113,6 +115,7 @@ async function setup(
   const cli = async (...args: string[]) =>
     (await run(process.execPath, [CLI, ...args, "--data", data])).stdout;
   const create = async (...args: string[]) => JSON.parse(await cli("create", ...args)) as Created;
+  const attach = async (...args: string[]) => JSON.parse(await cli("attach", ...args)) as Created;
   const control = readFileSync(join(data, "control-token"), "utf8").trim();
   const api = (path: string, init: RequestInit = {}, token = control) =>
     fetch(`${url}/v1/computers${path}`, {
@@ -147,7 +150,19 @@ async function setup(
     between();
     await start();
   };
-  return { root, data, workspace, cli, create, control, api, mcp, restart, url: () => url };
+  return {
+    root,
+    data,
+    workspace,
+    cli,
+    create,
+    attach,
+    control,
+    api,
+    mcp,
+    restart,
+    url: () => url,
+  };
 }
 
 const initialize = JSON.stringify({
@@ -171,10 +186,10 @@ const raw = (endpoint: string, token: string) =>
     body: initialize,
   });
 
-test("agentcomputer create gives endpoints a hand-run MCP client uses", withBrowser, async (t) => {
-  const { create, mcp, workspace } = await setup(t);
-  const made = await create("--access", "terminal", "--browser", "--workspace", workspace);
-  assert.equal(made.state, "running");
+test("agentcomputer attach gives endpoints a hand-run MCP client uses", withBrowser, async (t) => {
+  const { attach, mcp, workspace, root } = await setup(t);
+  const made = await attach("--access", "terminal", "--browser", "--workspace", workspace);
+  assert.deepEqual([made.state, made.attached, made.isolation], ["running", true, "none"]);
   const computer = await mcp(made.endpoints.computer as string, made.accessToken);
   const ran = await computer.call("exec_command", { cmd: "pwd" });
   assert.equal(ran.isError, false);
@@ -183,6 +198,13 @@ test("agentcomputer create gives endpoints a hand-run MCP client uses", withBrow
   const edited = await computer.call("edit", { path: "n.txt", old_text: "", new_text: "hi\n" });
   assert.equal(edited.isError, false);
   assert.equal(readFileSync(join(workspace, "n.txt"), "utf8"), "hi\n");
+  // Its files reach the whole machine, as whoever started the service: the folder is where its
+  // work starts, not a wall.
+  writeFileSync(join(root, "beside.txt"), "beside\n");
+  assert.match(
+    (await computer.call("read", { path: join(root, "beside.txt") })).text,
+    /^1\tbeside$/m,
+  );
   const started = await computer.call("exec_command", { cmd: "cat", yield_time_ms: 250 });
   const session_id = /session_id: (\S+)/.exec(started.text)?.[1] as string;
   const typed = await computer.call("write_stdin", {
@@ -263,9 +285,9 @@ test("agentcomputer create gives endpoints a hand-run MCP client uses", withBrow
 });
 
 test("the control token and each computer's token reach only their own", async (t) => {
-  const { create, api, control, workspace, data, url } = await setup(t);
-  const one = await create("--access", "read", "--workspace", workspace);
-  const two = await create("--access", "read", "--workspace", workspace);
+  const { attach, api, control, workspace, data, url } = await setup(t);
+  const one = await attach("--access", "read", "--workspace", workspace);
+  const two = await attach("--access", "read", "--workspace", workspace);
   const endpoint = one.endpoints.computer as string;
   assert.equal((await raw(endpoint, one.accessToken)).status, 200);
   assert.equal((await raw(endpoint, two.accessToken)).status, 401);
@@ -302,8 +324,8 @@ for (const [access, tools] of [
   ],
 ] as const)
   test(`at ${access} the service lists only its tools`, async (t) => {
-    const { create, mcp, workspace, api } = await setup(t);
-    const made = await create("--access", access, "--workspace", workspace);
+    const { attach, mcp, workspace, api } = await setup(t);
+    const made = await attach("--access", access, "--workspace", workspace);
     assert.deepEqual(
       await (await mcp(made.endpoints.computer as string, made.accessToken)).names(),
       tools,
@@ -315,8 +337,8 @@ for (const [access, tools] of [
   });
 
 test("about tells the agent what a person reads of its computer", async (t) => {
-  const { create, mcp, workspace } = await setup(t);
-  const made = await create("--access", "files", "--workspace", workspace);
+  const { attach, mcp, workspace } = await setup(t);
+  const made = await attach("--access", "files", "--workspace", workspace);
   const computer = await mcp(made.endpoints.computer as string, made.accessToken);
   const { text, isError } = await computer.call("about");
   assert.equal(isError, false);
@@ -325,7 +347,7 @@ test("about tells the agent what a person reads of its computer", async (t) => {
     { label: "Where", value: hostname() },
     { label: "Folder", value: workspace, path: true },
     { label: "Reaches", value: "Files" },
-    { label: "Isolation", value: "None: it acts as you", caution: true },
+    { label: "Isolation", value: "None: it acts as you, on the whole machine", caution: true },
   ]);
   const [cpu, memory, disk] = rows.slice(4).map((row) => `${row.label}: ${row.value}`);
   assert.match(cpu ?? "", /^CPU: \d+%$/);
@@ -338,8 +360,8 @@ test(
   "below terminal the tool that runs code is hidden and refused, at terminal it's there",
   withBrowser,
   async (t) => {
-    const { create, mcp, workspace } = await setup(t);
-    const below = await create("--access", "files", "--browser", "--workspace", workspace);
+    const { attach, mcp, workspace } = await setup(t);
+    const below = await attach("--access", "files", "--browser", "--workspace", workspace);
     const browser = await mcp(below.endpoints.browser as string, below.accessToken);
     const names = await browser.names();
     assert.ok(names.includes("browser_navigate"));
@@ -394,7 +416,7 @@ test(
         body,
       );
     }
-    const full = await create("--access", "terminal", "--browser", "--workspace", workspace);
+    const full = await attach("--access", "terminal", "--browser", "--workspace", workspace);
     assert.ok(
       (await (await mcp(full.endpoints.browser as string, full.accessToken)).names()).includes(
         "browser_run_code_unsafe",
@@ -413,44 +435,50 @@ test(
 );
 
 test("a computer has only what it was asked for", withBrowser, async (t) => {
-  const { create, api, workspace, url } = await setup(t);
-  const plain = await create("--access", "read", "--workspace", workspace);
+  const { attach, api, workspace, url } = await setup(t);
+  const plain = await attach("--access", "read", "--workspace", workspace);
   assert.equal(plain.endpoints.browser, null);
   assert.equal(
     (await raw(`${url()}/v1/computers/${plain.computerID}/mcp/browser`, plain.accessToken)).status,
     404,
   );
-  const only = await create("--access", "none", "--browser");
+  const only = await attach("--access", "none", "--browser", "--workspace", workspace);
   assert.equal(only.endpoints.computer, null);
   assert.ok(only.endpoints.browser);
-  const refuse = async (body: object) =>
-    (await api("", { method: "POST", body: JSON.stringify(body) })).status;
-  assert.equal(await refuse({ access: "none" }), 400);
-  assert.equal(await refuse({ access: "everything" }), 400);
-  assert.equal(await refuse({ access: "read", workspace: "relative" }), 400);
-  assert.equal(await refuse({ access: "read", workspace: join(workspace, "nope") }), 400);
-  assert.equal(await refuse({ access: "read", timeout: -1 }), 400);
+  // Made or attached, the same is refused, before anything is made.
+  for (const path of ["", "/attach"]) {
+    const refuse = async (body: object) =>
+      (await api(path, { method: "POST", body: JSON.stringify(body) })).status;
+    assert.equal(await refuse({ access: "none", workspace }), 400, path);
+    assert.equal(await refuse({ access: "everything", workspace }), 400, path);
+    assert.equal(await refuse({ access: "read", workspace: "relative" }), 400, path);
+    assert.equal(await refuse({ access: "read", workspace: join(workspace, "nope") }), 400, path);
+    assert.equal(await refuse({ access: "read", workspace, timeout: -1 }), 400, path);
+  }
+  // This computer only with a work folder.
+  const bare = await api("/attach", { method: "POST", body: JSON.stringify({ access: "read" }) });
+  assert.equal(bare.status, 400);
 });
 
-test("kill removes what the service made, and never a folder someone named", async (t) => {
-  const { create, cli, workspace, data, api } = await setup(t);
-  const named = await create("--access", "files", "--workspace", workspace);
-  await cli("kill", named.computerID);
-  assert.ok(existsSync(workspace));
-  assert.equal((await api(`/${named.computerID}`)).status, 404);
-  assert.equal((await raw(named.endpoints.computer as string, named.accessToken)).status, 401);
-
-  const own = await create("--access", "files");
-  assert.ok(own.workspace?.startsWith(data));
-  assert.ok(existsSync(own.workspace as string));
-  await cli("kill", own.computerID);
-  assert.equal(existsSync(own.workspace as string), false);
+test("killing this computer detaches it, and removes nothing of the machine's", async (t) => {
+  const { attach, cli, workspace, data, api } = await setup(t);
+  writeFileSync(join(workspace, "kept.txt"), "kept\n");
+  const attached = await attach("--access", "files", "--workspace", workspace);
+  await cli("kill", attached.computerID);
+  assert.equal(readFileSync(join(workspace, "kept.txt"), "utf8"), "kept\n");
+  assert.equal((await api(`/${attached.computerID}`)).status, 404);
+  assert.equal(
+    (await raw(attached.endpoints.computer as string, attached.accessToken)).status,
+    401,
+  );
+  // What the service kept for it, its log and its token's digest, goes.
+  assert.equal(existsSync(join(data, "computers", attached.computerID)), false);
 });
 
 test("a computer stops at its timeout, its folder stays, and a running one can be extended", async (t) => {
-  const { create, cli, api, workspace } = await setup(t);
-  const short = await create("--access", "read", "--workspace", workspace, "--timeout", "1");
-  const kept = await create("--access", "read", "--workspace", workspace, "--timeout", "1");
+  const { attach, cli, api, workspace } = await setup(t);
+  const short = await attach("--access", "read", "--workspace", workspace, "--timeout", "1");
+  const kept = await attach("--access", "read", "--workspace", workspace, "--timeout", "1");
   const extended = JSON.parse(await cli("timeout", kept.computerID, "600")) as { endAt: string };
   assert.ok(Date.parse(extended.endAt) > Date.now() + 500_000);
   await new Promise((done) => setTimeout(done, 1500));
@@ -469,67 +497,136 @@ test(
   "computers and tokens come back when the service restarts, and logs say what happened",
   withBrowser,
   async (t) => {
-    const { create, restart, cli, url, workspace, data } = await setup(t);
-    const made = await create("--access", "read", "--browser", "--workspace", workspace);
-    assert.equal(made.isolation, "none");
+    const { attach, restart, cli, url, workspace } = await setup(t);
+    const made = await attach("--access", "read", "--browser", "--workspace", workspace);
     const before = new URL(made.endpoints.computer as string).pathname;
-    // Its record is left as an earlier version wrote it, which kept no isolation: it comes back
-    // with the service's own.
-    await restart(() => {
-      const file = join(data, "computers.json");
-      const records = JSON.parse(readFileSync(file, "utf8")) as { isolation?: string }[];
-      for (const record of records) delete record.isolation;
-      writeFileSync(file, JSON.stringify(records));
-    });
+    await restart();
     assert.equal((await raw(`${url()}${before}`, made.accessToken)).status, 200);
     assert.match(await cli("logs", made.computerID), /POST mcp\/computer/);
     const listed = JSON.parse(await cli("list")) as Created[];
-    // With no isolation it runs the service's own program.
+    // This computer runs the service's own program.
     const { version } = JSON.parse(await cli("info")) as { version: string };
     assert.deepEqual(
-      listed.map((one) => [one.computerID, one.state, one.isolation, one.version]),
-      [[made.computerID, "running", "none", version]],
+      listed.map((one) => [one.computerID, one.state, one.attached, one.version]),
+      [[made.computerID, "running", true, version]],
     );
   },
 );
 
-for (const [why, args] of [
-  ["another address without TLS", ["--listen", "0.0.0.0:0"]],
-  ["an isolation it doesn't have", ["--listen", "127.0.0.1:0", "--isolation", "vm"]],
+for (const [why, reason, args] of [
+  ["another address without TLS", /TLS/, ["--listen", "0.0.0.0:0"]],
+  [
+    "an isolation of its own",
+    /Only create takes --isolation\./,
+    ["--listen", "127.0.0.1:0", "--isolation", "container"],
+  ],
 ] as const)
   test(`serve refuses ${why}`, async (t) => {
     const data = mkdtempSync(join(tmpdir(), "agentcomputer-"));
     t.after(() => rmSync(data, { recursive: true, force: true }));
-    await assert.rejects(run(process.execPath, [CLI, "serve", ...args, "--data", data]));
+    await assert.rejects(
+      run(process.execPath, [CLI, "serve", ...args, "--data", data]),
+      (error: Error & { stderr: string }) => reason.test(error.stderr),
+    );
   });
 
-test("where Docker doesn't answer, a computer is made with no isolation only", async (t) => {
-  const { cli, create, api, workspace } = await setup(t, BROWSER_ARGS, {
+test("info says what this computer offers, each ready or not and why", async (t) => {
+  const { cli } = await setup(t, ["--browser-path", "/nonexistent/browser"]);
+  const screen = {
+    capability: "screen",
+    ready: false,
+    reason: "This service can't reach the screen yet.",
+  };
+  const offered = (browser: object) => ({
+    ready: true,
+    capabilities: [
+      { capability: "about", ready: true },
+      { capability: "terminal", ready: true },
+      { capability: "files", ready: true },
+      screen,
+    ],
+    browsers: [{ kind: "headless", ...browser }],
+  });
+  const { thisComputer } = JSON.parse(await cli("info")) as Record<string, unknown>;
+  assert.deepEqual(
+    thisComputer,
+    offered({
+      ready: false,
+      reason:
+        "There's no browser at /nonexistent/browser. Start the service with a --browser-path that exists.",
+    }),
+  );
+  const other = await setup(t, ["--browser-name", "no-such-channel"]);
+  assert.deepEqual(
+    (JSON.parse(await other.cli("info")) as Record<string, unknown>).thisComputer,
+    offered({
+      ready: false,
+      reason:
+        "The browser no-such-channel isn't installed on this machine. Install it, or start the service with --browser-name or --browser-path.",
+    }),
+  );
+  if (realBrowser)
+    assert.deepEqual(
+      (JSON.parse(await (await setup(t)).cli("info")) as Record<string, unknown>).thisComputer,
+      offered({ ready: true }),
+    );
+});
+
+test("where Docker doesn't answer, nothing is made and this computer is still attached", async (t) => {
+  const { cli, create, attach, api, workspace } = await setup(t, BROWSER_ARGS, {
     DOCKER_HOST: "unix:///nonexistent/docker.sock",
   });
-  const { isolation, isolationsAvailable } = JSON.parse(await cli("info")) as Record<
-    string,
-    unknown
-  >;
-  assert.deepEqual([isolation, isolationsAvailable], ["none", ["none"]]);
+  const needsDocker = "A container needs Docker, which isn't answering on this machine.";
+  const { made } = JSON.parse(await cli("info")) as { made: Record<string, unknown>[] };
+  assert.deepEqual(
+    made.map(({ isolation, ready, reason }) => [isolation, ready, reason]),
+    [["container", false, needsDocker]],
+  );
   const refused = (words: RegExp) => (error: Error & { stderr: string }) =>
     words.test(error.stderr);
-  const asked = ["--access", "read", "--workspace", workspace, "--isolation"];
-  const needsDocker = "A container needs Docker, which isn't answering on this machine.";
-  await assert.rejects(create(...asked, "container"), refused(new RegExp(needsDocker)));
+  const asked = ["--access", "read", "--workspace", workspace];
+  await assert.rejects(create(...asked), refused(new RegExp(needsDocker)));
+  await assert.rejects(
+    create(...asked, "--isolation", "container"),
+    refused(new RegExp(needsDocker)),
+  );
   const answer = await api("", {
     method: "POST",
-    body: JSON.stringify({ access: "read", workspace, isolation: "container" }),
+    body: JSON.stringify({ access: "read", workspace }),
   });
   assert.deepEqual(
     [answer.status, await answer.json()],
     [409, { code: 409, message: needsDocker }],
   );
-  await assert.rejects(create(...asked, "vm"), refused(/--isolation is none or container\./));
-  assert.equal((await create(...asked, "none")).isolation, "none");
+  await assert.rejects(
+    create(...asked, "--isolation", "vm"),
+    refused(/isolation must be equal to one of the allowed values/),
+  );
+  // Only create takes an isolation: attach, which has none, refuses one.
+  await assert.rejects(
+    attach(...asked, "--isolation", "container"),
+    refused(/Only create takes --isolation\./),
+  );
+  // A computer with no isolation is no longer made: what does that is this computer, attached.
+  const none = await api("", {
+    method: "POST",
+    body: JSON.stringify({ access: "read", workspace, isolation: "none" }),
+  });
   assert.deepEqual(
-    (JSON.parse(await cli("list")) as Created[]).map((one) => one.isolation),
-    ["none"],
+    [none.status, await none.json()],
+    [
+      400,
+      {
+        code: 400,
+        message:
+          "A computer with no isolation is no longer made. Attach this computer, or make a container.",
+      },
+    ],
+  );
+  assert.equal((await attach(...asked)).attached, true);
+  assert.deepEqual(
+    (JSON.parse(await cli("list")) as Created[]).map((one) => [one.isolation, one.attached]),
+    [["none", true]],
   );
 });
 
@@ -540,9 +637,71 @@ test("info doesn't wait on a Docker that hangs", async (t) => {
   writeFileSync(join(bin, "docker"), "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 });
   const { cli } = await setup(t, BROWSER_ARGS, { PATH: `${bin}:${process.env.PATH ?? ""}` });
   const asked = Date.now();
-  const { isolationsAvailable } = JSON.parse(await cli("info")) as Record<string, unknown>;
-  assert.deepEqual(isolationsAvailable, ["none"]);
+  const { made } = JSON.parse(await cli("info")) as { made: { ready: boolean }[] };
+  assert.deepEqual(
+    made.map((one) => one.ready),
+    [false],
+  );
   assert.ok(Date.now() - asked < 3_000);
+});
+
+test("a computer made with no isolation before can't start again, and its folder is kept", async (t) => {
+  const { attach, restart, cli, api, workspace, data, url } = await setup(t);
+  const named = await attach("--access", "files", "--workspace", workspace);
+  const own = await attach("--access", "files", "--workspace", workspace);
+  // Their records as services before this one wrote them, made with no isolation and neither
+  // attached: one as 0.0.15 to 0.0.18 did, in a folder someone named, and one as 0.0.14 and
+  // earlier did, keeping no isolation, in a folder the service made.
+  const ownFolder = join(data, "computers", own.computerID, "workspace");
+  await restart(() => {
+    const file = join(data, "computers.json");
+    const records = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>[];
+    for (const record of records) {
+      delete record.attached;
+      if (record.id === own.computerID) {
+        delete record.isolation;
+        record.workspace = ownFolder;
+      }
+    }
+    writeFileSync(file, JSON.stringify(records));
+    mkdirSync(ownFolder);
+    writeFileSync(join(ownFolder, "work.txt"), "work\n");
+  });
+  const words = (folder: string) =>
+    `A computer with no isolation is no longer made. Its folder is kept at ${folder}. Attach this computer with that folder as its work folder, or make a container with it as its workspace.`;
+  const listed = JSON.parse(await cli("list")) as Created[];
+  assert.deepEqual(
+    listed.map((one) => [one.computerID, one.state, one.isolation, one.attached]),
+    [
+      [own.computerID, "failed", "none", false],
+      [named.computerID, "failed", "none", false],
+    ],
+  );
+  for (const [made, folder] of [
+    [named, workspace],
+    [own, ownFolder],
+  ] as const) {
+    assert.ok(
+      (await cli("logs", made.computerID)).includes(`It didn't start again: ${words(folder)}`),
+    );
+    // Stopped and started again as the failed are, it is refused with what to do instead.
+    await cli("stop", made.computerID);
+    const start = await api(`/${made.computerID}/start`, { method: "POST", body: "{}" });
+    assert.deepEqual(
+      [start.status, await start.json()],
+      [409, { code: 409, message: words(folder) }],
+    );
+    const endpoint = `${url()}${new URL(made.endpoints.computer as string).pathname}`;
+    assert.equal((await raw(endpoint, made.accessToken)).status, 409);
+  }
+  // Removed, each leaves its folder: the service's own one too, with nothing else of it.
+  await cli("kill", named.computerID);
+  await cli("kill", own.computerID);
+  assert.ok(existsSync(workspace));
+  assert.equal(existsSync(join(data, "computers", named.computerID)), false);
+  assert.equal(readFileSync(join(ownFolder, "work.txt"), "utf8"), "work\n");
+  assert.deepEqual(readdirSync(dirname(ownFolder)), ["workspace"]);
+  assert.equal((await api("")).status, 200);
 });
 
 test("a malformed live address is refused, and the service stays", async (t) => {
@@ -573,13 +732,13 @@ test("real: Playwright MCP opens and reads a page through the proxy", {
   await once(site, "listening");
   t.after(() => site.close());
   const page = `http://127.0.0.1:${(site.address() as AddressInfo).port}/`;
-  const { create, mcp, workspace } = await setup(t, [
+  const { attach, mcp, workspace } = await setup(t, [
     "--browser-name",
     "chromium",
     "--browser-path",
     realBrowser as string,
   ]);
-  const made = await create("--access", "read", "--browser", "--workspace", workspace);
+  const made = await attach("--access", "read", "--browser", "--workspace", workspace);
   const browser = await mcp(made.endpoints.browser as string, made.accessToken);
   const names = await browser.names();
   assert.ok(names.includes("browser_snapshot"));

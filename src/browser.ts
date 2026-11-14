@@ -9,6 +9,7 @@ import { createInterface } from "node:readline";
 import { pipeline, Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { DEFAULT_CHANNEL } from "./playwright.ts";
 
 /** Its own README calls this equivalent to remote code execution. */
 const RUNS_CODE = "browser_run_code_unsafe";
@@ -204,7 +205,7 @@ export class Browser {
         join(folder, "profile"),
         ...(config.path
           ? ["--executable", config.path]
-          : ["--channel", config.browser ?? "chrome"]),
+          : ["--channel", config.browser ?? DEFAULT_CHANNEL]),
         ...(config.sandbox === false ? ["--no-sandbox"] : []),
       ],
       { stdio: ["ignore", "pipe", "pipe"] },

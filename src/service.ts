@@ -27,10 +27,8 @@ const MAX_BODY = 64 * 1024;
 export interface ServeOptions {
   listen: string;
   data: string;
-  /** How a computer is run, for each isolation it can be made in. */
+  /** How this computer is run, as `none`, and how a computer is made in each isolation. */
   runtimes: Record<Isolation, Runtime>;
-  /** The isolation of a computer made without saying which. */
-  isolation: Isolation;
   /** Files holding the certificate and its key, to terminate TLS here. */
   tls?: { cert: string; key: string } | undefined;
   /** A proxy in front of the service terminates TLS, so it may listen in the clear. */
@@ -99,8 +97,7 @@ export async function serve(options: ServeOptions) {
   if (live)
     throw new Error(`A service is already running with its data in ${data}, at ${live.url}.`);
   let base = "";
-  await options.runtimes[options.isolation].prepare();
-  const computers = new Computers(data, () => base, options.runtimes, options.isolation);
+  const computers = new Computers(data, () => base, options.runtimes);
   const handlers = createHandlers(computers) as unknown as Record<
     string,
     (input: unknown) => Promise<unknown>
@@ -235,10 +232,7 @@ export async function serve(options: ServeOptions) {
   const record = recordOf(data);
   rmSync(record, { force: true });
   await computers.resume();
-  writePrivate(
-    record,
-    JSON.stringify({ url: base, pid: process.pid, isolation: options.isolation }),
-  );
+  writePrivate(record, JSON.stringify({ url: base, pid: process.pid }));
   process.stdout.write(`AgentComputer on ${base}, data in ${data}\n`);
 
   let stopping = false;

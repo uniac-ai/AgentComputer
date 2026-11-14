@@ -1,6 +1,15 @@
 // Computers: each one a working folder, AgentExec at a chosen level, and a browser if asked for.
+// Each is made in a container, or is this computer, attached.
 import { randomBytes } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Duplex } from "node:stream";
@@ -30,6 +39,8 @@ interface Stored {
   access: Access;
   /** How it is isolated, for as long as it exists. */
   isolation: Isolation;
+  /** It is this computer, attached rather than made, with no isolation. */
+  attached?: true;
   /** The version of the program it ran at its last start, where that is known. */
   version?: string;
   browser: boolean;
@@ -59,6 +70,15 @@ interface Ticket {
 
 const expiry = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+/**
+ * Why one made with no isolation, before that was dropped, can't start: what is left of it, and
+ * what to do instead.
+ */
+const noLongerMade = (stored: Stored) =>
+  "A computer with no isolation is no longer made. " +
+  (stored.workspace
+    ? `Its folder is kept at ${stored.workspace}. Attach this computer with that folder as its work folder, or make a container with it as its workspace.`
+    : "Attach this computer, or make a container.");
 /** Why it didn't start, as the service answers it. */
 const refusalOf = (error: unknown) =>
   error instanceof ApiError ? error : new ApiError(500, messageOf(error));
@@ -66,36 +86,34 @@ const refusalOf = (error: unknown) =>
 export class Computers {
   readonly #data: string;
   readonly #base: () => string;
+  /** This computer's way of running, as `none`, and each way of making one. */
   readonly #runtimes: Record<Isolation, Runtime>;
-  /** The isolation of a computer made without saying which. */
-  readonly isolation: Isolation;
   readonly #stored = new Map<string, Stored>();
   readonly #live = new Map<string, Live>();
   readonly #tickets = new Map<string, Ticket>();
   readonly #file: string;
 
-  constructor(
-    data: string,
-    base: () => string,
-    runtimes: Record<Isolation, Runtime>,
-    isolation: Isolation,
-  ) {
+  constructor(data: string, base: () => string, runtimes: Record<Isolation, Runtime>) {
     this.#data = data;
     this.#base = base;
     this.#runtimes = runtimes;
-    this.isolation = isolation;
     this.#file = join(data, "computers.json");
     if (existsSync(this.#file))
-      // One recorded before computers kept their isolation takes the service's, at this start.
+      // One recorded by 0.0.14 or earlier, which kept no isolation, is taken as made with none,
+      // the default then. The README says how to bring over one made in a container then.
       for (const entry of JSON.parse(readFileSync(this.#file, "utf8")) as Stored[])
-        this.#stored.set(entry.id, { ...entry, isolation: entry.isolation ?? isolation });
+        this.#stored.set(entry.id, { ...entry, isolation: entry.isolation ?? "none" });
   }
 
-  /** The isolations a computer can be made in now. */
-  async available() {
-    const all = Object.keys(this.#runtimes) as Isolation[];
-    const can = await Promise.all(all.map((one) => this.#runtimes[one].available()));
-    return all.filter((_, index) => can[index]);
+  /** What it offers: this computer, and each kind it makes, with whether it can be now. */
+  async offers() {
+    const thisComputer = await this.#runtimes.none.offer();
+    const made = await Promise.all(
+      (Object.keys(this.#runtimes) as Isolation[])
+        .filter((isolation) => isolation !== "none")
+        .map(async (isolation) => ({ isolation, ...(await this.#runtimes[isolation].offer()) })),
+    );
+    return { thisComputer, made };
   }
 
   /** Bring back what was running when the service last stopped. */
@@ -124,6 +142,23 @@ export class Computers {
   }
 
   async create(input: Schemas["NewComputer"]): Promise<Schemas["CreatedComputer"]> {
+    if (input.isolation === "none")
+      throw new ApiError(
+        400,
+        "A computer with no isolation is no longer made. Attach this computer, or make a container.",
+      );
+    return this.#make(input, input.isolation ?? "container");
+  }
+
+  /** This computer, attached with its work folder. Nothing is made for it. */
+  attach(input: Schemas["AttachComputer"]): Promise<Schemas["CreatedComputer"]> {
+    return this.#make(input, "none");
+  }
+
+  async #make(
+    input: Schemas["NewComputer"],
+    isolation: Isolation,
+  ): Promise<Schemas["CreatedComputer"]> {
     const { access, name, timeout, metadata } = input;
     const browser = input.browser === true;
     if (access === "none" && !browser)
@@ -146,7 +181,8 @@ export class Computers {
       id,
       name: name ?? id,
       access,
-      isolation: input.isolation ?? this.isolation,
+      isolation,
+      ...(isolation === "none" ? { attached: true } : {}),
       browser,
       ...(workspace ? { workspace } : {}),
       metadata: metadata ?? {},
@@ -254,8 +290,15 @@ export class Computers {
     }
     this.#stored.delete(id);
     this.#save();
-    // Its records, logs and browser profile, and the workspace if the service made it there.
-    rmSync(this.#folder(id), { recursive: true, force: true });
+    // Its records, logs and browser profile, and the workspace if the service made it there. One
+    // made with no isolation can't start again, so its workspace is all that is left of it: that
+    // stays, to be attached or made a container's.
+    const folder = this.#folder(id);
+    if (stored.isolation === "none" && !stored.attached && existsSync(join(folder, "workspace")))
+      for (const entry of readdirSync(folder)) {
+        if (entry !== "workspace") rmSync(join(folder, entry), { recursive: true, force: true });
+      }
+    else rmSync(folder, { recursive: true, force: true });
   }
 
   logs(id: string) {
@@ -377,6 +420,7 @@ export class Computers {
       state: stored.state === "running" && down ? "failed" : stored.state,
       access: stored.access,
       isolation: stored.isolation,
+      attached: stored.attached === true,
       version: stored.version ?? null,
       browser: stored.browser,
       workspace: stored.workspace ?? null,
@@ -393,6 +437,8 @@ export class Computers {
   async #start(stored: Stored) {
     const live: Live = {};
     this.#live.set(stored.id, live);
+    if (stored.isolation === "none" && !stored.attached)
+      throw new ApiError(409, noLongerMade(stored));
     stored.startedAt = new Date().toISOString();
     // In the isolation it was made in, and never another.
     const runtime = this.#runtimes[stored.isolation];
@@ -413,7 +459,7 @@ export class Computers {
         },
       },
     );
-    // With no isolation it runs this service's program; in a container, its image's, if it says.
+    // This computer runs this service's program; a container, its image's, if it says.
     const version = stored.isolation === "none" ? VERSION : live.running.version;
     if (version) stored.version = version;
     else delete stored.version;

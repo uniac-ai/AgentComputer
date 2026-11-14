@@ -31,7 +31,7 @@
     "playwright-core": "1.65.0-alpha-2026-10-30"
   },
   "devDependencies": {
-    "@agentorg/exec": "0.0.8",
+    "@agentorg/exec": "0.0.9",
     "@biomejs/biome": "2.6.5",
     "@modelcontextprotocol/client": "2.4.0",
     "@modelcontextprotocol/node": "2.1.2",

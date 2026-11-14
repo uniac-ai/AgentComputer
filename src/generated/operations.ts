@@ -26,7 +26,7 @@ export const OPENAPI = {
       "get": {
         "operationId": "getInfo",
         "x-mcp-tool": "service_info",
-        "summary": "What this service is and how it isolates its computers.",
+        "summary": "What this service offers: this computer, the kinds of computer it can make, and the browsers that can go with each, every one ready or not and why.",
         "responses": {
           "200": {
             "description": "The service.",
@@ -95,6 +95,44 @@ export const OPENAPI = {
         "responses": {
           "201": {
             "description": "The computer, with its access token, shown only now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedComputer"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/computers/attach": {
+      "post": {
+        "operationId": "attachComputer",
+        "x-mcp-tool": "computer_attach",
+        "summary": "Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Each call attaches it as a computer of its own, with its own id and token. Killing one detaches it and removes nothing of the machine's.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachComputer"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "It, with its access token, shown only now.",
             "content": {
               "application/json": {
                 "schema": {
@@ -280,6 +318,9 @@ export const OPENAPI = {
             "$ref": "#/components/responses/Unauthorized"
           },
           "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
             "$ref": "#/components/responses/Error"
           }
         }
@@ -507,7 +548,41 @@ export const OPENAPI = {
           },
           "isolation": {
             "$ref": "#/components/schemas/Isolation",
-            "description": "How it is isolated, which it keeps for as long as it exists. Left out, it is the service's own, the `isolation` that `getInfo` answers."
+            "description": "How it is isolated, which it keeps for as long as it exists: container, the default. One with no isolation is no longer made, and asking for one is refused: attach this computer instead."
+          },
+          "timeout": {
+            "$ref": "#/components/schemas/Timeout"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/Metadata"
+          }
+        }
+      },
+      "AttachComputer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "access",
+          "workspace"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "access": {
+            "$ref": "#/components/schemas/Access"
+          },
+          "browser": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether it has a headless browser of its own. With access none, it must."
+          },
+          "workspace": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "Its work folder: the full path of a folder that exists. Commands and relative paths start there and its agent is told to work there, but nothing keeps its files inside it. Detaching never removes it."
           },
           "timeout": {
             "$ref": "#/components/schemas/Timeout"
@@ -523,7 +598,7 @@ export const OPENAPI = {
           "none",
           "container"
         ],
-        "description": "none: processes of whoever started the service. container: a container of its own, which needs Docker on the service's machine."
+        "description": "none: processes of whoever started the service, which only this computer has now; a computer made with no isolation before can't start again. container: a container of its own, which needs Docker on the service's machine."
       },
       "Endpoints": {
         "type": "object",
@@ -557,6 +632,7 @@ export const OPENAPI = {
           "state",
           "access",
           "isolation",
+          "attached",
           "version",
           "browser",
           "workspace",
@@ -582,12 +658,16 @@ export const OPENAPI = {
             "$ref": "#/components/schemas/Isolation",
             "description": "The isolation it was made in. It is never run in another."
           },
+          "attached": {
+            "type": "boolean",
+            "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
+          },
           "version": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
+            "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
           },
           "browser": {
             "type": "boolean"
@@ -1371,7 +1451,7 @@ export const OPENAPI = {
               "computer",
               "machine"
             ],
-            "description": "Whose numbers these are. computer: this computer's own, which a container's are. machine: the whole machine's, which a computer with no isolation shares with whatever else runs there, so every computer of that service reads the same; and a container's where it can't read its own."
+            "description": "Whose numbers these are. computer: the computer's own, as a container's are. machine: the whole machine's, as this computer's are, which it shares with whatever else runs there; and a container's where it can't read its own."
           },
           "cpuUsedPct": {
             "type": "number",
@@ -1743,27 +1823,143 @@ export const OPENAPI = {
           }
         }
       },
+      "Readiness": {
+        "type": "object",
+        "required": [
+          "ready"
+        ],
+        "properties": {
+          "ready": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
+          }
+        }
+      },
+      "Capability": {
+        "type": "string",
+        "enum": [
+          "about",
+          "terminal",
+          "files",
+          "screen"
+        ],
+        "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen."
+      },
+      "CapabilityState": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Readiness"
+          },
+          {
+            "type": "object",
+            "required": [
+              "capability"
+            ],
+            "properties": {
+              "capability": {
+                "$ref": "#/components/schemas/Capability"
+              }
+            }
+          }
+        ]
+      },
+      "BrowserKind": {
+        "type": "string",
+        "enum": [
+          "headless"
+        ],
+        "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view."
+      },
+      "BrowserState": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Readiness"
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "$ref": "#/components/schemas/BrowserKind"
+              }
+            }
+          }
+        ]
+      },
+      "Offer": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Readiness"
+          },
+          {
+            "type": "object",
+            "required": [
+              "capabilities",
+              "browsers"
+            ],
+            "properties": {
+              "capabilities": {
+                "type": "array",
+                "description": "What such a computer has, each ready or not.",
+                "items": {
+                  "$ref": "#/components/schemas/CapabilityState"
+                }
+              },
+              "browsers": {
+                "type": "array",
+                "description": "The browsers that can go with it, each ready or not.",
+                "items": {
+                  "$ref": "#/components/schemas/BrowserState"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "MadeKind": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Offer"
+          },
+          {
+            "type": "object",
+            "required": [
+              "isolation"
+            ],
+            "properties": {
+              "isolation": {
+                "$ref": "#/components/schemas/Isolation"
+              }
+            }
+          }
+        ]
+      },
       "ServiceInfo": {
         "type": "object",
         "required": [
           "version",
-          "isolation",
-          "isolationsAvailable"
+          "thisComputer",
+          "made"
         ],
         "properties": {
           "version": {
             "type": "string"
           },
-          "isolation": {
-            "$ref": "#/components/schemas/Isolation",
-            "description": "The isolation of a computer made without saying which, chosen when the service is started."
+          "thisComputer": {
+            "$ref": "#/components/schemas/Offer",
+            "description": "This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready, which this service always is."
           },
-          "isolationsAvailable": {
+          "made": {
             "type": "array",
+            "description": "Each kind of computer it makes, ready while it can be made now. A container is ready while Docker answers on the service's machine: asked for a second here and for ten when one is made, so one that is slow can be not ready here and still be made.",
             "items": {
-              "$ref": "#/components/schemas/Isolation"
-            },
-            "description": "The isolations a computer can be made in now, `none` first. `container` is among them while Docker answers on the service's machine. It is what to offer, not a promise: Docker is asked for a second here and for ten when a container is made, so one that is slow can be missing here and still be made. If `isolation` itself is missing, a computer made without saying which is refused with 409."
+              "$ref": "#/components/schemas/MadeKind"
+            }
           }
         }
       }
@@ -1793,7 +1989,7 @@ export const OPERATIONS: Operation[] = [
     "method": "GET",
     "path": "/v1/info",
     "tool": "service_info",
-    "summary": "What this service is and how it isolates its computers.",
+    "summary": "What this service offers: this computer, the kinds of computer it can make, and the browsers that can go with each, every one ready or not and why.",
     "status": 200,
     "hasBody": false,
     "pathParameters": [],
@@ -1808,32 +2004,251 @@ export const OPERATIONS: Operation[] = [
       "type": "object",
       "required": [
         "version",
-        "isolation",
-        "isolationsAvailable"
+        "thisComputer",
+        "made"
       ],
       "properties": {
         "version": {
           "type": "string"
         },
-        "isolation": {
-          "type": "string",
-          "enum": [
-            "none",
-            "container"
+        "thisComputer": {
+          "allOf": [
+            {
+              "type": "object",
+              "required": [
+                "ready"
+              ],
+              "properties": {
+                "ready": {
+                  "type": "boolean"
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "capabilities",
+                "browsers"
+              ],
+              "properties": {
+                "capabilities": {
+                  "type": "array",
+                  "description": "What such a computer has, each ready or not.",
+                  "items": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "ready"
+                        ],
+                        "properties": {
+                          "ready": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "type": "string",
+                            "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "capability"
+                        ],
+                        "properties": {
+                          "capability": {
+                            "type": "string",
+                            "enum": [
+                              "about",
+                              "terminal",
+                              "files",
+                              "screen"
+                            ],
+                            "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen."
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "browsers": {
+                  "type": "array",
+                  "description": "The browsers that can go with it, each ready or not.",
+                  "items": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "ready"
+                        ],
+                        "properties": {
+                          "ready": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "type": "string",
+                            "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "headless"
+                            ],
+                            "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view."
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
           ],
-          "description": "The isolation of a computer made without saying which, chosen when the service is started."
+          "description": "This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready, which this service always is."
         },
-        "isolationsAvailable": {
+        "made": {
           "type": "array",
+          "description": "Each kind of computer it makes, ready while it can be made now. A container is ready while Docker answers on the service's machine: asked for a second here and for ten when one is made, so one that is slow can be not ready here and still be made.",
           "items": {
-            "type": "string",
-            "enum": [
-              "none",
-              "container"
-            ],
-            "description": "none: processes of whoever started the service. container: a container of its own, which needs Docker on the service's machine."
-          },
-          "description": "The isolations a computer can be made in now, `none` first. `container` is among them while Docker answers on the service's machine. It is what to offer, not a promise: Docker is asked for a second here and for ten when a container is made, so one that is slow can be missing here and still be made. If `isolation` itself is missing, a computer made without saying which is refused with 409."
+            "allOf": [
+              {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "ready"
+                    ],
+                    "properties": {
+                      "ready": {
+                        "type": "boolean"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "capabilities",
+                      "browsers"
+                    ],
+                    "properties": {
+                      "capabilities": {
+                        "type": "array",
+                        "description": "What such a computer has, each ready or not.",
+                        "items": {
+                          "allOf": [
+                            {
+                              "type": "object",
+                              "required": [
+                                "ready"
+                              ],
+                              "properties": {
+                                "ready": {
+                                  "type": "boolean"
+                                },
+                                "reason": {
+                                  "type": "string",
+                                  "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
+                                }
+                              }
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "capability"
+                              ],
+                              "properties": {
+                                "capability": {
+                                  "type": "string",
+                                  "enum": [
+                                    "about",
+                                    "terminal",
+                                    "files",
+                                    "screen"
+                                  ],
+                                  "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen."
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      "browsers": {
+                        "type": "array",
+                        "description": "The browsers that can go with it, each ready or not.",
+                        "items": {
+                          "allOf": [
+                            {
+                              "type": "object",
+                              "required": [
+                                "ready"
+                              ],
+                              "properties": {
+                                "ready": {
+                                  "type": "boolean"
+                                },
+                                "reason": {
+                                  "type": "string",
+                                  "description": "Why it isn't ready, in a line a person reads. Only when it isn't."
+                                }
+                              }
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "kind"
+                              ],
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "headless"
+                                  ],
+                                  "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view."
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "object",
+                "required": [
+                  "isolation"
+                ],
+                "properties": {
+                  "isolation": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "container"
+                    ],
+                    "description": "none: processes of whoever started the service, which only this computer has now; a computer made with no isolation before can't start again. container: a container of its own, which needs Docker on the service's machine."
+                  }
+                }
+              }
+            ]
+          }
         }
       }
     },
@@ -1877,6 +2292,7 @@ export const OPERATIONS: Operation[] = [
           "state",
           "access",
           "isolation",
+          "attached",
           "version",
           "browser",
           "workspace",
@@ -1919,12 +2335,16 @@ export const OPERATIONS: Operation[] = [
             ],
             "description": "The isolation it was made in. It is never run in another."
           },
+          "attached": {
+            "type": "boolean",
+            "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
+          },
           "version": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
+            "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
           },
           "browser": {
             "type": "boolean"
@@ -2031,7 +2451,7 @@ export const OPERATIONS: Operation[] = [
             "none",
             "container"
           ],
-          "description": "How it is isolated, which it keeps for as long as it exists. Left out, it is the service's own, the `isolation` that `getInfo` answers."
+          "description": "How it is isolated, which it keeps for as long as it exists: container, the default. One with no isolation is no longer made, and asking for one is refused: attach this computer instead."
         },
         "timeout": {
           "type": "integer",
@@ -2062,6 +2482,7 @@ export const OPERATIONS: Operation[] = [
             "state",
             "access",
             "isolation",
+            "attached",
             "version",
             "browser",
             "workspace",
@@ -2104,12 +2525,212 @@ export const OPERATIONS: Operation[] = [
               ],
               "description": "The isolation it was made in. It is never run in another."
             },
+            "attached": {
+              "type": "boolean",
+              "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
+            },
             "version": {
               "type": [
                 "string",
                 "null"
               ],
-              "description": "The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
+              "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
+            },
+            "browser": {
+              "type": "boolean"
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When it last started."
+            },
+            "endAt": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time",
+              "description": "When it will stop; null if it has no timeout."
+            },
+            "metadata": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "maxLength": 1024
+              },
+              "maxProperties": 64,
+              "description": "Your own labels, kept and returned as given."
+            },
+            "endpoints": {
+              "type": "object",
+              "required": [
+                "computer",
+                "browser"
+              ],
+              "description": "MCP over Streamable HTTP, each taking the computer's access token as a bearer.",
+              "properties": {
+                "computer": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The terminal and files."
+                },
+                "browser": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The browser."
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "accessToken"
+          ],
+          "properties": {
+            "accessToken": {
+              "type": "string",
+              "description": "Good only for this computer's endpoints. Shown only now."
+            }
+          }
+        }
+      ]
+    },
+    "websocket": false
+  },
+  {
+    "operationId": "attachComputer",
+    "method": "POST",
+    "path": "/v1/computers/attach",
+    "tool": "computer_attach",
+    "summary": "Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Each call attaches it as a computer of its own, with its own id and token. Killing one detaches it and removes nothing of the machine's.",
+    "status": 201,
+    "hasBody": true,
+    "pathParameters": [],
+    "queryParameters": [],
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "access": {
+          "type": "string",
+          "enum": [
+            "none",
+            "read",
+            "files",
+            "terminal"
+          ],
+          "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+        },
+        "browser": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether it has a headless browser of its own. With access none, it must."
+        },
+        "workspace": {
+          "type": "string",
+          "maxLength": 4096,
+          "description": "Its work folder: the full path of a folder that exists. Commands and relative paths start there and its agent is told to work there, but nothing keeps its files inside it. Detaching never removes it."
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Seconds from now until the computer stops."
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "maxProperties": 64,
+          "description": "Your own labels, kept and returned as given."
+        }
+      },
+      "required": [
+        "access",
+        "workspace"
+      ]
+    },
+    "output": {
+      "allOf": [
+        {
+          "type": "object",
+          "required": [
+            "computerID",
+            "name",
+            "state",
+            "access",
+            "isolation",
+            "attached",
+            "version",
+            "browser",
+            "workspace",
+            "startedAt",
+            "endAt",
+            "metadata",
+            "endpoints"
+          ],
+          "properties": {
+            "computerID": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "running",
+                "stopped",
+                "failed"
+              ],
+              "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
+            },
+            "access": {
+              "type": "string",
+              "enum": [
+                "none",
+                "read",
+                "files",
+                "terminal"
+              ],
+              "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
+            },
+            "isolation": {
+              "type": "string",
+              "enum": [
+                "none",
+                "container"
+              ],
+              "description": "The isolation it was made in. It is never run in another."
+            },
+            "attached": {
+              "type": "boolean",
+              "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
             },
             "browser": {
               "type": "boolean"
@@ -2220,6 +2841,7 @@ export const OPERATIONS: Operation[] = [
             "state",
             "access",
             "isolation",
+            "attached",
             "version",
             "browser",
             "workspace",
@@ -2262,12 +2884,16 @@ export const OPERATIONS: Operation[] = [
               ],
               "description": "The isolation it was made in. It is never run in another."
             },
+            "attached": {
+              "type": "boolean",
+              "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
+            },
             "version": {
               "type": [
                 "string",
                 "null"
               ],
-              "description": "The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
+              "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
             },
             "browser": {
               "type": "boolean"
@@ -2469,6 +3095,7 @@ export const OPERATIONS: Operation[] = [
         "state",
         "access",
         "isolation",
+        "attached",
         "version",
         "browser",
         "workspace",
@@ -2511,12 +3138,16 @@ export const OPERATIONS: Operation[] = [
           ],
           "description": "The isolation it was made in. It is never run in another."
         },
+        "attached": {
+          "type": "boolean",
+          "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
+        },
         "version": {
           "type": [
             "string",
             "null"
           ],
-          "description": "The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
+          "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
         },
         "browser": {
           "type": "boolean"
@@ -2611,6 +3242,7 @@ export const OPERATIONS: Operation[] = [
         "state",
         "access",
         "isolation",
+        "attached",
         "version",
         "browser",
         "workspace",
@@ -2653,12 +3285,16 @@ export const OPERATIONS: Operation[] = [
           ],
           "description": "The isolation it was made in. It is never run in another."
         },
+        "attached": {
+          "type": "boolean",
+          "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
+        },
         "version": {
           "type": [
             "string",
             "null"
           ],
-          "description": "The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
+          "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
         },
         "browser": {
           "type": "boolean"
@@ -2758,6 +3394,7 @@ export const OPERATIONS: Operation[] = [
         "state",
         "access",
         "isolation",
+        "attached",
         "version",
         "browser",
         "workspace",
@@ -2800,12 +3437,16 @@ export const OPERATIONS: Operation[] = [
           ],
           "description": "The isolation it was made in. It is never run in another."
         },
+        "attached": {
+          "type": "boolean",
+          "description": "Whether it is this computer, attached rather than made: the service's machine, whole, acting as whoever started the service, with no isolation. False with isolation none marks a computer made with no isolation by an earlier version, which can't start again; its workspace is kept."
+        },
         "version": {
           "type": [
             "string",
             "null"
           ],
-          "description": "The version of the program it ran at its last start. With no isolation it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
+          "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
         },
         "browser": {
           "type": "boolean"

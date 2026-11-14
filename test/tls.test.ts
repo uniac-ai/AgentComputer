@@ -75,10 +75,15 @@ async function serve(t: test.TestContext, data: string, ...args: string[]) {
   return { url, token: readFileSync(join(data, "control-token"), "utf8").trim() };
 }
 
-async function across(url: string, token: string, ca: string, access = "terminal") {
-  const { stdout } = await run(process.execPath, [CLIENT, url, token, access], {
-    env: { PATH: process.env.PATH ?? "", NODE_EXTRA_CA_CERTS: ca },
-  });
+/** Attach this computer with `workspace`, or with none make one in a container, and use it. */
+async function across(url: string, token: string, ca: string, workspace?: string) {
+  const { stdout } = await run(
+    process.execPath,
+    [CLIENT, url, token, "terminal", ...(workspace ? [workspace] : [])],
+    {
+      env: { PATH: process.env.PATH ?? "", NODE_EXTRA_CA_CERTS: ca },
+    },
+  );
   return JSON.parse(stdout) as { output: string; endpoint: string };
 }
 
@@ -105,7 +110,7 @@ test("over TLS on loopback, a client makes and uses a computer", async (t) => {
     key,
   );
   assert.match(url, /^https:/);
-  const answer = await across(url, token, cert);
+  const answer = await across(url, token, cert, root);
   assert.equal(answer.output, "across\n");
   assert.ok(answer.endpoint.startsWith(`${url}/v1/computers/`));
   await assert.rejects(fetch(`${url.replace("https:", "http:")}/openapi.json`));
@@ -141,11 +146,11 @@ test("on an address other machines can reach, over TLS", { skip: !outward }, asy
     key,
   );
   assert.equal(new URL(url).hostname, outward);
-  assert.equal((await across(url, token, cert)).output, "across\n");
+  assert.equal((await across(url, token, cert, root)).output, "across\n");
 });
 
 test("behind a proxy it listens in the clear and gives out the public address", async (t) => {
-  const { data } = folders(t);
+  const { root, data } = folders(t);
   const host = outward ?? "127.0.0.1";
   const port = await freePort();
   const { url, token } = await serve(
@@ -158,10 +163,10 @@ test("behind a proxy it listens in the clear and gives out the public address", 
     "https://computers.example.com/",
   );
   assert.equal(url, "https://computers.example.com");
-  const made = await fetch(`http://${host}:${port}/v1/computers`, {
+  const made = await fetch(`http://${host}:${port}/v1/computers/attach`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ access: "read" }),
+    body: JSON.stringify({ access: "read", workspace: root }),
   });
   assert.equal(made.status, 201);
   const { endpoints } = (await made.json()) as { endpoints: { computer: string } };
@@ -242,8 +247,6 @@ test("the service's image, with the machine's Docker, serves a computer across T
     `${root}:${root}`,
     SERVICE_IMAGE as string,
     "serve",
-    "--isolation",
-    "container",
     "--image",
     COMPUTER_IMAGE as string,
     "--data",

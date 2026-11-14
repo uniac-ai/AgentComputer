@@ -1,5 +1,5 @@
 // However one computer ends, the service and every other computer carry on. The computers that end
-// have a real browser: with no isolation the one AGENTCOMPUTER_BROWSER_PATH names, never the Chrome
+// have a real browser: on this computer the one AGENTCOMPUTER_BROWSER_PATH names, never the Chrome
 // installed on this machine, and in a container the image's.
 import assert from "node:assert/strict";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
@@ -12,17 +12,17 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { CONTAINER, type Kind, make, named, needs } from "./kinds.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");
 const BROWSER = process.env.AGENTCOMPUTER_BROWSER_PATH;
-const IMAGE = process.env.AGENTCOMPUTER_TEST_IMAGE;
 const docker = promisify(execFile);
-const ISOLATIONS: [string, string[] | undefined][] = [
-  ["none", BROWSER ? ["--browser-name", "chromium", "--browser-path", BROWSER] : undefined],
-  ["container", IMAGE ? ["--isolation", "container", "--image", IMAGE] : undefined],
+const KINDS: [Kind, string[] | undefined][] = [
+  ["this", BROWSER ? ["--browser-name", "chromium", "--browser-path", BROWSER] : undefined],
+  ["container", CONTAINER],
 ];
 /** Longer than a failure on the socket to a server that has just gone takes to surface. */
 const SETTLE_MS = 2500;
@@ -100,25 +100,26 @@ async function setup(t: test.TestContext, extra: string[]) {
   return { Computer, to, workspace, connect, survived };
 }
 
-for (const [isolation, given] of ISOLATIONS) {
+for (const [kind, given] of KINDS) {
   const options = {
     timeout: 120_000,
-    skip:
-      !given &&
-      (isolation === "none"
-        ? "needs AGENTCOMPUTER_BROWSER_PATH"
-        : "needs AGENTCOMPUTER_TEST_IMAGE"),
+    skip: !given && needs(kind),
   };
   const extra = given ?? [];
 
   test(
-    `isolation ${isolation}: killing a browser computer once its client has gone`,
+    `on ${named(kind)}: killing a browser computer once its client has gone`,
     options,
     async (t) => {
       const { Computer, to, workspace, connect, survived } = await setup(t, extra);
-      const other = await Computer.create({ ...to, access: "files", workspace });
+      const other = await make(Computer, kind, { ...to, access: "files", workspace });
       t.after(() => other.close());
-      const computer = await Computer.create({ ...to, access: "none", browser: true });
+      const computer = await make(Computer, kind, {
+        ...to,
+        access: "none",
+        browser: true,
+        workspace,
+      });
       const client = await connect(computer.getMcpUrl("browser"), computer.getMcpToken());
       await client.close();
       await computer.kill();
@@ -128,13 +129,18 @@ for (const [isolation, given] of ISOLATIONS) {
   );
 
   test(
-    `isolation ${isolation}: killing a browser computer with a client still connected`,
+    `on ${named(kind)}: killing a browser computer with a client still connected`,
     options,
     async (t) => {
       const { Computer, to, workspace, connect, survived } = await setup(t, extra);
-      const other = await Computer.create({ ...to, access: "files", workspace });
+      const other = await make(Computer, kind, { ...to, access: "files", workspace });
       t.after(() => other.close());
-      const computer = await Computer.create({ ...to, access: "terminal", browser: true });
+      const computer = await make(Computer, kind, {
+        ...to,
+        access: "terminal",
+        browser: true,
+        workspace,
+      });
       await connect(computer.getMcpUrl("browser"), computer.getMcpToken());
       await connect(computer.getMcpUrl(), computer.getMcpToken());
       await computer.kill();
@@ -143,13 +149,18 @@ for (const [isolation, given] of ISOLATIONS) {
   );
 
   test(
-    `isolation ${isolation}: a browser computer reaching its timeout with a client connected`,
+    `on ${named(kind)}: a browser computer reaching its timeout with a client connected`,
     options,
     async (t) => {
       const { Computer, to, workspace, connect, survived } = await setup(t, extra);
-      const other = await Computer.create({ ...to, access: "files", workspace });
+      const other = await make(Computer, kind, { ...to, access: "files", workspace });
       t.after(() => other.close());
-      const computer = await Computer.create({ ...to, access: "terminal", browser: true });
+      const computer = await make(Computer, kind, {
+        ...to,
+        access: "terminal",
+        browser: true,
+        workspace,
+      });
       await connect(computer.getMcpUrl("browser"), computer.getMcpToken());
       // Timed from here, with the client connected: a timeout given at creation also counts the
       // time its browser takes to start, and can run out before a client is on it.
@@ -161,19 +172,20 @@ for (const [isolation, given] of ISOLATIONS) {
   );
 }
 
-test("isolation container: a container dying with a client connected", {
-  skip: !IMAGE && "needs AGENTCOMPUTER_TEST_IMAGE",
+test("a container dying with a client connected", {
+  skip: !CONTAINER && "needs AGENTCOMPUTER_TEST_IMAGE",
   timeout: 120_000,
 }, async (t) => {
-  const { Computer, to, workspace, connect, survived } = await setup(t, [
-    "--isolation",
-    "container",
-    "--image",
-    IMAGE as string,
-  ]);
-  const other = await Computer.create({ ...to, access: "files", workspace });
+  const kind = "container";
+  const { Computer, to, workspace, connect, survived } = await setup(t, CONTAINER as string[]);
+  const other = await make(Computer, kind, { ...to, access: "files", workspace });
   t.after(() => other.close());
-  const computer = await Computer.create({ ...to, access: "terminal", browser: true });
+  const computer = await make(Computer, kind, {
+    ...to,
+    access: "terminal",
+    browser: true,
+    workspace,
+  });
   await connect(computer.getMcpUrl("browser"), computer.getMcpToken());
   await docker("docker", ["kill", `agentcomputer-${computer.computerID}`]);
   await survived(other);

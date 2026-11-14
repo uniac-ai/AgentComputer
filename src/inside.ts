@@ -1,5 +1,5 @@
-// What runs inside a computer's container: the same processes as a computer with no isolation,
-// behind a port only the service can use.
+// What runs inside a computer's container: the same processes as this computer, kept to the
+// workspace, behind a port only the service can use.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";

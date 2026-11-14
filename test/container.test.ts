@@ -22,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { z } from "zod";
+import { type Kind, make } from "./kinds.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 const here = dirname(fileURLToPath(import.meta.url));
@@ -54,25 +55,10 @@ async function setup(t: test.TestContext) {
   mkdirSync(workspace);
   let child: ChildProcess;
   let url = "";
-  const start = async (
-    isolation = "container",
-    env: Record<string, string> = {},
-    image = IMAGE as string,
-  ) => {
+  const start = async (env: Record<string, string> = {}, image = IMAGE as string) => {
     child = spawn(
       process.execPath,
-      [
-        CLI,
-        "serve",
-        "--listen",
-        "127.0.0.1:0",
-        "--data",
-        data,
-        "--isolation",
-        isolation,
-        "--image",
-        image,
-      ],
+      [CLI, "serve", "--listen", "127.0.0.1:0", "--data", data, "--image", image],
       { env: { ...environment(), ...env }, stdio: ["ignore", "pipe", "inherit"] },
     );
     url = await new Promise<string>((done, failed) => {
@@ -113,14 +99,13 @@ async function setup(t: test.TestContext) {
   };
   /** Stop it, do what is given to do while it is stopped, and start it again. */
   const restart = async (
-    isolation?: string,
     env?: Record<string, string>,
     image?: string,
     between: () => Promise<unknown> = async () => {},
   ) => {
     await stop();
     await between();
-    await start(isolation, env, image);
+    await start(env, image);
   };
   return { Computer, to, root, data, workspace, mcp, restart, control: apiKey };
 }
@@ -411,78 +396,72 @@ test("computers stop with the service and come back with their tokens", options,
   assert.equal((await again.commands.run("echo back")).output, "back\n");
 });
 
-/** Computers made with what is asked for, and how each then says and shows it is isolated. */
-function isolated({ Computer, to, workspace }: Awaited<ReturnType<typeof setup>>) {
-  const info = async () => {
-    const { isolation, isolationsAvailable } = await Computer.serviceInfo(to());
-    return [isolation, isolationsAvailable];
-  };
-  const made = async (isolation?: "none" | "container") => {
-    const computer = await Computer.create({
-      ...to(),
-      access: "terminal",
-      workspace,
-      ...(isolation ? { isolation } : {}),
-    });
+/** This computer attached, or a container made, and how each then says and shows where it runs. */
+function sideBySide({ Computer, to, workspace }: Awaited<ReturnType<typeof setup>>) {
+  const container = async () => (await Computer.serviceInfo(to())).made[0];
+  const made = async (kind: Kind) => {
+    const computer = await make(Computer, kind, { ...to(), access: "terminal", workspace });
     return { id: computer.computerID, token: computer.getMcpToken() };
   };
   // Where its commands run shows it: in a container the folder is mounted at /workspace.
   const told = async ({ id, token }: { id: string; token: string }) => {
     const computer = await Computer.connect(id, { ...to(), accessToken: token });
-    const { isolation } = await computer.getInfo();
-    return [isolation, (await computer.commands.run("pwd")).output.trim()];
+    const { isolation, attached } = await computer.getInfo();
+    return [isolation, attached, (await computer.commands.run("pwd")).output.trim()];
   };
-  return { info, made, told };
+  return { container, made, told };
 }
 
-test(
-  "a computer keeps the isolation it was made in, whatever the service's own is",
-  options,
-  async (t) => {
-    const service = await setup(t);
-    const { info, made, told } = isolated(service);
-    assert.deepEqual(await info(), ["container", ["none", "container"]]);
-    const inside = await made();
-    const outside = await made("none");
-    assert.deepEqual(await told(inside), ["container", "/workspace"]);
-    assert.deepEqual(await told(outside), ["none", service.workspace]);
+test("this computer and a container side by side, each where it runs", options, async (t) => {
+  const service = await setup(t);
+  const { container, made, told } = sideBySide(service);
+  assert.deepEqual(await container(), {
+    isolation: "container",
+    ready: true,
+    capabilities: [
+      { capability: "about", ready: true },
+      { capability: "terminal", ready: true },
+      { capability: "files", ready: true },
+    ],
+    browsers: [{ kind: "headless", ready: true }],
+  });
+  const inside = await made("container");
+  const outside = await made("this");
+  assert.deepEqual(await told(inside), ["container", false, "/workspace"]);
+  assert.deepEqual(await told(outside), ["none", true, service.workspace]);
+  await service.restart();
+  assert.deepEqual(await told(inside), ["container", false, "/workspace"]);
+  assert.deepEqual(await told(outside), ["none", true, service.workspace]);
+});
 
-    // The service comes back making them the other way. Each is still what it was made.
-    await service.restart("none");
-    assert.deepEqual(await info(), ["none", ["none", "container"]]);
-    assert.deepEqual(await told(inside), ["container", "/workspace"]);
-    assert.deepEqual(await told(outside), ["none", service.workspace]);
-    assert.deepEqual(await told(await made()), ["none", service.workspace]);
-    assert.deepEqual(await told(await made("container")), ["container", "/workspace"]);
-  },
-);
-
 test(
-  "where Docker stops answering, a computer in a container is failed and kept, not run without",
+  "where Docker stops answering, a computer in a container is failed and kept, and this computer goes on",
   options,
   async (t) => {
     const service = await setup(t);
     const { Computer, to } = service;
-    const { info, made, told } = isolated(service);
-    const inside = await made();
-    const outside = await made("none");
-    await service.restart("none", { DOCKER_HOST: "unix:///nonexistent/docker.sock" });
+    const { container, made, told } = sideBySide(service);
+    const inside = await made("container");
+    const outside = await made("this");
+    await service.restart({ DOCKER_HOST: "unix:///nonexistent/docker.sock" });
     try {
-      assert.deepEqual(await info(), ["none", ["none"]]);
+      const needs = "A container needs Docker, which isn't answering on this machine.";
+      const down = await container();
+      assert.deepEqual([down?.ready, down?.reason], [false, needs]);
       assert.equal((await Computer.getInfo(inside.id, to())).state, "failed");
       const why = /A container needs Docker, which isn't answering on this machine\.$/;
       assert.match((await Computer.getLogs(inside.id, to())).at(-1)?.line ?? "", why);
-      assert.deepEqual(await told(outside), ["none", service.workspace]);
+      assert.deepEqual(await told(outside), ["none", true, service.workspace]);
       // Its container can't be removed now, so it isn't forgotten: it is refused, and kept.
       await assert.rejects(Computer.kill(inside.id, to()), why);
       assert.equal((await Computer.getInfo(inside.id, to())).state, "stopped");
       assert.equal(await running(inside.id), false);
     } finally {
       // With Docker back, whatever happened above, so that what was made can be removed.
-      await service.restart("none");
+      await service.restart();
     }
     await Computer.start(inside.id, to());
-    assert.deepEqual(await told(inside), ["container", "/workspace"]);
+    assert.deepEqual(await told(inside), ["container", false, "/workspace"]);
   },
 );
 
@@ -519,7 +498,7 @@ test(
     assert.equal(readFileSync(join(home, "kept"), "utf8"), "kept\n");
 
     await t.test("started under another image, it is made again, with its home", async () => {
-      await restart("container", {}, other);
+      await restart({}, other);
       assert.equal(await imageOf(), await idOf(other));
       assert.equal(await sh("cat ~/kept; ls /tmp/gone 2>/dev/null || echo none"), "kept\nnone\n");
       assert.ok(
@@ -555,7 +534,7 @@ test(
         .sort();
 
     await t.test("where its home can't be copied out, the old container is kept", async () => {
-      await restart("container", {}, IMAGE, () => old(other));
+      await restart({}, IMAGE, () => old(other));
       assert.equal(await imageOf(), await idOf(other));
       assert.deepEqual(await mounts(), []);
       assert.equal(existsSync(home), false);
@@ -568,7 +547,7 @@ test(
 
     await t.test("where it can, its home is copied out, and it is made again", async () => {
       // A home left by an earlier try is not in its way: the container's is the one kept.
-      await restart("container", {}, other, async () => {
+      await restart({}, other, async () => {
         await old(IMAGE as string, "from the old home\n");
         mkdirSync(home);
         writeFileSync(join(home, "earlier"), "");
@@ -586,14 +565,3 @@ test(
     });
   },
 );
-
-test("serve says so when Docker doesn't answer", options, async (t) => {
-  const data = mkdtempSync(join(tmpdir(), "agentcomputer-"));
-  t.after(() => rmSync(data, { recursive: true, force: true }));
-  await assert.rejects(
-    run(process.execPath, [CLI, "serve", "--isolation", "container", "--data", data], {
-      env: { ...environment(), DOCKER_HOST: "unix:///nonexistent/docker.sock" },
-    }),
-    (error: Error & { stderr: string }) => /needs Docker/.test(error.stderr),
-  );
-});

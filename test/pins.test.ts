@@ -13,6 +13,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { socketFetch } from "../src/browser.ts";
+import { channelProgram } from "../src/playwright.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const require = createRequire(join(root, "package.json"));
@@ -25,6 +26,11 @@ test("playwright-core is the version @playwright/mcp brings, as named and as ins
   ];
   assert.equal(ours, theirs);
   assert.equal(read(require.resolve("playwright-core/package.json")).version, theirs);
+});
+
+test("Playwright's registry names where a browser channel's program is, for the description", () => {
+  assert.equal(typeof channelProgram("chromium"), "string");
+  assert.equal(channelProgram("no-such-channel"), undefined);
 });
 
 test("the browser's server starts from Playwright MCP's parts on a socket of its own, with no port", async (t) => {

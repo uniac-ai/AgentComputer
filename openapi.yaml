@@ -19,7 +19,9 @@ paths:
     get:
       operationId: getInfo
       x-mcp-tool: service_info
-      summary: What this service is and how it isolates its computers.
+      summary: >-
+        What this service offers: this computer, the kinds of computer it can make, and the
+        browsers that can go with each, every one ready or not and why.
       responses:
         "200":
           description: The service.
@@ -58,6 +60,28 @@ paths:
       responses:
         "201":
           description: The computer, with its access token, shown only now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedComputer" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/computers/attach:
+    post:
+      operationId: attachComputer
+      x-mcp-tool: computer_attach
+      summary: >-
+        Attach this computer, the machine the service runs on, whole: its files and commands reach
+        all of it, as whoever started the service. Each call attaches it as a computer of its own,
+        with its own id and token. Killing one detaches it and removes nothing of the machine's.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AttachComputer" }
+      responses:
+        "201":
+          description: It, with its access token, shown only now.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/CreatedComputer" }
@@ -150,6 +174,7 @@ paths:
               schema: { $ref: "#/components/schemas/Computer" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /v1/computers/{computerID}/logs:
     parameters:
       - $ref: "#/components/parameters/computerID"
@@ -280,16 +305,38 @@ components:
         isolation:
           $ref: "#/components/schemas/Isolation"
           description: >-
-            How it is isolated, which it keeps for as long as it exists. Left out, it is the
-            service's own, the `isolation` that `getInfo` answers.
+            How it is isolated, which it keeps for as long as it exists: container, the default.
+            One with no isolation is no longer made, and asking for one is refused: attach this
+            computer instead.
+        timeout: { $ref: "#/components/schemas/Timeout" }
+        metadata: { $ref: "#/components/schemas/Metadata" }
+    AttachComputer:
+      type: object
+      additionalProperties: false
+      required: [access, workspace]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 128 }
+        access: { $ref: "#/components/schemas/Access" }
+        browser:
+          type: boolean
+          default: false
+          description: Whether it has a headless browser of its own. With access none, it must.
+        workspace:
+          type: string
+          maxLength: 4096
+          description: >-
+            Its work folder: the full path of a folder that exists. Commands and relative paths
+            start there and its agent is told to work there, but nothing keeps its files inside
+            it. Detaching never removes it.
         timeout: { $ref: "#/components/schemas/Timeout" }
         metadata: { $ref: "#/components/schemas/Metadata" }
     Isolation:
       type: string
       enum: [none, container]
       description: >-
-        none: processes of whoever started the service. container: a container of its own, which
-        needs Docker on the service's machine.
+        none: processes of whoever started the service, which only this computer has now; a
+        computer made with no isolation before can't start again. container: a container of its
+        own, which needs Docker on the service's machine.
     Endpoints:
       type: object
       required: [computer, browser]
@@ -305,6 +352,7 @@ components:
         - state
         - access
         - isolation
+        - attached
         - version
         - browser
         - workspace
@@ -320,10 +368,17 @@ components:
         isolation:
           $ref: "#/components/schemas/Isolation"
           description: The isolation it was made in. It is never run in another.
+        attached:
+          type: boolean
+          description: >-
+            Whether it is this computer, attached rather than made: the service's machine, whole,
+            acting as whoever started the service, with no isolation. False with isolation none
+            marks a computer made with no isolation by an earlier version, which can't start
+            again; its workspace is kept.
         version:
           type: [string, "null"]
           description: >-
-            The version of the program it ran at its last start. With no isolation it is the
+            The version of the program it ran at its last start. For this computer it is the
             service's `version` (see `getInfo`). In a container it is the version inside its
             image, and null for a container made before 0.0.17, which doesn't say, until it is
             made again. It is kept from its last start, so a stopped computer's can be older than
@@ -663,10 +718,9 @@ components:
           type: string
           enum: [computer, machine]
           description: >-
-            Whose numbers these are. computer: this computer's own, which a container's are.
-            machine: the whole machine's, which a computer with no isolation shares with whatever
-            else runs there, so every computer of that service reads the same; and a container's
-            where it can't read its own.
+            Whose numbers these are. computer: the computer's own, as a container's are. machine:
+            the whole machine's, as this computer's are, which it shares with whatever else runs
+            there; and a container's where it can't read its own.
         cpuUsedPct:
           type: number
           minimum: 0
@@ -823,22 +877,75 @@ components:
             properties:
               timestamp: { type: string, format: date-time }
               line: { type: string }
+    Readiness:
+      type: object
+      required: [ready]
+      properties:
+        ready: { type: boolean }
+        reason:
+          type: string
+          description: Why it isn't ready, in a line a person reads. Only when it isn't.
+    Capability:
+      type: string
+      enum: [about, terminal, files, screen]
+      description: >-
+        What a computer offers its agent and the person: what it is, its terminals, its files and
+        its screen.
+    CapabilityState:
+      allOf:
+        - $ref: "#/components/schemas/Readiness"
+        - type: object
+          required: [capability]
+          properties:
+            capability: { $ref: "#/components/schemas/Capability" }
+    BrowserKind:
+      type: string
+      enum: [headless]
+      description: >-
+        headless: a headless browser with a profile of its own, beside the computer, which a
+        person watches and controls through its live view.
+    BrowserState:
+      allOf:
+        - $ref: "#/components/schemas/Readiness"
+        - type: object
+          required: [kind]
+          properties:
+            kind: { $ref: "#/components/schemas/BrowserKind" }
+    Offer:
+      allOf:
+        - $ref: "#/components/schemas/Readiness"
+        - type: object
+          required: [capabilities, browsers]
+          properties:
+            capabilities:
+              type: array
+              description: What such a computer has, each ready or not.
+              items: { $ref: "#/components/schemas/CapabilityState" }
+            browsers:
+              type: array
+              description: The browsers that can go with it, each ready or not.
+              items: { $ref: "#/components/schemas/BrowserState" }
+    MadeKind:
+      allOf:
+        - $ref: "#/components/schemas/Offer"
+        - type: object
+          required: [isolation]
+          properties:
+            isolation: { $ref: "#/components/schemas/Isolation" }
     ServiceInfo:
       type: object
-      required: [version, isolation, isolationsAvailable]
+      required: [version, thisComputer, made]
       properties:
         version: { type: string }
-        isolation:
-          $ref: "#/components/schemas/Isolation"
+        thisComputer:
+          $ref: "#/components/schemas/Offer"
           description: >-
-            The isolation of a computer made without saying which, chosen when the service is
-            started.
-        isolationsAvailable:
+            This computer, the machine the service runs on, attached whole, as whoever started the
+            service. It can be attached while ready, which this service always is.
+        made:
           type: array
-          items: { $ref: "#/components/schemas/Isolation" }
           description: >-
-            The isolations a computer can be made in now, `none` first. `container` is among them
-            while Docker answers on the service's machine. It is what to offer, not a promise:
-            Docker is asked for a second here and for ten when a container is made, so one that
-            is slow can be missing here and still be made. If `isolation` itself is missing, a
-            computer made without saying which is refused with 409.
+            Each kind of computer it makes, ready while it can be made now. A container is ready
+            while Docker answers on the service's machine: asked for a second here and for ten when
+            one is made, so one that is slow can be not ready here and still be made.
+          items: { $ref: "#/components/schemas/MadeKind" }

@@ -20,7 +20,7 @@ interface Facts {
   workspace: { outside: string; inside: string };
   access: Exclude<Access, "none">;
   browser: boolean;
-  /** Whether it is a container of its own. */
+  /** Whether it is a container of its own, or else this computer. */
   contained: boolean;
 }
 
@@ -52,7 +52,11 @@ export function aboutTool(facts: Facts, load: LoadLive): ExtraTool {
         { label: "Reaches", value: REACHES[facts.access] + (facts.browser ? ", Browser" : "") },
         facts.contained
           ? { label: "Isolation", value: "A container of its own" }
-          : { label: "Isolation", value: "None: it acts as you", caution: true },
+          : {
+              label: "Isolation",
+              value: "None: it acts as you, on the whole machine",
+              caution: true,
+            },
       ];
       const reading = await load.now();
       if (reading)

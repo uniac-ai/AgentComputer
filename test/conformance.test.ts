@@ -14,6 +14,7 @@ import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { OPENAPI, OPERATIONS, type Operation } from "../src/generated/operations.ts";
+import { CONTAINER, type Kind, make, named } from "./kinds.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 type Input = Record<string, any>;
@@ -26,12 +27,10 @@ const CLI = join(dist, "agentcomputer.js");
 const run = promisify(execFile);
 /** Every operation but opening a live session, which is a WebSocket and has its own tests. */
 const TOOLS = OPERATIONS.filter((one) => one.tool);
-const IMAGE = process.env.AGENTCOMPUTER_TEST_IMAGE;
-const ISOLATIONS: [string, string[]][] = [
-  ["none", []],
-  ...(IMAGE
-    ? ([["container", ["--isolation", "container", "--image", IMAGE]]] as [string, string[]][])
-    : []),
+/** This computer, attached, and a container, made, each with what the service is started with. */
+const KINDS: [Kind, string[]][] = [
+  ["this", []],
+  ...(CONTAINER ? [["container", CONTAINER] as [Kind, string[]]] : []),
 ];
 
 function http(url: string, token: string): Surface {
@@ -89,6 +88,14 @@ function sdk({ Computer }: Sdk, apiUrl: string, apiKey: string): Surface {
       });
       return { ...(await computer.getInfo()), accessToken: computer.getMcpToken() };
     },
+    attachComputer: async ({ timeout, ...input }) => {
+      const computer = await Computer.attach({
+        ...to,
+        ...(input as { access: "read"; workspace: string }),
+        ...(timeout ? { timeoutMs: timeout * 1000 } : {}),
+      });
+      return { ...(await computer.getInfo()), accessToken: computer.getMcpToken() };
+    },
     getComputer: ({ computerID }) => Computer.getInfo(computerID, to),
     setComputerTimeout: ({ computerID, timeout }) =>
       Computer.setTimeout(computerID, timeout * 1000, to),
@@ -109,22 +116,23 @@ function sdk({ Computer }: Sdk, apiUrl: string, apiKey: string): Surface {
   };
 }
 
+/** The arguments of create or attach. */
+const making = (command: string, { access, name, workspace, timeout, metadata }: Input) => [
+  command,
+  "--access",
+  access,
+  ...(name ? ["--name", name] : []),
+  ...(workspace ? ["--workspace", workspace] : []),
+  ...(timeout ? ["--timeout", String(timeout)] : []),
+  ...Object.entries(metadata ?? {}).flatMap(([key, value]) => ["--metadata", `${key}=${value}`]),
+];
+
 function cli(data: string): Surface {
   const operations: Record<string, (input: Input) => string[]> = {
     getInfo: () => ["info"],
     listComputers: ({ state }) => ["list", ...(state ? ["--state", state] : [])],
-    createComputer: ({ access, name, workspace, timeout, metadata }) => [
-      "create",
-      "--access",
-      access,
-      ...(name ? ["--name", name] : []),
-      ...(workspace ? ["--workspace", workspace] : []),
-      ...(timeout ? ["--timeout", String(timeout)] : []),
-      ...Object.entries(metadata ?? {}).flatMap(([key, value]) => [
-        "--metadata",
-        `${key}=${value}`,
-      ]),
-    ],
+    createComputer: (input) => making("create", input),
+    attachComputer: (input) => making("attach", input),
     getComputer: ({ computerID }) => ["get", computerID],
     setComputerTimeout: ({ computerID, timeout }) => ["timeout", computerID, String(timeout)],
     stopComputer: ({ computerID }) => ["stop", computerID],
@@ -168,15 +176,23 @@ function checked(surface: Surface, reached: Set<string>) {
   };
 }
 
-async function scenario(surface: Surface, workspace: string, isolation: string) {
+async function scenario(surface: Surface, workspace: string, kind: Kind) {
   const reached = new Set<string>();
   const call = checked(surface, reached);
 
   const info = (await call("getInfo")).value;
-  assert.equal(info.isolation, isolation);
+  assert.deepEqual(
+    info.thisComputer.capabilities.map((one: { capability: string }) => one.capability),
+    ["about", "terminal", "files", "screen"],
+  );
+  assert.deepEqual(
+    info.made.map((one: { isolation: string }) => one.isolation),
+    ["container"],
+  );
+  if (kind === "container") assert.equal(info.made[0].ready, true);
 
   const made = (
-    await call("createComputer", {
+    await call(kind === "this" ? "attachComputer" : "createComputer", {
       access: "terminal",
       name: "Conformance",
       workspace,
@@ -186,6 +202,10 @@ async function scenario(surface: Surface, workspace: string, isolation: string) 
   ).value;
   const computerID = made.computerID;
   assert.equal(made.state, "running");
+  assert.deepEqual(
+    [made.attached, made.isolation],
+    kind === "this" ? [true, "none"] : [false, "container"],
+  );
   assert.equal(made.name, "Conformance");
   assert.deepEqual(made.metadata, { purpose: "test" });
   assert.ok(made.accessToken);
@@ -234,6 +254,10 @@ async function scenario(surface: Surface, workspace: string, isolation: string) 
   const refused = await call("createComputer", { access: "everything" });
   assert.ok(refused.message);
   if (refused.code !== undefined) assert.equal(refused.code, 400);
+  // This computer is attached only with a work folder.
+  const noFolder = await call("attachComputer", { access: "read" });
+  assert.ok(noFolder.message);
+  if (noFolder.code !== undefined) assert.equal(noFolder.code, 400);
 
   assert.deepEqual(
     [...reached].sort(),
@@ -281,12 +305,12 @@ async function service(t: test.TestContext, extra: string[] = []) {
 
 const loadSdk = () => import(pathToFileURL(join(dist, "sdk.js")).href) as Promise<Sdk>;
 
-for (const [isolation, extra] of ISOLATIONS)
-  test(`with isolation ${isolation}, the operations are the same through HTTP, MCP, the SDK and the CLI`, {
+for (const [kind, extra] of KINDS)
+  test(`for ${named(kind)}, the operations are the same through HTTP, MCP, the SDK and the CLI`, {
     timeout: 240_000,
   }, async (t) => {
     const { url, data, workspace, token } = await service(t, extra);
-    await t.test("HTTP", () => scenario(http(url, token), workspace, isolation));
+    await t.test("HTTP", () => scenario(http(url, token), workspace, kind));
     await t.test("MCP", async (inner) => {
       const client = new Client({ name: "conformance", version: "1" });
       await client.connect(
@@ -297,12 +321,10 @@ for (const [isolation, extra] of ISOLATIONS)
       inner.after(() => client.close());
       const { tools } = await client.listTools();
       assert.deepEqual(tools.map((tool) => tool.name).sort(), TOOLS.map((one) => one.tool).sort());
-      await scenario(mcp(client), workspace, isolation);
+      await scenario(mcp(client), workspace, kind);
     });
-    await t.test("SDK", async () =>
-      scenario(sdk(await loadSdk(), url, token), workspace, isolation),
-    );
-    await t.test("CLI", () => scenario(cli(data), workspace, isolation));
+    await t.test("SDK", async () => scenario(sdk(await loadSdk(), url, token), workspace, kind));
+    await t.test("CLI", () => scenario(cli(data), workspace, kind));
   });
 
 test("the service publishes the file it was built from, to anyone", async (t) => {
@@ -310,14 +332,18 @@ test("the service publishes the file it was built from, to anyone", async (t) =>
   assert.deepEqual(await (await fetch(`${url}/openapi.json`)).json(), OPENAPI);
 });
 
-for (const [isolation, extra] of ISOLATIONS)
-  test(`with isolation ${isolation}, a computer's commands and files through the SDK`, {
+for (const [kind, extra] of KINDS)
+  test(`for ${named(kind)}, a computer's commands and files through the SDK`, {
     timeout: 120_000,
   }, async (t) => {
     const { url, workspace, token } = await service(t, extra);
     const { Computer, ComputerError } = await loadSdk();
-    const opts = { apiUrl: url, apiKey: token };
-    const computer = await Computer.create({ ...opts, access: "terminal", workspace });
+    const computer = await make(Computer, kind, {
+      apiUrl: url,
+      apiKey: token,
+      access: "terminal",
+      workspace,
+    });
     t.after(() => computer.close());
 
     const ran = await computer.commands.run("echo out; exit 3");
@@ -352,7 +378,8 @@ for (const [isolation, extra] of ISOLATIONS)
     await assert.rejects(computer.files.read("wide.txt"), ComputerError);
 
     const again = await Computer.connect(computer.computerID, {
-      ...opts,
+      apiUrl: url,
+      apiKey: token,
       accessToken: computer.getMcpToken(),
     });
     t.after(() => again.close());
