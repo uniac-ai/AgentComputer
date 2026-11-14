@@ -150,6 +150,29 @@ for (const [kind, extra] of KINDS)
     const agentOnIt = { who: "agent", name: "Scout", capability: "terminal", terminal: id };
     await until(() => latest().length > 0, "the agent acting");
     assert.deepEqual(latest(), [agentOnIt]);
+    // A command it leaves to run is acting until it ends, and its end is its last act there, as
+    // this machine's list of who is acting gives it.
+    if (kind === "this") {
+      const acting = async () =>
+        (await (
+          await fetch(new URL("/v1/acting", to.apiUrl), {
+            headers: { Authorization: `Bearer ${to.apiKey}` },
+          })
+        ).json()) as Acting[];
+      const [slept = ""] = await call("exec_command", { cmd: "sleep 3", yield_time_ms: 250 });
+      const sleeping = /session_id: (\S+)/.exec(slept)?.[1] as string;
+      const at = async () =>
+        Date.parse((await acting()).find((one) => one.terminal === sleeping)?.at ?? "");
+      const started = await at();
+      assert.ok(!Number.isNaN(started), "the agent acting on its command");
+      let ended = started;
+      for (const deadline = Date.now() + 15_000; ended === started; ) {
+        assert.ok(Date.now() < deadline, "Waited too long for the command to end.");
+        await new Promise((done) => setTimeout(done, 100));
+        ended = await at();
+      }
+      assert.ok(ended - started >= 2_500, "its end is its last act");
+    }
 
     // A person opens a shell of their own: that is the person's, not the agent's.
     const terminals = await open((await computer.liveSession("terminal", "operate")).url);
@@ -300,6 +323,45 @@ test("acting now lasts 10 s, and each start and stop is heard", async (t) => {
   assert.deepEqual(presence.acting().map(shape), [
     { who: "person", name: undefined, capability: "terminal", terminal: "s_a" },
   ]);
+  presence.close();
+});
+
+test("an agent's command is acting on its terminal until it ends, and 10 s after", async (t) => {
+  // The clock is the test's: it moves only by tick, from 0.
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { Presence } = await import("../src/presence.ts");
+  const presence = new Presence("c_scout", "Scout");
+  let changes = 0;
+  presence.onChange(() => changes++);
+  const onIt = { who: "agent", name: "Scout", capability: "terminal", terminal: "s_run" };
+  presence.agentCommandStarted("s_run");
+  assert.deepEqual(presence.acting().map(shape), [onIt]);
+  // A minute and a half on, still running: still acting. Typing into it moves its time and starts
+  // no countdown; waiting on it adds nothing.
+  t.mock.timers.tick(60_000);
+  presence.agentCalled({ capability: "terminal", terminal: "s_run" });
+  presence.agentCalled({ capability: "terminal", terminal: "s_run" }, false);
+  t.mock.timers.tick(30_000);
+  assert.deepEqual(presence.acting().map(shape), [onIt]);
+  assert.equal(presence.acting()[0]?.at, new Date(60_000).toISOString());
+  assert.equal(changes, 1, "only its start");
+  // It ends: its end is its last act, and 10 s after it, nobody is acting.
+  presence.commandEnded("s_run");
+  assert.equal(presence.acting()[0]?.at, new Date(90_000).toISOString());
+  t.mock.timers.tick(9_999);
+  assert.deepEqual(presence.acting().map(shape), [onIt]);
+  t.mock.timers.tick(1);
+  assert.deepEqual(presence.acting(), []);
+  assert.equal(changes, 2, "its start and its stop");
+  // An end where the agent started nothing, such as the person's shell, holds and ends nothing.
+  presence.acted("person", { capability: "terminal", terminal: "s_shell" });
+  presence.commandEnded("s_shell");
+  assert.deepEqual(presence.acting().map(shape), [
+    { who: "person", name: undefined, capability: "terminal", terminal: "s_shell" },
+  ]);
+  assert.equal(changes, 3, "the person starting, and nothing for the end");
+  t.mock.timers.tick(10_000);
+  assert.deepEqual(presence.acting(), []);
   presence.close();
 });
 

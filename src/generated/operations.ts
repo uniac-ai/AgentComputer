@@ -2103,7 +2103,7 @@ export const OPENAPI = {
         }
       },
       "Acting": {
-        "description": "Someone who acted on a computer in the last 10 seconds. The person acts in a live view at operate: opening a shell, typing into or stopping a terminal, writing a file, any input to the browser but moving the pointer, or any input to the screen that Cua Driver did. Watching is not acting, and the person's own use of the screen, outside a live view, can't be seen. The agent acts by calling its endpoints: starting a command or typing into one (waiting on its output is not acting), any file tool, reads among them, any browser tool that is answered, and any screen tool. Computers attached to the same machine share its files and its screen: each is shown the person and the other computers' agents acting on them, by name.",
+        "description": "Someone who acted on a computer in the last 10 seconds, or the agent while a command it started there still runs. The person acts in a live view at operate: opening a shell, typing into or stopping a terminal, writing a file, any input to the browser but moving the pointer, or any input to the screen that Cua Driver did. Watching is not acting, and the person's own use of the screen, outside a live view, can't be seen. The person's shell, and what runs in it, counts for 10 seconds after their last input there. The agent acts by calling its endpoints: starting a command, which is acting on its terminal until the command ends, even one left running, such as a server, as the terminal shows it running; typing into one (waiting on its output adds nothing); any file tool, reads among them; any browser tool that is answered; and any screen tool. Computers attached to the same machine share its files and its screen: each is shown the person and the other computers' agents acting on them, by name.",
         "type": "object",
         "required": [
           "who",
@@ -2139,12 +2139,12 @@ export const OPENAPI = {
           "at": {
             "type": "string",
             "format": "date-time",
-            "description": "When it last acted there, as of this message: one who goes on acting is sent again only when someone starts or stops."
+            "description": "When it last acted there, as of this message: one who goes on acting is sent again only when someone starts or stops. For the agent's command still running, when the agent started it or last typed into it, which can be more than 10 seconds ago; its end is its last act."
           }
         }
       },
       "PresenceEvent": {
-        "description": "What the service sends on a presence@1 socket, as JSON text: the whole list of everyone acting now, the most recent first, empty where nobody is. It is sent when the socket opens and each time someone starts acting on something, or stops: 10 seconds after they last acted there. Nothing is refused by it. What a socket sends is dropped.",
+        "description": "What the service sends on a presence@1 socket, as JSON text: the whole list of everyone acting now, the most recent first, empty where nobody is. It is sent when the socket opens and each time someone starts acting on something, or stops: 10 seconds after they last acted there, or, for the agent's command, 10 seconds after it ended. Nothing is refused by it. What a socket sends is dropped.",
         "type": "object",
         "required": [
           "type",
@@ -3502,7 +3502,7 @@ export const OPERATIONS: Operation[] = [
     "output": {
       "type": "array",
       "items": {
-        "description": "Someone who acted on a computer in the last 10 seconds. The person acts in a live view at operate: opening a shell, typing into or stopping a terminal, writing a file, any input to the browser but moving the pointer, or any input to the screen that Cua Driver did. Watching is not acting, and the person's own use of the screen, outside a live view, can't be seen. The agent acts by calling its endpoints: starting a command or typing into one (waiting on its output is not acting), any file tool, reads among them, any browser tool that is answered, and any screen tool. Computers attached to the same machine share its files and its screen: each is shown the person and the other computers' agents acting on them, by name.",
+        "description": "Someone who acted on a computer in the last 10 seconds, or the agent while a command it started there still runs. The person acts in a live view at operate: opening a shell, typing into or stopping a terminal, writing a file, any input to the browser but moving the pointer, or any input to the screen that Cua Driver did. Watching is not acting, and the person's own use of the screen, outside a live view, can't be seen. The person's shell, and what runs in it, counts for 10 seconds after their last input there. The agent acts by calling its endpoints: starting a command, which is acting on its terminal until the command ends, even one left running, such as a server, as the terminal shows it running; typing into one (waiting on its output adds nothing); any file tool, reads among them; any browser tool that is answered; and any screen tool. Computers attached to the same machine share its files and its screen: each is shown the person and the other computers' agents acting on them, by name.",
         "type": "object",
         "required": [
           "who",
@@ -3538,7 +3538,7 @@ export const OPERATIONS: Operation[] = [
           "at": {
             "type": "string",
             "format": "date-time",
-            "description": "When it last acted there, as of this message: one who goes on acting is sent again only when someone starts or stops."
+            "description": "When it last acted there, as of this message: one who goes on acting is sent again only when someone starts or stops. For the agent's command still running, when the agent started it or last typed into it, which can be more than 10 seconds ago; its end is its last act."
           }
         }
       }
