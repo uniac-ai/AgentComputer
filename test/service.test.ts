@@ -615,7 +615,7 @@ test("info says what this computer offers, each ready or not and why", async (t)
         kind: "own",
         ready: false,
         reason:
-          "The browser's remote debugging is off, or the browser isn't open. On this machine, open the browser, version 144 or later, go to its inspect page, chrome://inspect/#remote-debugging and switch on remote debugging. The browser then asks you to allow each connection.",
+          "The browser's remote debugging is off, or the browser isn't open. On this machine, open the browser, version 144 or later, go to its inspect page, chrome://inspect/#remote-debugging, and switch on remote debugging. The browser then asks you to allow each connection.",
       },
     ],
   });
