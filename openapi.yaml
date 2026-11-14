@@ -52,6 +52,10 @@ paths:
       operationId: createComputer
       x-mcp-tool: computer_create
       summary: Create a computer. It answers once the computer is running.
+      description: >-
+        Meanwhile, once any `copyFrom` copy is done, it is listed by `listComputers` as `starting`,
+        with the name and metadata given here, its `reason`, and its image's `progress` where that
+        is counted: that is how a caller shows a computer being made before `create` has answered.
       requestBody:
         required: true
         content:
@@ -291,7 +295,10 @@ components:
       required: [title, done, total, moved]
       properties:
         title:
-          { type: string, description: 'The step, in words with no numbers: "Fetching its image".' }
+          {
+            type: string,
+            description: 'The step, in words with no numbers: "Downloading its image".',
+          }
         done: { type: integer, description: Bytes come so far. }
         total:
           type: [integer, "null"]

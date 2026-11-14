@@ -31,7 +31,10 @@ export interface paths {
         /** List the computers. */
         get: operations["listComputers"];
         put?: never;
-        /** Create a computer. It answers once the computer is running. */
+        /**
+         * Create a computer. It answers once the computer is running.
+         * @description Meanwhile, once any `copyFrom` copy is done, it is listed by `listComputers` as `starting`, with the name and metadata given here, its `reason`, and its image's `progress` where that is counted: that is how a caller shows a computer being made before `create` has answered.
+         */
         post: operations["createComputer"];
         delete?: never;
         options?: never;
@@ -210,7 +213,7 @@ export interface components {
         ComputerState: "starting" | "running" | "stopped" | "failed";
         /** @description How far a step that counts its bytes has come: today only fetching a computer's image, where Docker is on a socket on the service's machine. */
         Progress: {
-            /** @description The step, in words with no numbers: "Fetching its image". */
+            /** @description The step, in words with no numbers: "Downloading its image". */
             title: string;
             /** @description Bytes come so far. */
             done: number;
