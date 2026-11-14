@@ -396,7 +396,12 @@ test("where a shell can't run on a terminal device, opening one is refused with 
     throw new Error("there is no device here.");
   };
   const exec = createAgentExec({ workspace, level: "terminal", pty });
-  const live = new Live(exec, "terminal", new LoadLive(workspace, false), new Presence("agent"));
+  const live = new Live(
+    exec,
+    "terminal",
+    new LoadLive(workspace, false),
+    new Presence("c_test", "agent"),
+  );
   const server = createServer().on("upgrade", (request, socket, head) =>
     live.open("terminal", "operate", request, socket, head),
   );
@@ -442,7 +447,12 @@ test("a viewer more than 4 MiB behind is closed, and one that opens is shown all
         })),
     },
   } as unknown as Exec;
-  const live = new Live(exec, "terminal", new LoadLive(tmpdir(), false), new Presence("agent"));
+  const live = new Live(
+    exec,
+    "terminal",
+    new LoadLive(tmpdir(), false),
+    new Presence("c_test", "agent"),
+  );
   const server = createServer().on("upgrade", (request, socket, head) =>
     live.open("terminal", "watch", request, socket, head),
   );

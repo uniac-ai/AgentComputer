@@ -16,7 +16,7 @@ import type { components } from "./generated/schema.js";
 import { Live, type LiveMode, type Surface, type SurfaceInfo } from "./live.ts";
 import { LoadLive } from "./load-live.ts";
 import { channelProgram, DEFAULT_CHANNEL, playwright } from "./playwright.ts";
-import { Presence } from "./presence.ts";
+import { Board, Presence } from "./presence.ts";
 import { privateFolder } from "./store.ts";
 
 type Schemas = components["schemas"];
@@ -150,6 +150,8 @@ const FILE_TOOLS = new Set(["read", "list", "search", "edit"]);
 export class ProcessRuntime implements Runtime {
   readonly #config: BrowserConfig;
   readonly #contained: boolean;
+  /** Who acts on this machine's files: shared by the computers attached to it. */
+  readonly #machine: Board | undefined;
 
   /**
    * Outside a container it is this computer, its files reaching the whole machine. `contained` is
@@ -159,6 +161,7 @@ export class ProcessRuntime implements Runtime {
   constructor(config: BrowserConfig, contained = false) {
     this.#config = config;
     this.#contained = contained;
+    this.#machine = contained ? undefined : new Board();
   }
 
   async offer(): Promise<Offer> {
@@ -182,7 +185,12 @@ export class ProcessRuntime implements Runtime {
 
   async start(spec: ComputerSpec, folder: string, events: RuntimeEvents): Promise<Running> {
     const load = new LoadLive(spec.workspace ?? folder, this.#contained);
-    const presence = new Presence(spec.name);
+    // One with no files of its own has no part in the machine's.
+    const presence = new Presence(
+      spec.id,
+      spec.name,
+      spec.access === "none" ? undefined : this.#machine,
+    );
     let exec: AgentExec | undefined;
     if (spec.access !== "none") {
       const workspace = spec.workspace as string;
