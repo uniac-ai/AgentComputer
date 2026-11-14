@@ -48,7 +48,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Each call attaches it as a computer of its own, with its own id and token. Killing one detaches it and removes nothing of the machine's. */
+        /** Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Each call attaches it as a computer of its own, with its own id and token. Killing one detaches it and removes nothing of the machine's. Refused with 409 by a service that other machines can reach, which doesn't offer it. */
         post: operations["attachComputer"];
         delete?: never;
         options?: never;
@@ -623,7 +623,7 @@ export interface components {
         };
         ServiceInfo: {
             version: string;
-            /** @description This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready, which this service always is. */
+            /** @description This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready: where the service listens on loopback with no proxy in front. A service that other machines can reach is a server, and doesn't offer the machine it runs on; one attached before is refused at start there. */
             thisComputer: components["schemas"]["Offer"];
             /** @description Each kind of computer it makes, ready while it can be made now. A container is ready while Docker answers on the service's machine: asked for a second here and for ten when one is made, so one that is slow can be not ready here and still be made. */
             made: components["schemas"]["MadeKind"][];
@@ -752,6 +752,7 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Error"];
         };
     };
     getComputer: {

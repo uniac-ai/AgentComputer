@@ -119,7 +119,7 @@ export const OPENAPI = {
       "post": {
         "operationId": "attachComputer",
         "x-mcp-tool": "computer_attach",
-        "summary": "Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Each call attaches it as a computer of its own, with its own id and token. Killing one detaches it and removes nothing of the machine's.",
+        "summary": "Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Each call attaches it as a computer of its own, with its own id and token. Killing one detaches it and removes nothing of the machine's. Refused with 409 by a service that other machines can reach, which doesn't offer it.",
         "requestBody": {
           "required": true,
           "content": {
@@ -146,6 +146,9 @@ export const OPENAPI = {
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
           }
         }
       }
@@ -1952,7 +1955,7 @@ export const OPENAPI = {
           },
           "thisComputer": {
             "$ref": "#/components/schemas/Offer",
-            "description": "This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready, which this service always is."
+            "description": "This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready: where the service listens on loopback with no proxy in front. A service that other machines can reach is a server, and doesn't offer the machine it runs on; one attached before is refused at start there."
           },
           "made": {
             "type": "array",
@@ -2117,7 +2120,7 @@ export const OPERATIONS: Operation[] = [
               }
             }
           ],
-          "description": "This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready, which this service always is."
+          "description": "This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready: where the service listens on loopback with no proxy in front. A service that other machines can reach is a server, and doesn't offer the machine it runs on; one attached before is refused at start there."
         },
         "made": {
           "type": "array",
@@ -2614,7 +2617,7 @@ export const OPERATIONS: Operation[] = [
     "method": "POST",
     "path": "/v1/computers/attach",
     "tool": "computer_attach",
-    "summary": "Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Each call attaches it as a computer of its own, with its own id and token. Killing one detaches it and removes nothing of the machine's.",
+    "summary": "Attach this computer, the machine the service runs on, whole: its files and commands reach all of it, as whoever started the service. Each call attaches it as a computer of its own, with its own id and token. Killing one detaches it and removes nothing of the machine's. Refused with 409 by a service that other machines can reach, which doesn't offer it.",
     "status": 201,
     "hasBody": true,
     "pathParameters": [],

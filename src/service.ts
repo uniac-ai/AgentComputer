@@ -97,7 +97,16 @@ export async function serve(options: ServeOptions) {
   if (live)
     throw new Error(`A service is already running with its data in ${data}, at ${live.url}.`);
   let base = "";
-  const computers = new Computers(data, () => base, options.runtimes);
+  // This computer is a person's own, reached only from it: a service other machines reach, by
+  // its address or through a proxy, is a server, and its machine no one's to attach.
+  const computers = new Computers(
+    data,
+    () => base,
+    options.runtimes,
+    LOOPBACK.has(host) && !options.tlsProxy
+      ? undefined
+      : "This service can be reached from other machines, so it doesn't offer the machine it runs on. A service that listens on loopback, with no proxy in front, does.",
+  );
   const handlers = createHandlers(computers) as unknown as Record<
     string,
     (input: unknown) => Promise<unknown>
