@@ -5,12 +5,16 @@ import assert from "node:assert/strict";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { connect } from "node:net";
@@ -302,6 +306,40 @@ test(
     assert.ok((await alone.listTools()).tools.some((tool) => tool.name === "browser_navigate"));
   },
 );
+
+test("a workspace can start as a copy of a folder, which is left as it was", options, async (t) => {
+  const { Computer, to, root, data } = await setup(t);
+  const from = join(root, "old");
+  mkdirSync(join(from, "notes"), { recursive: true });
+  writeFileSync(join(from, "a.txt"), "a\n");
+  writeFileSync(join(from, "notes", "b.txt"), "b\n");
+  const computer = await Computer.create({ ...to(), access: "terminal", copyFrom: from });
+  t.after(() => computer.close());
+  const { workspace } = await computer.getInfo();
+  assert.equal(workspace, join(data, "computers", computer.computerID, "workspace"));
+  const sh = async (cmd: string) => (await computer.commands.run(cmd)).output;
+  assert.equal(await sh("cat /workspace/a.txt /workspace/notes/b.txt"), "a\nb\n");
+  await sh("echo changed > /workspace/a.txt && touch /workspace/new.txt");
+  assert.equal(readFileSync(join(from, "a.txt"), "utf8"), "a\n");
+  assert.equal(existsSync(join(from, "new.txt")), false);
+  await computer.kill();
+  assert.equal(existsSync(workspace as string), false);
+  assert.equal(readFileSync(join(from, "notes", "b.txt"), "utf8"), "b\n");
+
+  // A folder that can't be written is copied so, and the copy is still removed; a pipe is left
+  // out; and a link to the folder is copied as the folder.
+  chmodSync(join(from, "notes"), 0o555);
+  await run("mkfifo", [join(from, "pipe")]);
+  symlinkSync(from, join(root, "link"));
+  const again = await Computer.create({ ...to(), access: "read", copyFrom: join(root, "link") });
+  chmodSync(join(from, "notes"), 0o755);
+  t.after(() => again.close());
+  const copy = (await again.getInfo()).workspace as string;
+  assert.deepEqual(readdirSync(copy).sort(), ["a.txt", "notes"]);
+  assert.equal(statSync(join(copy, "notes")).mode & 0o777, 0o555);
+  await again.kill();
+  assert.equal(existsSync(copy), false);
+});
 
 test(
   "stop keeps its disk and token, start brings it back, and kill removes it all",

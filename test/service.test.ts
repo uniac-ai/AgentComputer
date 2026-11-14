@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -435,7 +436,7 @@ test(
 );
 
 test("a computer has only what it was asked for", withBrowser, async (t) => {
-  const { attach, api, workspace, url } = await setup(t);
+  const { attach, api, workspace, url, data } = await setup(t);
   const plain = await attach("--access", "read", "--workspace", workspace);
   assert.equal(plain.endpoints.browser, null);
   assert.equal(
@@ -458,6 +459,39 @@ test("a computer has only what it was asked for", withBrowser, async (t) => {
   // This computer only with a work folder.
   const bare = await api("/attach", { method: "POST", body: JSON.stringify({ access: "read" }) });
   assert.equal(bare.status, 400);
+  // A workspace that starts as a copy is one of its own, of a folder that is there, and made only
+  // where there is a workspace; this computer has none to copy into.
+  const make = async (path: string, body: object) => {
+    const answer = await api(path, { method: "POST", body: JSON.stringify(body) });
+    return [answer.status, ((await answer.json()) as { message: string }).message];
+  };
+  assert.deepEqual(await make("", { access: "read", workspace, copyFrom: workspace }), [
+    400,
+    "Give workspace or copyFrom, not both: copyFrom fills a workspace the service makes.",
+  ]);
+  assert.deepEqual(await make("", { access: "none", browser: true, copyFrom: workspace }), [
+    400,
+    "With access none there is no workspace. Give access read, files or terminal, or leave out copyFrom.",
+  ]);
+  for (const copyFrom of ["relative", join(workspace, "nope")])
+    assert.deepEqual(await make("", { access: "read", copyFrom }), [
+      400,
+      `There's no folder at ${copyFrom}.`,
+    ]);
+  assert.equal((await make("/attach", { access: "read", workspace, copyFrom: workspace }))[0], 400);
+  // A copy that fails leaves nothing behind: no computer, and no folder of one.
+  const unreadable = join(workspace, "locked");
+  mkdirSync(unreadable);
+  writeFileSync(join(unreadable, "secret.txt"), "x");
+  chmodSync(join(unreadable, "secret.txt"), 0o000);
+  const ids = async () =>
+    ((await (await api("")).json()) as Created[]).map((one) => one.computerID);
+  const [listed, folders] = [await ids(), readdirSync(join(data, "computers")).sort()];
+  const [status] = await make("", { access: "read", copyFrom: unreadable });
+  chmodSync(join(unreadable, "secret.txt"), 0o600);
+  assert.equal(status, 500);
+  assert.deepEqual(await ids(), listed);
+  assert.deepEqual(readdirSync(join(data, "computers")).sort(), folders);
 });
 
 test("killing this computer detaches it, and removes nothing of the machine's", async (t) => {
@@ -668,7 +702,7 @@ test("a computer made with no isolation before can't start again, and its folder
     writeFileSync(join(ownFolder, "work.txt"), "work\n");
   });
   const words = (folder: string) =>
-    `A computer with no isolation is no longer made. Its folder is kept at ${folder}. Attach this computer with that folder as its work folder, or make a container with it as its workspace.`;
+    `A computer with no isolation is no longer made. Its folder is kept at ${folder}. Attach this computer with that folder as its work folder, or make a container whose workspace starts as a copy of it.`;
   const listed = JSON.parse(await cli("list")) as Created[];
   assert.deepEqual(
     listed.map((one) => [one.computerID, one.state, one.isolation, one.attached]),

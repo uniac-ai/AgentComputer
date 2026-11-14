@@ -3,13 +3,16 @@
 import { randomBytes } from "node:crypto";
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
 } from "node:fs";
+import { cp, lstat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Duplex } from "node:stream";
@@ -77,8 +80,37 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 const noLongerMade = (stored: Stored) =>
   "A computer with no isolation is no longer made. " +
   (stored.workspace
-    ? `Its folder is kept at ${stored.workspace}. Attach this computer with that folder as its work folder, or make a container with it as its workspace.`
+    ? `Its folder is kept at ${stored.workspace}. Attach this computer with that folder as its work folder, or make a container whose workspace starts as a copy of it.`
     : "Attach this computer, or make a container.");
+/**
+ * Remove a folder whole, with what is in it. A folder in it that can't be written, as a copy or an
+ * agent can leave, is made writable by its owner first.
+ */
+function removeFolder(path: string) {
+  try {
+    rmSync(path, { recursive: true, force: true });
+  } catch {
+    const open = (at: string) => {
+      chmodSync(at, 0o700);
+      for (const entry of readdirSync(at, { withFileTypes: true }))
+        if (entry.isDirectory()) open(join(at, entry.name));
+    };
+    open(path);
+    rmSync(path, { recursive: true, force: true });
+  }
+}
+
+/** A folder that exists, given by its full path, or the refusal of one that doesn't. */
+function folderAt(path: string) {
+  let folder = false;
+  try {
+    folder = isAbsolute(path) && statSync(path).isDirectory();
+  } catch {
+    // Refused below.
+  }
+  if (!folder) throw new ApiError(400, `There's no folder at ${path}.`);
+  return resolve(path);
+}
 /** Why it didn't start, as the service answers it. */
 const refusalOf = (error: unknown) =>
   error instanceof ApiError ? error : new ApiError(500, messageOf(error));
@@ -174,17 +206,19 @@ export class Computers {
     const browser = input.browser === true;
     if (access === "none" && !browser)
       throw new ApiError(400, "With no files, no commands and no browser, there's no computer.");
-    let workspace: string | undefined;
-    if (input.workspace !== undefined) {
-      let folder = false;
-      try {
-        folder = isAbsolute(input.workspace) && statSync(input.workspace).isDirectory();
-      } catch {
-        // Reported below.
-      }
-      if (!folder) throw new ApiError(400, `There's no folder at ${input.workspace}.`);
-      workspace = resolve(input.workspace);
-    }
+    if (input.copyFrom !== undefined && input.workspace !== undefined)
+      throw new ApiError(
+        400,
+        "Give workspace or copyFrom, not both: copyFrom fills a workspace the service makes.",
+      );
+    if (input.copyFrom !== undefined && access === "none")
+      throw new ApiError(
+        400,
+        "With access none there is no workspace. Give access read, files or terminal, or leave out copyFrom.",
+      );
+    const workspace = input.workspace === undefined ? undefined : folderAt(input.workspace);
+    // Where it really is: a link to a folder is copied as that folder.
+    const from = input.copyFrom === undefined ? undefined : realpathSync(folderAt(input.copyFrom));
     const id = `c_${randomBytes(9).toString("hex")}`;
     const token = newToken();
     const now = new Date().toISOString();
@@ -204,8 +238,24 @@ export class Computers {
       ...(timeout === undefined ? {} : { endAt: expiry(timeout) }),
     };
     if (!workspace && access !== "none") {
-      stored.workspace = join(this.#folder(id), "workspace");
-      mkdirSync(stored.workspace, { recursive: true, mode: 0o700 });
+      const own = join(this.#folder(id), "workspace");
+      mkdirSync(own, { recursive: true, mode: 0o700 });
+      stored.workspace = own;
+      // Copied once, before anyone can see the computer: the folder itself is never mounted or
+      // changed. Links are copied as they are, and what is neither a file, a folder nor a link,
+      // such as a socket a program left, is left out.
+      if (from)
+        await cp(from, own, {
+          recursive: true,
+          verbatimSymlinks: true,
+          filter: async (path) => {
+            const found = await lstat(path);
+            return found.isFile() || found.isDirectory() || found.isSymbolicLink();
+          },
+        }).catch((error: unknown) => {
+          removeFolder(this.#folder(id));
+          throw refusalOf(error);
+        });
     }
     this.#stored.set(id, stored);
     try {
@@ -214,7 +264,11 @@ export class Computers {
       await this.#halt(id);
       this.#stored.delete(id);
       await this.#runtimes[stored.isolation].remove(id).catch(() => {});
-      rmSync(this.#folder(id), { recursive: true, force: true });
+      try {
+        removeFolder(this.#folder(id));
+      } catch {
+        // What it left is left; why it didn't start is what the caller is told.
+      }
       throw refusalOf(error);
     }
     this.#save();
@@ -307,9 +361,9 @@ export class Computers {
     const folder = this.#folder(id);
     if (stored.isolation === "none" && !stored.attached && existsSync(join(folder, "workspace")))
       for (const entry of readdirSync(folder)) {
-        if (entry !== "workspace") rmSync(join(folder, entry), { recursive: true, force: true });
+        if (entry !== "workspace") removeFolder(join(folder, entry));
       }
-    else rmSync(folder, { recursive: true, force: true });
+    else removeFolder(folder);
   }
 
   logs(id: string) {

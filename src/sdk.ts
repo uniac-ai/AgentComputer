@@ -45,13 +45,15 @@ export interface CreateOpts extends ConnectionOpts {
   /** How it is isolated: a container by default, and no other is offered now. */
   isolation?: Schemas["Isolation"];
   workspace?: string;
+  /** A folder whose files its workspace starts with, copied once when it is made. */
+  copyFrom?: string;
   name?: string;
   /** How long until it stops, in milliseconds. By default it doesn't. */
   timeoutMs?: number;
   metadata?: Record<string, string>;
 }
 /** This computer, attached whole: its files and commands reach all of it, as the service's user. */
-export interface AttachOpts extends Omit<CreateOpts, "isolation" | "workspace"> {
+export interface AttachOpts extends Omit<CreateOpts, "isolation" | "workspace" | "copyFrom"> {
   /** Its work folder, where commands and relative paths start. Detaching never removes it. */
   workspace: string;
 }
@@ -79,7 +81,7 @@ export class ComputerError extends Error {
 const seconds = (ms: number) => Math.max(1, Math.ceil(ms / 1000));
 
 /** What making and attaching a computer both send, and where to. */
-function requestOf(opts: Omit<CreateOpts, "isolation" | "workspace">) {
+function requestOf(opts: Omit<CreateOpts, "isolation" | "workspace" | "copyFrom">) {
   const { access, browser, name, timeoutMs, metadata, apiKey, apiUrl } = opts;
   return {
     connection: { ...(apiKey ? { apiKey } : {}), ...(apiUrl ? { apiUrl } : {}) },
@@ -358,7 +360,7 @@ export class Computer {
   }
 
   static async create(opts: CreateOpts): Promise<Computer> {
-    const { isolation, workspace } = opts;
+    const { isolation, workspace, copyFrom } = opts;
     const { connection, body } = requestOf(opts);
     const created = answered(
       await apiOf(connection).POST("/v1/computers", {
@@ -366,6 +368,7 @@ export class Computer {
           ...body,
           ...(isolation === undefined ? {} : { isolation }),
           ...(workspace === undefined ? {} : { workspace }),
+          ...(copyFrom === undefined ? {} : { copyFrom }),
         },
       }),
     );
