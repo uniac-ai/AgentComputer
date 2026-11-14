@@ -88,15 +88,23 @@ export class Computers {
   readonly #base: () => string;
   /** This computer's way of running, as `none`, and each way of making one. */
   readonly #runtimes: Record<Isolation, Runtime>;
+  /** Why this computer isn't offered here, where it isn't. */
+  readonly #notHere: string | undefined;
   readonly #stored = new Map<string, Stored>();
   readonly #live = new Map<string, Live>();
   readonly #tickets = new Map<string, Ticket>();
   readonly #file: string;
 
-  constructor(data: string, base: () => string, runtimes: Record<Isolation, Runtime>) {
+  constructor(
+    data: string,
+    base: () => string,
+    runtimes: Record<Isolation, Runtime>,
+    notHere?: string,
+  ) {
     this.#data = data;
     this.#base = base;
     this.#runtimes = runtimes;
+    this.#notHere = notHere;
     this.#file = join(data, "computers.json");
     if (existsSync(this.#file))
       // One recorded by 0.0.14 or earlier, which kept no isolation, is taken as made with none,
@@ -107,7 +115,10 @@ export class Computers {
 
   /** What it offers: this computer, and each kind it makes, with whether it can be now. */
   async offers() {
-    const thisComputer = await this.#runtimes.none.offer();
+    const offered = await this.#runtimes.none.offer();
+    const thisComputer = this.#notHere
+      ? { ...offered, ready: false, reason: this.#notHere }
+      : offered;
     const made = await Promise.all(
       (Object.keys(this.#runtimes) as Isolation[])
         .filter((isolation) => isolation !== "none")
@@ -439,6 +450,7 @@ export class Computers {
     this.#live.set(stored.id, live);
     if (stored.isolation === "none" && !stored.attached)
       throw new ApiError(409, noLongerMade(stored));
+    if (stored.attached && this.#notHere) throw new ApiError(409, this.#notHere);
     stored.startedAt = new Date().toISOString();
     // In the isolation it was made in, and never another.
     const runtime = this.#runtimes[stored.isolation];

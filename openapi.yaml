@@ -74,6 +74,7 @@ paths:
         Attach this computer, the machine the service runs on, whole: its files and commands reach
         all of it, as whoever started the service. Each call attaches it as a computer of its own,
         with its own id and token. Killing one detaches it and removes nothing of the machine's.
+        Refused with 409 by a service that other machines can reach, which doesn't offer it.
       requestBody:
         required: true
         content:
@@ -87,6 +88,7 @@ paths:
               schema: { $ref: "#/components/schemas/CreatedComputer" }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Error" }
   /v1/computers/{computerID}:
     parameters:
       - $ref: "#/components/parameters/computerID"
@@ -941,7 +943,9 @@ components:
           $ref: "#/components/schemas/Offer"
           description: >-
             This computer, the machine the service runs on, attached whole, as whoever started the
-            service. It can be attached while ready, which this service always is.
+            service. It can be attached while ready: only where the service listens on loopback,
+            with no proxy in front and no public address. Elsewhere it isn't offered, and one
+            attached before is refused at start.
         made:
           type: array
           description: >-

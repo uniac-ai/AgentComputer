@@ -26,7 +26,7 @@ That gives an agent this computer instead: the machine the service runs on, whol
 Each computer is this computer, attached with `attach`, or one made in a container of its own with `create`. A container needs Docker on the service's machine. The service follows your `DOCKER_HOST` or current context and never changes them, and comes up without Docker.
 
 - **`info` says what the service offers**, each part ready or not and why, in a line a person reads:
-  - `thisComputer`, which this service always offers: its capabilities (`about`, `terminal`, `files` and `screen`) and the browsers that can go with it. Its screen isn't reached yet: `This service can't reach the screen yet.`
+  - `thisComputer`: its capabilities (`about`, `terminal`, `files` and `screen`) and the browsers that can go with it. Its screen isn't reached yet: `This service can't reach the screen yet.`
   - `made`, each kind it makes: today a container, ready while Docker answers, with its capabilities and browsers.
 - **A container is refused with 409 where Docker doesn't answer:** `A container needs Docker, which isn't answering on this machine.` One already made isn't started there, and isn't killed there either, since its container couldn't be removed: both are refused with the same words, and it is kept.
 - **A computer with no isolation is no longer made.** `create --isolation none` is refused with 400, and `attach` is what does that now.
@@ -34,6 +34,7 @@ Each computer is this computer, attached with `attach`, or one made in a contain
 
 This computer:
 
+- **It is offered only by a service that no other machine reaches:** one that listens on loopback, with no `--tls-proxy` and no `--public-url`. A service that other machines can reach is a server, and doesn't offer its own machine. There `info` says why, attaching is refused with 409 in the same words, and a computer attached before is refused at start.
 - **`--workspace`, which `attach` needs, is its work folder.** Commands and relative paths start there, and `about` names it. But its files reach the whole machine, as whoever started the service, and so do its commands at `--access terminal`.
 - **`kill` detaches it.** What the service kept for it goes, and nothing of the machine's.
 - **Its browser,** with `--browser`, is a headless one with a profile of its own. It runs the Chrome installed on the machine, or what `serve --browser-name` or `--browser-path` names. `info` says whether that program is there.
@@ -196,7 +197,7 @@ docker run -d --name agentcomputer --network host \
 
 - Its data folder, and any `--workspace`, have to be mounted at the same path inside as outside, because Docker reads those paths on the machine.
 - `--network host` is how it reaches each computer's port on the machine's loopback, so this needs Linux.
-- The socket gives it full control of that machine's Docker. Here this computer is the service's own container, so whoever holds the control token can attach it and reach the socket. Keep that token as you would that machine's Docker.
+- The socket gives it full control of that machine's Docker. Whoever holds the control token can make computers, but not reach the socket: a service that other machines reach doesn't offer this computer, which here is its own container.
 
 ## Live sessions
 

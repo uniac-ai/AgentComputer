@@ -11,6 +11,7 @@ import { createInterface } from "node:readline";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { NOT_HERE, onlyThisMachine } from "../src/service.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = join(here, "..", "..", "dist", "agentcomputer.js");
@@ -59,12 +60,16 @@ async function serve(t: test.TestContext, data: string, ...args: string[]) {
     env: { PATH: process.env.PATH ?? "", HOME: data, SHELL: "/bin/bash" },
     stdio: ["ignore", "pipe", "inherit"],
   });
-  t.after(async () => {
+  let stopped = false;
+  const stop = async () => {
+    if (stopped) return;
+    stopped = true;
     child.removeAllListeners("exit");
     const gone = once(child, "exit");
     child.kill("SIGTERM");
     await gone;
-  });
+  };
+  t.after(stop);
   const url = await new Promise<string>((done, failed) => {
     child.once("exit", (code) => failed(new Error(`The service exited ${code}.`)));
     createInterface({ input: child.stdout as NodeJS.ReadableStream }).on("line", (line) => {
@@ -72,8 +77,32 @@ async function serve(t: test.TestContext, data: string, ...args: string[]) {
       if (found) done(found[1] as string);
     });
   });
-  return { url, token: readFileSync(join(data, "control-token"), "utf8").trim() };
+  return { url, token: readFileSync(join(data, "control-token"), "utf8").trim(), stop };
 }
+
+/** The service's API in the clear, at the address it listens on, with its control token. */
+const plain =
+  (address: string, token: string) =>
+  (method: "GET" | "POST" | "DELETE", path: string, body?: object) =>
+    fetch(`http://${address}/v1${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+
+test("only a service that no other machine reaches offers this computer", () => {
+  for (const [host, options, offered] of [
+    ["127.0.0.1", {}, true],
+    ["::1", {}, true],
+    ["localhost", {}, true],
+    ["0.0.0.0", {}, false],
+    ["::", {}, false],
+    ["10.0.0.1", {}, false],
+    ["127.0.0.1", { tlsProxy: true }, false],
+    ["127.0.0.1", { publicUrl: "https://computers.example.com" }, false],
+  ] as const)
+    assert.equal(onlyThisMachine(host, options), offered, `${host} ${JSON.stringify(options)}`);
+});
 
 /** Attach this computer with `workspace`, or with none make one in a container, and use it. */
 async function across(url: string, token: string, ca: string, workspace?: string) {
@@ -132,7 +161,12 @@ test("a client that doesn't trust the certificate is refused", async (t) => {
   await assert.rejects(fetch(`${url}/openapi.json`));
 });
 
-test("on an address other machines can reach, over TLS", { skip: !outward }, async (t) => {
+test("on an address other machines can reach, over TLS, a computer is made in a container", {
+  skip:
+    (!outward && "needs an address other machines can reach") ||
+    (!COMPUTER_IMAGE && "needs AGENTCOMPUTER_TEST_IMAGE"),
+  timeout: 120_000,
+}, async (t) => {
   const { root, data } = folders(t);
   const { cert, key } = await certificate(root, `IP:${outward}`);
   const { url, token } = await serve(
@@ -144,13 +178,18 @@ test("on an address other machines can reach, over TLS", { skip: !outward }, asy
     cert,
     "--tls-key",
     key,
+    "--image",
+    COMPUTER_IMAGE as string,
   );
   assert.equal(new URL(url).hostname, outward);
-  assert.equal((await across(url, token, cert, root)).output, "across\n");
+  assert.equal((await across(url, token, cert)).output, "across\n");
 });
 
-test("behind a proxy it listens in the clear and gives out the public address", async (t) => {
-  const { root, data } = folders(t);
+test("behind a proxy it listens in the clear and gives out the public address", {
+  skip: !COMPUTER_IMAGE && "needs AGENTCOMPUTER_TEST_IMAGE",
+  timeout: 120_000,
+}, async (t) => {
+  const { data } = folders(t);
   const host = outward ?? "127.0.0.1";
   const port = await freePort();
   const { url, token } = await serve(
@@ -161,16 +200,56 @@ test("behind a proxy it listens in the clear and gives out the public address", 
     "--tls-proxy",
     "--public-url",
     "https://computers.example.com/",
+    "--image",
+    COMPUTER_IMAGE as string,
   );
   assert.equal(url, "https://computers.example.com");
-  const made = await fetch(`http://${host}:${port}/v1/computers/attach`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ access: "read", workspace: root }),
-  });
+  const api = plain(`${host}:${port}`, token);
+  const made = await api("POST", "/computers", { access: "read" });
   assert.equal(made.status, 201);
-  const { endpoints } = (await made.json()) as { endpoints: { computer: string } };
+  const { computerID, endpoints } = (await made.json()) as {
+    computerID: string;
+    endpoints: { computer: string };
+  };
+  assert.equal((await api("DELETE", `/computers/${computerID}`)).status, 204);
   assert.ok(endpoints.computer.startsWith("https://computers.example.com/v1/computers/"));
+});
+
+test("a service other machines can reach doesn't offer this computer, even one attached before", async (t) => {
+  const { root, data } = folders(t);
+  // On loopback this computer is attached, as on a person's own machine.
+  const port = await freePort();
+  const first = await serve(t, data, "--listen", `127.0.0.1:${port}`);
+  const attached = await plain(`127.0.0.1:${port}`, first.token)("POST", "/computers/attach", {
+    access: "read",
+    workspace: root,
+  });
+  assert.equal(attached.status, 201);
+  const { computerID } = (await attached.json()) as { computerID: string };
+  await first.stop();
+  // Started again behind a proxy, which other machines reach through, it is a server.
+  const { token } = await serve(
+    t,
+    data,
+    "--listen",
+    `127.0.0.1:${port}`,
+    "--tls-proxy",
+    "--public-url",
+    "https://computers.example.com/",
+  );
+  const api = plain(`127.0.0.1:${port}`, token);
+  const { thisComputer } = (await (await api("GET", "/info")).json()) as {
+    thisComputer: { ready: boolean; reason?: string };
+  };
+  assert.deepEqual([thisComputer.ready, thisComputer.reason], [false, NOT_HERE]);
+  const refused = await api("POST", "/computers/attach", { access: "read", workspace: root });
+  assert.deepEqual([refused.status, await refused.json()], [409, { code: 409, message: NOT_HERE }]);
+  const before = (await (await api("GET", `/computers/${computerID}`)).json()) as { state: string };
+  assert.equal(before.state, "failed");
+  // Stopped and started again, as the failed are, it is refused.
+  assert.equal((await api("POST", `/computers/${computerID}/stop`, {})).status, 200);
+  const start = await api("POST", `/computers/${computerID}/start`, {});
+  assert.deepEqual([start.status, await start.json()], [409, { code: 409, message: NOT_HERE }]);
 });
 
 for (const [why, reason, args] of [
