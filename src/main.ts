@@ -177,12 +177,14 @@ async function main() {
       outputDir: values.output ?? "",
     });
   // The image's command, not for a person to run.
-  if (command === "inside")
+  if (command === "inside") {
+    if (!values.name) throw new UsageError("inside takes --name, its agent's name.");
     return serveInside({
       access: values.access as CreateOpts["access"],
       browser: values.browser === true,
-      name: values.name ?? "",
+      name: values.name,
     });
+  }
   const connection = connectionTo(data);
   /** What create and attach both take. */
   const making = () => {

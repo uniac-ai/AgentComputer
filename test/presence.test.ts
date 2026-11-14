@@ -108,6 +108,14 @@ async function until(check: () => boolean, what: string) {
   }
 }
 
+/** Who, by what name, on what: an Acting without its time. */
+const shape = ({ who, name, capability, terminal }: Acting) => ({
+  who,
+  name,
+  capability,
+  terminal,
+});
+
 for (const [kind, extra] of KINDS)
   test(`on ${named(kind)}: the person sees who acts, and the agent is told what the person did`, {
     timeout: 120_000,
@@ -122,56 +130,63 @@ for (const [kind, extra] of KINDS)
     const call = await agent(computer.getMcpUrl(), computer.getMcpToken());
     await assert.rejects(computer.liveSession("presence", "operate"), /watched, not operated/);
     const presence = await open((await computer.liveSession("presence")).url);
-    const latest = () => (presence.heard.at(-1)?.acting ?? []) as Acting[];
+    const latest = () => ((presence.heard.at(-1)?.acting ?? []) as Acting[]).map(shape);
     await until(() => presence.heard.length > 0, "who acts, at first");
     assert.deepEqual(presence.heard[0], { type: "presence", acting: [] });
 
     // The agent starts a command, and is seen acting on its terminal by its name.
     const [started = ""] = await call("exec_command", { cmd: "cat", yield_time_ms: 250 });
     const id = /session_id: (\S+)/.exec(started)?.[1] as string;
-    await until(() => latest().some((one) => one.who === "agent"), "the agent acting");
+    const agentOnIt = { who: "agent", name: "Scout", capability: "terminal", terminal: id };
+    await until(() => latest().length > 0, "the agent acting");
+    assert.deepEqual(latest(), [agentOnIt]);
+
+    // A person opens a shell of their own: that is the person's, not the agent's.
+    const terminals = await open((await computer.liveSession("terminal", "operate")).url);
+    terminals.ws.send(JSON.stringify({ type: "open", columns: 80, rows: 24 }));
+    await until(() => latest().some((one) => one.who === "person"), "the person's shell");
+    const shell = latest().find((one) => one.who === "person")?.terminal;
+    assert.notEqual(shell, id);
     assert.deepEqual(
-      latest().map(({ who, name, capability, terminal }) => ({ who, name, capability, terminal })),
-      [{ who: "agent", name: "Scout", capability: "terminal", terminal: id }],
+      latest()
+        .filter((one) => one.terminal === shell)
+        .map((one) => one.who),
+      ["person"],
     );
 
-    // A person types into it. The agent's next call on it is told, and the one after isn't.
-    const terminals = await open((await computer.liveSession("terminal", "operate")).url);
+    // A person types into the agent's. The agent's next call on it is told, the one after isn't.
     terminals.ws.send(JSON.stringify({ type: "input", id, text: "hi\n" }));
-    await until(() => latest().some((one) => one.who === "person"), "the person acting");
-    const told = await call("write_stdin", { session_id: id, chars: "a", yield_time_ms: 250 });
-    assert.match(told.at(-1) ?? "", /^The person typed in this terminal \d+ s ago\.$/);
-    assert.equal(
-      (await call("write_stdin", { session_id: id, chars: "a", yield_time_ms: 250 })).length,
-      1,
+    await until(
+      () => latest().some((one) => one.who === "person" && one.terminal === id),
+      "the person typing",
     );
+    const type = () => call("write_stdin", { session_id: id, chars: "a", yield_time_ms: 250 });
+    assert.match((await type()).at(-1) ?? "", /^The person used this terminal \d+ s ago\.$/);
+    assert.equal((await type()).length, 1);
     const [about = "{}"] = await call("about");
     const { rows } = JSON.parse(about) as { rows: { label: string; value: string }[] };
     assert.deepEqual(
-      rows.find((row) => row.label === "Others acting"),
-      { label: "Others acting", value: `The person: terminal ${id}` },
+      rows.find((row) => row.label === "Acting now"),
+      { label: "Acting now", value: `The person: terminal ${shell}, terminal ${id}` },
     );
 
     // A person writes a file. The agent's next call on the files is told.
+    // A write that is refused is not acting; one that is written is.
     const files = await open((await computer.liveSession("files", "operate")).url);
-    files.ws.send(
-      JSON.stringify({
-        type: "write",
-        id: "w",
-        path: "note.txt",
-        offset: 0,
-        length: 2,
-        last: true,
-      }),
-    );
+    const write = { type: "write", id: "w", path: "note.txt", offset: 0, length: 2, last: true };
+    files.ws.send(JSON.stringify({ ...write, id: "out", path: "../outside.txt" }));
     files.ws.send(Buffer.from("hi"));
-    await until(() => files.heard.some((one) => one.id === "w"), "the write answered");
-    const read = await call("read", { path: "note.txt" });
-    assert.match(read.at(-1) ?? "", /^The person changed files here \d+ s ago\.$/);
+    await until(() => files.heard.some((one) => one.id === "out"), "the refusal");
+    assert.equal(files.heard.find((one) => one.id === "out")?.type, "refused");
+    assert.ok(!latest().some((one) => one.capability === "files"));
+    files.ws.send(JSON.stringify(write));
+    files.ws.send(Buffer.from("hi"));
     await until(
       () => latest().some((one) => one.who === "person" && one.capability === "files"),
       "the person on the files",
     );
+    const read = await call("read", { path: "note.txt" });
+    assert.match(read.at(-1) ?? "", /^The person wrote a file here \d+ s ago\.$/);
   });
 
 for (const [kind, extra] of WITH_BROWSER)
@@ -189,21 +204,24 @@ for (const [kind, extra] of WITH_BROWSER)
     });
     const call = await agent(computer.getMcpUrl("browser"), computer.getMcpToken());
     assert.equal((await call("browser_navigate", { url: "about:blank" })).length, 1);
-    const screen = await open((await computer.liveSession("browser", "operate")).url);
-    screen.ws.send(JSON.stringify({ type: "mouse", action: "move", x: 1, y: 1 }));
     const presence = await open((await computer.liveSession("presence")).url);
-    await until(
-      () =>
-        ((presence.heard.at(-1)?.acting ?? []) as Acting[]).some(
-          (one) => one.who === "person" && one.capability === "browser",
-        ),
-      "the person in the browser",
-    );
+    const person = () =>
+      ((presence.heard.at(-1)?.acting ?? []) as Acting[]).some(
+        (one) => one.who === "person" && one.capability === "browser",
+      );
+    // Moving the pointer over it is not acting; pressing a key is.
+    const screen = await open((await computer.liveSession("browser", "operate")).url);
+    await until(() => screen.heard.length > 0, "the page shown");
+    screen.ws.send(JSON.stringify({ type: "mouse", action: "move", x: 1, y: 1 }));
+    screen.ws.send(JSON.stringify({ type: "key", action: "down", key: "Shift" }));
+    screen.ws.send(JSON.stringify({ type: "key", action: "up", key: "Shift" }));
+    await until(person, "the person in the browser");
     const told = await call("browser_snapshot");
     assert.match(told.at(-1) ?? "", /^The person used the browser \d+ s ago\.$/);
   });
 
 test("acting now lasts 10 s, and each start and stop is heard", async (t) => {
+  // The clock is the test's: it moves only by tick, from 0.
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const { Presence } = await import("../src/presence.ts");
   const presence = new Presence("Scout");
@@ -212,25 +230,35 @@ test("acting now lasts 10 s, and each start and stop is heard", async (t) => {
   presence.acted("person", { capability: "files" });
   presence.acted("person", { capability: "files" });
   assert.equal(changes, 1, "acting again on the same thing is no change");
-  assert.equal(presence.others(), "The person: the files");
+  assert.equal(presence.othersForAbout(), "The person: the files");
   t.mock.timers.tick(4_000);
-  assert.match(
-    presence.agentCalls({ capability: "files" }) ?? "",
-    /^The person changed files here 4 s ago\.$/,
-  );
-  assert.equal(presence.agentCalls({ capability: "files" }), undefined, "told once");
+  // Told only of the same thing: not of the files, on a call on the browser.
+  assert.equal(presence.agentCalled({ capability: "browser" }), undefined);
+  // A moment later, so that the files are the more recent.
   t.mock.timers.tick(1);
-  assert.equal(presence.agentCalls({ capability: "browser" }), undefined, "only of the same thing");
+  const told = presence.agentCalled({ capability: "files" });
+  assert.equal(told, "The person wrote a file here 4 s ago.");
+  assert.equal(presence.agentCalled({ capability: "files" }), undefined, "told once");
+  // At 10 s the person stops acting; the agent, which acted at 4 s, still is.
   t.mock.timers.tick(6_000);
-  assert.equal(presence.others(), "Nobody");
-  assert.deepEqual(
-    presence.now().map(({ who, name, capability }) => ({ who, name, capability })),
-    [
-      { who: "agent", name: "Scout", capability: "browser" },
-      { who: "agent", name: "Scout", capability: "files" },
-    ],
-  );
+  assert.equal(presence.othersForAbout(), "Nobody else");
+  assert.deepEqual(presence.acting().map(shape), [
+    { who: "agent", name: "Scout", capability: "files", terminal: undefined },
+    { who: "agent", name: "Scout", capability: "browser", terminal: undefined },
+  ]);
+  assert.equal(changes, 4, "the person stopping, and the agent starting on two things");
+  // At 14 s nobody is.
   t.mock.timers.tick(4_000);
-  assert.deepEqual(presence.now(), []);
+  assert.deepEqual(presence.acting(), []);
+  assert.equal(changes, 6);
+  // Each terminal is its own: typing in one tells nothing of another, and waiting isn't acting.
+  presence.acted("person", { capability: "terminal", terminal: "s_a" });
+  const waiting = (terminal: string) =>
+    presence.agentCalled({ capability: "terminal", terminal }, false);
+  assert.equal(waiting("s_b"), undefined);
+  assert.match(waiting("s_a") ?? "", /^The person used this terminal/);
+  assert.deepEqual(presence.acting().map(shape), [
+    { who: "person", name: undefined, capability: "terminal", terminal: "s_a" },
+  ]);
   presence.close();
 });

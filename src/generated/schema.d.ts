@@ -501,7 +501,7 @@ export interface components {
             /** @description Bytes on that volume. */
             diskTotal: number;
         };
-        /** @description Someone acting on a computer now: within the last 10 seconds. The person acts through a live view at operate: typing into a terminal, writing a file, using the browser. Watching is not acting. The agent acts through its endpoints, reading files among it. It is shown, and nothing is refused by it. */
+        /** @description Someone who acted on a computer in the last 10 seconds. The person acts in a live view at operate: opening a shell, typing into or stopping a terminal, writing a file, or any input to the browser but moving the pointer. Watching is not acting. The agent acts by calling its endpoints: starting a command or typing into one (waiting on its output is not acting), any file tool, reads among them, and any browser tool that is answered. */
         Acting: {
             /** @enum {string} */
             who: "person" | "agent";
@@ -509,15 +509,15 @@ export interface components {
             name?: string;
             /** @enum {string} */
             capability: "terminal" | "files" | "browser";
-            /** @description Which terminal */
+            /** @description Which terminal, by its id; only for a terminal. */
             terminal?: string;
             /**
              * Format: date-time
-             * @description When it last acted there.
+             * @description When it last acted there, as of this message: one who goes on acting is sent again only when someone starts or stops.
              */
             at: string;
         };
-        /** @description What the service sends on a presence@1 socket, as JSON text: everyone acting now, the most recent first, and nobody where it is empty. What a socket sends is dropped. */
+        /** @description What the service sends on a presence@1 socket, as JSON text: the whole list of everyone acting now, the most recent first, empty where nobody is. It is sent when the socket opens and each time someone starts acting on something, or stops: 10 seconds after they last acted there. Nothing is refused by it. What a socket sends is dropped. */
         PresenceEvent: {
             /** @constant */
             type: "presence";

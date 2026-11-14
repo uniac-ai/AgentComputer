@@ -16,7 +16,7 @@ import type { components } from "./generated/schema.js";
 import { Live, type LiveMode, type Surface, type SurfaceInfo } from "./live.ts";
 import { LoadLive } from "./load-live.ts";
 import { channelProgram, DEFAULT_CHANNEL, playwright } from "./playwright.ts";
-import { Presence, type Where } from "./presence.ts";
+import { Presence } from "./presence.ts";
 import { privateFolder } from "./store.ts";
 
 type Schemas = components["schemas"];
@@ -141,16 +141,11 @@ function browserProgram(config: BrowserConfig): Schemas["Readiness"] {
 }
 
 /**
- * What of the computer an agent's call acts on, for presence. A command it starts is heard as it
- * starts; reading its sessions, or what the computer is, acts on nothing.
+ * The agent's tools that act on its files, for presence. A command it starts is heard as it
+ * starts, and one it types into by `write_stdin`; reading its sessions, or what the computer is,
+ * acts on nothing.
  */
 const FILE_TOOLS = new Set(["read", "list", "search", "edit"]);
-const acting = (tool: string, input: Record<string, unknown>): Where | undefined =>
-  tool === "write_stdin" && typeof input.session_id === "string"
-    ? { capability: "terminal", terminal: input.session_id }
-    : FILE_TOOLS.has(tool)
-      ? { capability: "files" }
-      : undefined;
 
 export class ProcessRuntime implements Runtime {
   readonly #config: BrowserConfig;
@@ -209,8 +204,19 @@ export class ProcessRuntime implements Runtime {
         pty: await loadPty(),
         extraTools: [about],
         note: (tool, input) => {
-          const where = acting(tool, input);
-          return where && presence.agentCalls(where);
+          if (FILE_TOOLS.has(tool)) return presence.agentCalled({ capability: "files" });
+          // Only a terminal that is there and running: one refused, or ended, is acted on by
+          // nobody. Waiting on its output, with nothing typed, isn't acting on it either.
+          const id = input.session_id;
+          if (
+            tool !== "write_stdin" ||
+            !exec?.terminals.list().some((one) => one.id === id && one.exitCode === undefined)
+          )
+            return undefined;
+          return presence.agentCalled(
+            { capability: "terminal", terminal: id as string },
+            typeof input.chars === "string" && input.chars !== "",
+          );
         },
       });
     }
@@ -242,7 +248,7 @@ export class ProcessRuntime implements Runtime {
         presence.acted("person", { capability: "browser" }),
       );
       browser.gate = browserLive;
-      browser.noted = () => presence.agentCalls({ capability: "browser" });
+      browser.noted = () => presence.agentCalled({ capability: "browser" });
     }
     const files =
       exec &&

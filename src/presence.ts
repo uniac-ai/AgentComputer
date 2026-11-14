@@ -13,11 +13,12 @@ export type Where =
   | { capability: "terminal"; terminal: string }
   | { capability: "files" | "browser" };
 
-const keyOf = (where: Where) =>
-  where.capability === "terminal" ? `terminal ${where.terminal}` : where.capability;
+/** How a person and an agent read where it was. */
+const named = (where: Where) =>
+  where.capability === "terminal" ? `terminal ${where.terminal}` : `the ${where.capability}`;
 const DID: Record<Where["capability"], string> = {
-  terminal: "typed in this terminal",
-  files: "changed files here",
+  terminal: "used this terminal",
+  files: "wrote a file here",
   browser: "used the browser",
 };
 
@@ -29,7 +30,7 @@ export class Presence {
     string,
     { who: Acting["who"]; where: Where; at: number; timer: NodeJS.Timeout }
   >();
-  /** When the agent last called on each thing, to tell it what the person did there since. */
+  /** When the agent last called on each thing, while that can still matter. */
   readonly #called = new Map<string, number>();
   readonly #listeners = new Set<() => void>();
 
@@ -39,7 +40,7 @@ export class Presence {
 
   /** Someone acted. A change is heard when one starts acting on something, and when one stops. */
   acted(who: Acting["who"], where: Where) {
-    const key = `${who} ${keyOf(where)}`;
+    const key = `${who} ${named(where)}`;
     const before = this.#last.get(key);
     clearTimeout(before?.timer);
     const timer = setTimeout(() => {
@@ -52,22 +53,24 @@ export class Presence {
   }
 
   /**
-   * The agent calls on `where`: the line to add to its answer, where the person acted there since
-   * its last call on it.
+   * The agent called on `where`, acting there unless `acts` is false, as when it only waits on a
+   * command: the line to add to its answer, where the person acted there since its last call on it.
    */
-  agentCalls(where: Where): string | undefined {
-    const key = keyOf(where);
+  agentCalled(where: Where, acts = true): string | undefined {
+    const key = named(where);
+    const at = Date.now();
     const since = this.#called.get(key);
-    const now = Date.now();
-    this.#called.set(key, now);
-    this.acted("agent", where);
+    // A call longer ago than anyone is remembered acting tells nothing more than none.
+    for (const [one, when] of this.#called) if (at - when > ACTING_MS) this.#called.delete(one);
+    this.#called.set(key, at);
+    if (acts) this.acted("agent", where);
     const person = this.#last.get(`person ${key}`);
     if (!person || (since !== undefined && person.at <= since)) return undefined;
-    return `The person ${DID[where.capability]} ${Math.max(1, Math.round((now - person.at) / 1000))} s ago.`;
+    return `The person ${DID[where.capability]} ${Math.max(1, Math.round((at - person.at) / 1000))} s ago.`;
   }
 
   /** Who is acting now, on what, the most recent first. */
-  now(): Acting[] {
+  acting(): Acting[] {
     return [...this.#last.values()]
       .sort((a, b) => b.at - a.at)
       .map(({ who, where, at }) => ({
@@ -78,11 +81,11 @@ export class Presence {
       }));
   }
 
-  /** What the agent is told of the person, for `about`. */
-  others() {
-    const person = this.now().filter((one) => one.who === "person");
-    if (person.length === 0) return "Nobody";
-    return `The person: ${person.map((one) => (one.capability === "terminal" ? `terminal ${one.terminal}` : `the ${one.capability}`)).join(", ")}`;
+  /** Who else is acting now, as `about` tells the agent. */
+  othersForAbout() {
+    const person = [...this.#last.values()].filter((one) => one.who === "person");
+    if (person.length === 0) return "Nobody else";
+    return `The person: ${person.map((one) => named(one.where)).join(", ")}`;
   }
 
   /** Hear each change in who is acting. Returns the way to stop. */

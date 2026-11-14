@@ -74,16 +74,16 @@ A computer in a container:
 
 `about` tells the agent what a person looking at the computer reads. It takes nothing and answers JSON text, `{"rows": [...]}`, each row a `label` and a `value`, with `"path": true` on a value that is a path and `"caution": true` on one to be read as a caution; a row that is neither has neither. The rows come in this order:
 
-| `label`     | `value`                                                                                   |
-| ----------- | ----------------------------------------------------------------------------------------- |
-| `Where`     | The machine's own name                                                                    |
-| `Folder`    | The workspace's path on that machine, as a path                                           |
-| `Reaches`   | `Read-only files`, `Files`, or `Files and terminal`; with a browser, `, Browser` after it |
-| `Isolation` | `None: it acts as you, on the whole machine`, as a caution, or `A container of its own`   |
-| `Others acting` | Who else acted on it in the last 10 s, and on what: `The person: terminal s_…, the files`, or `Nobody` |
-| `CPU`       | Used, of all the machine's CPUs, as a whole percentage: `37%`                             |
-| `Memory`    | Used of the machine's total, counted in 1024s and written GB: `9.2 of 16 GB`              |
-| `Disk`      | Used of total, of the volume the workspace is on, counted in 1000s: `212 of 494 GB`       |
+| `label`      | `value`                                                                                          |
+| ------------ | ------------------------------------------------------------------------------------------------ |
+| `Where`      | The machine's own name                                                                           |
+| `Folder`     | The workspace's path on that machine, as a path                                                  |
+| `Reaches`    | `Read-only files`, `Files`, or `Files and terminal`; with a browser, `, Browser` after it        |
+| `Isolation`  | `None: it acts as you, on the whole machine`, as a caution, or `A container of its own`          |
+| `Acting now` | Who else acted on it in the last 10 s, and on what: `The person: terminal s_…`, or `Nobody else` |
+| `CPU`        | Used, of all the machine's CPUs, as a whole percentage: `37%`                                    |
+| `Memory`     | Used of the machine's total, counted in 1024s and written GB: `9.2 of 16 GB`                     |
+| `Disk`       | Used of total, of the volume the workspace is on, counted in 1000s: `212 of 494 GB`              |
 
 - **In a container** the agent's commands find the folder somewhere else, so `Folder` says both and is not marked as a path: `/home/me/Research on the machine, mounted at /workspace in it`. CPU and Memory there are the computer's own; on this computer they are the whole machine's.
 - **The last three** are a reading of its load taken over half a second when it is asked, in the same way the `load` surface reads. They come together, or not at all where a reading can't be taken.
@@ -239,10 +239,8 @@ Every running computer has two more, to watch only:
   - **`scope` says whose numbers they are.** A computer in a container reads its own (`computer`), against the machine's totals, since a container has no limit of its own. This computer has no edge to measure at, so it reads the whole machine's (`machine`); so does a container that can't read its own.
   - **The disk is the volume its workspace is on,** not the workspace's own size.
   - **Nothing depends on it.** Nothing is read while nobody watches or asks, a reading that can't be taken is left out, and a socket that hasn't read the one before is not sent the next.
-- **`presence`** (protocol `presence@1`): who is acting on it now, which is within the last 10 seconds, and on what. It sends `{"type":"presence","acting":[…]}` when it opens, and again each time someone starts or stops acting on something; `openapi.yaml` has each field, as `PresenceEvent`.
-  - **Who:** the person, through a live view at operate (typing into a terminal, writing a file, using the browser), or the agent, by its computer's name (starting a command or typing into one, the file tools, the browser's tools). Watching is not acting.
-  - **On what:** a terminal, by its id, the files, or the browser.
-  - **The agent is told too.** `about` names who else is acting, and the answer to the agent's call on something the person acted on since its last call there ends with a line: `The person typed in this terminal 3 s ago.`, `The person changed files here 2 s ago.` or `The person used the browser 4 s ago.`
+- **`presence`** (protocol `presence@1`): who is acting on it now, and on what: a terminal, the files or the browser. It sends the whole list, `{"type":"presence","acting":[…]}`, when it opens and each time someone starts or stops acting on something. Someone stops 10 seconds after they last acted there. `openapi.yaml` has each field, as `PresenceEvent` and `Acting`, with what counts as acting.
+  - **The agent is told too.** `about` names who else is acting. The answer to the agent's call on something the person acted on since its last call there ends with a line: `The person typed in this terminal 3 s ago.`, `The person wrote a file here 2 s ago.` or `The person used the browser 4 s ago.`
   - **Nothing is refused by it,** for the person or the agent.
 
 `POST /v1/computers/{computerID}/live` with `{ "surface": "terminal", "mode": "operate" }` gives a ticket: a `url` to open once within a minute, which needs no token. A request with an `Origin` header is refused unless `serve --allow-origin` names that origin, so a page can't open one. The SDK does the same with `computer.terminals.connect({ onEvent })`, or gives the ticket alone with `computer.liveSession("files")` or `computer.liveSession("browser", "operate")`, and the CLI with `agentcomputer live <id> --surface terminal --mode operate`.

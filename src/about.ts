@@ -59,7 +59,7 @@ export function aboutTool(facts: Facts, load: LoadLive, presence: Presence): Ext
               caution: true,
             },
         // Who else is acting on it now, as the person is shown who acts.
-        { label: "Others acting", value: presence.others() },
+        { label: "Acting now", value: presence.othersForAbout() },
       ];
       const reading = await load.now();
       if (reading)

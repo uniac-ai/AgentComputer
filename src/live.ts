@@ -141,7 +141,11 @@ export class Live {
 
   /** presence@1: who is acting now, when it opens and at each change. What it sends is dropped. */
   #watch(ws: WebSocket) {
-    const send = () => ws.send(JSON.stringify({ type: "presence", acting: this.#presence.now() }));
+    // One that has fallen too far behind is cut off, as on the terminal surface.
+    const send = () => {
+      if (ws.bufferedAmount > MAX_BUFFERED) ws.terminate();
+      else ws.send(JSON.stringify({ type: "presence", acting: this.#presence.acting() }));
+    };
     send();
     const stop = this.#presence.onChange(send);
     this.#watchers.add(ws);
@@ -171,6 +175,9 @@ export class Live {
     if (mode !== "operate") return;
     // What can't be done is answered to the socket that asked, with why.
     const refuse = (why: unknown) => deliver(ws, { type: "refused", message: reason(why) });
+    // What was done is acting there: what was refused threw first.
+    const acted = (terminal: string) =>
+      this.#presence.acted("person", { capability: "terminal", terminal });
     ws.on("message", (data: Buffer) => {
       try {
         // The terminals take their types as given, and check a size themselves: the rest is
@@ -178,18 +185,14 @@ export class Live {
         const sent = (JSON.parse(data.toString()) ?? {}) as Record<string, unknown>;
         const { type, id, text } = sent;
         const [columns, rows] = [sent.columns as number, sent.rows as number];
-        const acted = (terminal: string) =>
-          this.#presence.acted("person", { capability: "terminal", terminal });
         if (type === "open") acted(terminals.open({ columns, rows }));
         else if (typeof id !== "string") throw new Error(MALFORMED);
         else if (type === "input" && typeof text === "string") {
           terminals.write(id, text);
           acted(id);
         } else if (type === "resize") terminals.resize(id, columns, rows);
-        else if (type === "stop") {
-          terminals.stop(id).catch(refuse);
-          acted(id);
-        } else throw new Error(MALFORMED);
+        else if (type === "stop") terminals.stop(id).then(() => acted(id), refuse);
+        else throw new Error(MALFORMED);
       } catch (error) {
         refuse(error instanceof SyntaxError ? MALFORMED : error);
       }

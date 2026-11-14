@@ -89,12 +89,12 @@ export class BrowserLive implements BrowserGate {
   /** Counts each time everyone has left, so a connection begun before that knows it is stale. */
   #ended = 0;
 
-  /** Heard each time a person acts in the browser. */
-  readonly #used: () => void;
+  /** Heard each time a person acts on a page: any step taken there but moving the pointer. */
+  readonly #acted: () => void;
 
-  constructor(endpoint: Promise<string>, used: () => void = () => {}) {
+  constructor(endpoint: Promise<string>, acted: () => void) {
     this.#endpoint = endpoint;
-    this.#used = used;
+    this.#acted = acted;
   }
 
   // ---- The agent's side
@@ -364,28 +364,35 @@ export class BrowserLive implements BrowserGate {
     viewer.steps = viewer.steps.then(() => within(work(), STEP_MS)).catch(() => {});
   }
 
+  /** A step that acts on a page, as moving the pointer or choosing which tab to watch doesn't. */
+  #act(viewer: Viewer, work: () => Promise<unknown>) {
+    this.#acted();
+    this.#step(viewer, work);
+  }
+
   #input(ws: WebSocket, viewer: Viewer, message: ClientMessage) {
-    this.#used();
     const page = viewer.shown;
     switch (message.type) {
       case "mouse":
         if (!page) return;
-        return this.#step(viewer, () => this.#mouse(ws, viewer, page, message));
+        return (message.action === "move" ? this.#step : this.#act).call(this, viewer, () =>
+          this.#mouse(ws, viewer, page, message),
+        );
       case "key":
         if (!page) return;
-        return this.#step(viewer, () =>
+        return this.#act(viewer, () =>
           message.action === "down"
             ? page.keyboard.down(message.key)
             : page.keyboard.up(message.key),
         );
       case "text":
         if (!page) return;
-        return this.#step(viewer, () => page.keyboard.insertText(message.text));
+        return this.#act(viewer, () => page.keyboard.insertText(message.text));
       case "dialog": {
         // It is told closed when the page says so, whoever answers it first.
         const dialog = page && this.#dialogs.get(page);
         if (!dialog) return;
-        return this.#step(viewer, () =>
+        return this.#act(viewer, () =>
           message.accept ? dialog.accept(message.text ?? undefined) : dialog.dismiss(),
         );
       }
@@ -397,7 +404,7 @@ export class BrowserLive implements BrowserGate {
         // Each of the agent's sessions may still be waiting on it, and is told at its next call.
         // That frees a session on this page; one on another finds the chooser if it comes here.
         for (const session of this.#sessions) this.#owed.add(session);
-        return this.#step(viewer, () =>
+        return this.#act(viewer, () =>
           chooser.setFiles(
             message.files.map((file) => ({
               name: file.name,
@@ -411,13 +418,15 @@ export class BrowserLive implements BrowserGate {
         const choice = viewer.choice;
         viewer.choice = undefined;
         if (!choice) return;
-        return this.#step(viewer, () => choice.selectOption(message.values));
+        return this.#act(viewer, () => choice.selectOption(message.values));
       }
       case "tab":
-        return this.#step(viewer, () => this.#tab(ws, viewer, message));
+        return (message.action === "show" ? this.#step : this.#act).call(this, viewer, () =>
+          this.#tab(ws, viewer, message),
+        );
       case "navigate":
         if (!page) return;
-        return this.#step(viewer, async () => {
+        return this.#act(viewer, async () => {
           if (message.to === "back") await page.goBack();
           else if (message.to === "forward") await page.goForward();
           else if (message.to === "reload") await page.reload();

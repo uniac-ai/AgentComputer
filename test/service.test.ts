@@ -349,7 +349,7 @@ test("about tells the agent what a person reads of its computer", async (t) => {
     { label: "Folder", value: workspace, path: true },
     { label: "Reaches", value: "Files" },
     { label: "Isolation", value: "None: it acts as you, on the whole machine", caution: true },
-    { label: "Others acting", value: "Nobody" },
+    { label: "Acting now", value: "Nobody else" },
   ]);
   const [cpu, memory, disk] = rows.slice(5).map((row) => `${row.label}: ${row.value}`);
   assert.match(cpu ?? "", /^CPU: \d+%$/);
