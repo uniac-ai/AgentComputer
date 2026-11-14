@@ -14,6 +14,7 @@ import test, { before, describe } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { ProcessRuntime } from "../src/runtime.ts";
 import { Screen } from "../src/screen.ts";
 import { personCall } from "../src/screen-live.ts";
 
@@ -23,6 +24,58 @@ const IMAGE = process.env.AGENTCOMPUTER_TEST_SCREEN_IMAGE;
 const run = promisify(execFile);
 const MISSING =
   "Cua Driver isn't installed on this machine. Install the signed app from cua.ai/download, then grant it Screen Recording and Accessibility.";
+
+test("info checks the screen again where its reading is old, waiting up to a second for it", async (t) => {
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), "ac-")));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  const version = join(folder, "version");
+  writeFileSync(version, "cua-driver 0.49.7\n");
+  /** A stand-in for the driver, granted, at the version in that file, that takes this long. */
+  const driver = (name: string, seconds: number) => {
+    const path = join(folder, name);
+    writeFileSync(
+      path,
+      `#!/bin/sh
+sleep ${seconds}
+case "$1 $2" in
+  "permissions status") echo '{"accessibility":true,"screen_recording":true}' ;;
+  *) cat "${version}" ;;
+esac
+`,
+    );
+    chmodSync(path, 0o755);
+    return path;
+  };
+  // A browser folder of its own, so that the machine's own browsers aren't read.
+  const runtime = (program: string) =>
+    new ProcessRuntime(
+      { path: join(folder, "no-browser"), sandbox: false },
+      false,
+      { program },
+      join(folder, "browser-data"),
+    );
+  const screen = async (from: ProcessRuntime) =>
+    (await from.offer()).capabilities.find((one) => one.capability === "screen");
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  // The first read is the driver's answer, not that it is still being looked for.
+  const quick = runtime(driver("quick", 0));
+  assert.deepEqual(await screen(quick), { capability: "screen", ready: true });
+  // Within 10 s the reading stands, whatever the driver would say now.
+  writeFileSync(version, "cua-driver 0.49.6\n");
+  assert.deepEqual(await screen(quick), { capability: "screen", ready: true });
+  // Older than that, it is checked again before info answers.
+  t.mock.timers.tick(11_000);
+  assert.match((await screen(quick))?.reason ?? "", /is older than 0\.49\.7/);
+  // A check that takes longer is answered with the reading before it, a second later.
+  const asked = performance.now();
+  assert.deepEqual(await screen(runtime(driver("slow", 2))), {
+    capability: "screen",
+    ready: false,
+    reason: "Cua Driver is being looked for.",
+  });
+  const took = performance.now() - asked;
+  assert.ok(took < 1_900, `answered after ${took} ms`);
+});
 
 test("where Cua Driver isn't installed, the screen isn't ready and attaching with it is refused", async (t) => {
   const folder = realpathSync(mkdtempSync(join(tmpdir(), "ac-")));

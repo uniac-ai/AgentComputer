@@ -21,7 +21,9 @@ paths:
       x-mcp-tool: service_info
       summary: >-
         What this service offers: this computer, the kinds of computer it can make, and the
-        browsers that can go with each, every one ready or not and why.
+        browsers that can go with each, every one ready or not and why. The screen's readiness is
+        read afresh where the last reading is more than 10 seconds old, waited for up to a second;
+        a reading that takes longer is answered the next time.
       responses:
         "200":
           description: The service.
@@ -103,7 +105,10 @@ paths:
         none named, for everything it is missing. screen-recording or accessibility, while it is
         missing: Cua Driver's own grant, its app started first, which makes the system's requests in
         its own order, Accessibility first. For a driver an app hosts, the app asks, for that grant
-        alone. Then that grant's own pane in System Settings opens. chrome or edge:
+        alone, in its own way. The service opens no pane of System Settings: the person opens one
+        with settings. macOS shows each request once: once it has been answered, asking again shows
+        nothing and answers the same, so a client offers settings while a grant stays not-granted.
+        chrome or edge:
         that browser opens at its inspect page, where remote debugging is switched on. With none
         named, the screen's grant while either is missing, and the first browser installed, Chrome
         before Edge, while none is on. It answers once the steps have started, with each part
@@ -128,6 +133,46 @@ paths:
           description: >-
             The part doesn't need that here, or what it needs can't be asked for, such as a
             browser that isn't installed, or the steps couldn't be started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /v1/setup/{capability}/settings:
+    parameters:
+      - name: capability
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/Switch" }
+    post:
+      operationId: openSetupSettings
+      summary: >-
+        Open the pane of System Settings for one thing a part needs, on the service's machine,
+        macOS only, for the person to switch it there: screen-recording or accessibility, that
+        grant's pane under Privacy & Security, whether it is missing or not. macOS lists an app
+        there once it has asked, so this follows ask. It is for the person's own choice, such as a
+        button they press: the service opens a pane nowhere else. Where an app hosts the driver, it
+        is that app that sees the change and starts its driver again. It answers once the pane is
+        asked to open, with each part then. Elsewhere it answers 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [need]
+              properties:
+                need: { $ref: "#/components/schemas/NeedName" }
+      responses:
+        "200":
+          description: Its pane asked to open.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Setup" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: >-
+            The part doesn't need that here, it has no pane of System Settings, or the pane couldn't
+            be opened.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

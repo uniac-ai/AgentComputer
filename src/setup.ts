@@ -200,11 +200,33 @@ export class Setup {
     return this.capabilities();
   }
 
-  /** Only macOS asks: elsewhere there is nothing to ask the person for. */
-  async #ask(capability: Switch, need?: NeedName) {
+  /**
+   * Open the pane of System Settings for one thing a part needs, whether it is missing or not: for
+   * the person's own choice, as nothing else opens one.
+   */
+  async settings(capability: Switch, need: NeedName): Promise<Schemas["Setup"]> {
+    try {
+      await this.#needs(capability, need);
+      const pane = PANE[need];
+      if (!pane) throw new Error(`"${need}" has no pane of System Settings.`);
+      await this.#machine.run("/usr/bin/open", [pane]);
+    } catch (error) {
+      throw new ApiError(409, (error as Error).message);
+    }
+    return this.capabilities();
+  }
+
+  /** What a part needs, where it needs the one named. */
+  async #needs(capability: Switch, need?: NeedName) {
     const { needs } = (await this.#parts())[capability];
     if (need && !needs.some((one) => one.need === need))
       throw new Error(`There's no "${need}" for ${capability} here.`);
+    return needs;
+  }
+
+  /** Only macOS asks: elsewhere there is nothing to ask the person for. No pane opens. */
+  async #ask(capability: Switch, need?: NeedName) {
+    const needs = await this.#needs(capability, need);
     if (this.#machine.platform !== "darwin") return;
     if (capability === "screen") {
       const driver = findDriver(this.#driver);
@@ -215,8 +237,6 @@ export class Setup {
         .map((one) => one.need);
       if (asked.length > 0)
         await (driver.socket ? this.#askHost(driver, asked) : this.#askScreen(driver));
-      const pane = need && PANE[need];
-      if (pane) await this.#machine.run("/usr/bin/open", [pane]);
     }
     if (capability === "browser" && (need || !needs.some((one) => one.state === "on")))
       await this.#askBrowser(need);

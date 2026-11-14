@@ -11,7 +11,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** What this service offers: this computer, the kinds of computer it can make, and the browsers that can go with each, every one ready or not and why. */
+        /** What this service offers: this computer, the kinds of computer it can make, and the browsers that can go with each, every one ready or not and why. The screen's readiness is read afresh where the last reading is more than 10 seconds old, waited for up to a second; a reading that takes longer is answered the next time. */
         get: operations["getInfo"];
         put?: never;
         post?: never;
@@ -85,8 +85,27 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with none named, for everything it is missing. screen-recording or accessibility, while it is missing: Cua Driver's own grant, its app started first, which makes the system's requests in its own order, Accessibility first. For a driver an app hosts, the app asks, for that grant alone. Then that grant's own pane in System Settings opens. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. With none named, the screen's grant while either is missing, and the first browser installed, Chrome before Edge, while none is on. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing. */
+        /** Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with none named, for everything it is missing. screen-recording or accessibility, while it is missing: Cua Driver's own grant, its app started first, which makes the system's requests in its own order, Accessibility first. For a driver an app hosts, the app asks, for that grant alone, in its own way. The service opens no pane of System Settings: the person opens one with settings. macOS shows each request once: once it has been answered, asking again shows nothing and answers the same, so a client offers settings while a grant stays not-granted. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. With none named, the screen's grant while either is missing, and the first browser installed, Chrome before Edge, while none is on. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing. */
         post: operations["askSetup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/setup/{capability}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability: components["schemas"]["Switch"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open the pane of System Settings for one thing a part needs, on the service's machine, macOS only, for the person to switch it there: screen-recording or accessibility, that grant's pane under Privacy & Security, whether it is missing or not. macOS lists an app there once it has asked, so this follows ask. It is for the person's own choice, such as a button they press: the service opens a pane nowhere else. Where an app hosts the driver, it is that app that sees the change and starts its driver again. It answers once the pane is asked to open, with each part then. Elsewhere it answers 409. */
+        post: operations["openSetupSettings"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1010,6 +1029,44 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             /** @description The part doesn't need that here, or what it needs can't be asked for, such as a browser that isn't installed, or the steps couldn't be started. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    openSetupSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability: components["schemas"]["Switch"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    need: components["schemas"]["NeedName"];
+                };
+            };
+        };
+        responses: {
+            /** @description Its pane asked to open. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Setup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The part doesn't need that here, it has no pane of System Settings, or the pane couldn't be opened. */
             409: {
                 headers: {
                     [name: string]: unknown;
