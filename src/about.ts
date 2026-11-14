@@ -21,6 +21,8 @@ interface Facts {
   workspace: { outside: string; inside: string };
   access: Exclude<Access, "none">;
   browser: boolean;
+  /** Whether its agent has the screen, where the person's own keys and pointer aren't seen. */
+  screen: boolean;
   /** Whether it is a container of its own, or else this computer. */
   contained: boolean;
 }
@@ -50,7 +52,13 @@ export function aboutTool(facts: Facts, load: LoadLive, presence: Presence): Ext
         inside === outside
           ? { label: "Folder", value: outside, path: true }
           : { label: "Folder", value: `${outside} on the machine, mounted at ${inside} in it` },
-        { label: "Reaches", value: REACHES[facts.access] + (facts.browser ? ", Browser" : "") },
+        {
+          label: "Reaches",
+          value:
+            REACHES[facts.access] +
+            (facts.browser ? ", Browser" : "") +
+            (facts.screen ? ", Screen" : ""),
+        },
         facts.contained
           ? { label: "Isolation", value: "A container of its own" }
           : {
@@ -59,7 +67,12 @@ export function aboutTool(facts: Facts, load: LoadLive, presence: Presence): Ext
               caution: true,
             },
         // Who else is acting on it now, as the person is shown who acts.
-        { label: "Acting now", value: presence.othersForAbout() },
+        {
+          label: "Acting now",
+          value:
+            presence.othersForAbout() +
+            (facts.screen ? "; can't tell whether the person is using the screen" : ""),
+        },
       ];
       const reading = await load.now();
       if (reading)

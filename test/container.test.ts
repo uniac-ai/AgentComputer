@@ -62,7 +62,18 @@ async function setup(t: test.TestContext) {
   const start = async (env: Record<string, string> = {}, image = IMAGE as string) => {
     child = spawn(
       process.execPath,
-      [CLI, "serve", "--listen", "127.0.0.1:0", "--data", data, "--image", image],
+      [
+        CLI,
+        "serve",
+        "--listen",
+        "127.0.0.1:0",
+        "--data",
+        data,
+        "--image",
+        image,
+        "--screen-driver",
+        "/nonexistent/cua-driver",
+      ],
       { env: { ...environment(), ...env }, stdio: ["ignore", "pipe", "inherit"] },
     );
     url = await new Promise<string>((done, failed) => {

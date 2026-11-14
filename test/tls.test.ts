@@ -56,10 +56,14 @@ async function certificate(root: string, ...names: string[]) {
 }
 
 async function serve(t: test.TestContext, data: string, ...args: string[]) {
-  const child: ChildProcess = spawn(process.execPath, [CLI, "serve", "--data", data, ...args], {
-    env: { PATH: process.env.PATH ?? "", HOME: data, SHELL: "/bin/bash" },
-    stdio: ["ignore", "pipe", "inherit"],
-  });
+  const child: ChildProcess = spawn(
+    process.execPath,
+    [CLI, "serve", "--data", data, "--screen-driver", "/nonexistent/cua-driver", ...args],
+    {
+      env: { PATH: process.env.PATH ?? "", HOME: data, SHELL: "/bin/bash" },
+      stdio: ["ignore", "pipe", "inherit"],
+    },
+  );
   let stopped = false;
   const stop = async () => {
     if (stopped) return;

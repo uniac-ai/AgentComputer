@@ -86,7 +86,17 @@ async function setup(
   const start = async () => {
     child = spawn(
       process.execPath,
-      [CLI, "serve", "--listen", "127.0.0.1:0", "--data", data, ...extra],
+      [
+        CLI,
+        "serve",
+        "--listen",
+        "127.0.0.1:0",
+        "--data",
+        data,
+        "--screen-driver",
+        "/nonexistent/cua-driver",
+        ...extra,
+      ],
       {
         env: { PATH: process.env.PATH ?? "", HOME: root, SHELL: "/bin/bash", ...env },
         stdio: ["ignore", "pipe", "inherit"],
@@ -566,11 +576,14 @@ for (const [why, reason, args] of [
   });
 
 test("info says what this computer offers, each ready or not and why", async (t) => {
-  const { cli } = await setup(t, ["--browser-path", "/nonexistent/browser"]);
+  // A driver that isn't there, so that no Cua Driver on the machine running this is asked.
+  const noDriver = ["--screen-driver", "/nonexistent/cua-driver"];
+  const { cli } = await setup(t, ["--browser-path", "/nonexistent/browser", ...noDriver]);
   const screen = {
     capability: "screen",
     ready: false,
-    reason: "This service can't reach the screen yet.",
+    reason:
+      "Cua Driver isn't installed on this machine. Install the signed app from cua.ai/download, then grant it Screen Recording and Accessibility.",
   };
   const offered = (browser: object) => ({
     ready: true,
@@ -591,7 +604,7 @@ test("info says what this computer offers, each ready or not and why", async (t)
         "There's no browser at /nonexistent/browser. Start the service with a --browser-path that exists.",
     }),
   );
-  const other = await setup(t, ["--browser-name", "no-such-channel"]);
+  const other = await setup(t, ["--browser-name", "no-such-channel", ...noDriver]);
   assert.deepEqual(
     (JSON.parse(await other.cli("info")) as Record<string, unknown>).thisComputer,
     offered({
@@ -602,7 +615,12 @@ test("info says what this computer offers, each ready or not and why", async (t)
   );
   if (realBrowser)
     assert.deepEqual(
-      (JSON.parse(await (await setup(t)).cli("info")) as Record<string, unknown>).thisComputer,
+      (
+        JSON.parse(await (await setup(t, [...BROWSER_ARGS, ...noDriver])).cli("info")) as Record<
+          string,
+          unknown
+        >
+      ).thisComputer,
       offered({ ready: true }),
     );
 });
