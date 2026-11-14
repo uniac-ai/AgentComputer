@@ -100,9 +100,10 @@ paths:
       operationId: askSetup
       summary: >-
         Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with
-        none named, for everything it is missing. screen-recording or accessibility: Cua Driver's
-        own grant, its app started first, which makes the system's requests in its own order,
-        Accessibility first; then that grant's own pane in System Settings opens. chrome or edge:
+        none named, for everything it is missing. screen-recording or accessibility, while it is
+        missing: Cua Driver's own grant, its app started first, which makes the system's requests in
+        its own order, Accessibility first. For a driver an app hosts, the app asks, for that grant
+        alone. Then that grant's own pane in System Settings opens. chrome or edge:
         that browser opens at its inspect page, where remote debugging is switched on. With none
         named, the screen's grant while either is missing, and the first browser installed, Chrome
         before Edge, while none is on. It answers once the steps have started, with each part

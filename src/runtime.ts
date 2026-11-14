@@ -18,7 +18,7 @@ import { LoadLive } from "./load-live.ts";
 import { ownBrowser } from "./own-browser.ts";
 import { channelProgram, DEFAULT_CHANNEL, playwright } from "./playwright.ts";
 import { Board, Presence } from "./presence.ts";
-import { driverProgram, Screen, screenReadiness } from "./screen.ts";
+import { type DriverAt, Screen, screenCheck } from "./screen.ts";
 import { ScreenLive } from "./screen-live.ts";
 import { privateFolder } from "./store.ts";
 import type { Switch, Switches } from "./switches.ts";
@@ -185,8 +185,8 @@ const MAX_CALL = 4 * 1024 * 1024;
 export class ProcessRuntime implements Runtime {
   readonly #config: BrowserConfig;
   readonly #contained: boolean;
-  /** Cua Driver, where it was named; otherwise it is looked for. */
-  readonly #screenDriver: string | undefined;
+  /** Cua Driver as it was named, if it was; otherwise it is looked for. */
+  readonly #screenDriver: Partial<DriverAt>;
   /** The person's browser's user data folder, where named; otherwise Chrome's, then Edge's. */
   readonly #ownBrowserData: string | undefined;
   /** The person's switches for this machine; inside a container there are none. */
@@ -201,7 +201,7 @@ export class ProcessRuntime implements Runtime {
     reason: "Cua Driver is being looked for.",
     at: 0,
   };
-  #checking: Promise<{ ready: boolean; reason?: string }> | undefined;
+  #checking: ReturnType<typeof screenCheck> | undefined;
   /** Who acts on this machine's files: shared by the computers attached to it. */
   readonly #machine: Board | undefined;
 
@@ -213,7 +213,7 @@ export class ProcessRuntime implements Runtime {
   constructor(
     config: BrowserConfig,
     contained = false,
-    screenDriver?: string,
+    screenDriver: Partial<DriverAt> = {},
     ownBrowserData?: string,
     switches?: Switches,
   ) {
@@ -227,10 +227,10 @@ export class ProcessRuntime implements Runtime {
   }
 
   #checkScreen() {
-    this.#checking ??= screenReadiness(this.#screenDriver).then((ready) => {
-      this.#screen = { ...ready, at: Date.now() };
+    this.#checking ??= screenCheck(this.#screenDriver).then((checked) => {
+      this.#screen = { ...checked.readiness, at: Date.now() };
       this.#checking = undefined;
-      return ready;
+      return checked;
     });
     return this.#checking;
   }
@@ -384,13 +384,12 @@ export class ProcessRuntime implements Runtime {
     let screenDown = false;
     if (spec.screen) {
       // Asked afresh, not as last seen: it is what this start rests on.
-      const ready = await this.#checkScreen();
+      const { readiness: ready, driver } = await this.#checkScreen();
       const refused = this.#switches?.refused("screen");
-      const program = driverProgram(this.#screenDriver) as string;
       screen =
-        ready.ready && !refused
+        ready.ready && driver && !refused
           ? new Screen(
-              program,
+              driver,
               events.log,
               () => {
                 screenDown = true;
@@ -409,7 +408,7 @@ export class ProcessRuntime implements Runtime {
       }
       // The person's live view of it reaches the driver through a connection of its own.
       screenLive = new ScreenLive(
-        program,
+        driver as DriverAt,
         (line) => events.log(`Live view: ${line}`),
         () => presence.acted("person", { capability: "screen" }),
       );
