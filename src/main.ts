@@ -162,6 +162,10 @@ async function main() {
   if (values["own-browser"] && values.browser)
     throw new UsageError("Take --browser or --own-browser: a computer has one browser.");
   if (command === "serve") {
+    // Commands on this computer, and a person's shell, get the environment the service was started
+    // with, less its own variables: the SDK's token and address, and the data folder, read above.
+    for (const name of Object.keys(process.env))
+      if (name.startsWith("AGENTCOMPUTER_")) delete process.env[name];
     const switches = new Switches(data, values.lend === true);
     const { "tls-cert": cert, "tls-key": key } = values;
     if (Boolean(cert) !== Boolean(key))
