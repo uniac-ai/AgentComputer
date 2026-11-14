@@ -20,7 +20,7 @@ interface Facts {
   /** Where its workspace is on that machine, and where its own commands find it. */
   workspace: { outside: string; inside: string };
   access: Exclude<Access, "none">;
-  browser: boolean;
+  browser: boolean | "own";
   /** Whether its agent has the screen, where the person's own keys and pointer aren't seen. */
   screen: boolean;
   /** Whether it is a container of its own, or else this computer. */

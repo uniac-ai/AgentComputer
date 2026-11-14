@@ -91,10 +91,16 @@ export class BrowserLive implements BrowserGate {
 
   /** Heard each time a person acts on a page: any step taken there but moving the pointer. */
   readonly #acted: () => void;
+  /**
+   * Whether it is the person's own browser, where their file choosers stay their own: taking one
+   * here would keep its picker from opening for them.
+   */
+  readonly #own: boolean;
 
-  constructor(endpoint: Promise<string>, acted: () => void) {
+  constructor(endpoint: Promise<string>, acted: () => void, own = false) {
     this.#endpoint = endpoint;
     this.#acted = acted;
+    this.#own = own;
   }
 
   // ---- The agent's side
@@ -222,10 +228,11 @@ export class BrowserLive implements BrowserGate {
       this.#dialogs.delete(page);
       for (const ws of this.#shownTo(page)) this.#tellDialog(ws, page);
     });
-    page.on("filechooser", (chooser) => {
-      this.#choosers.set(page, chooser);
-      for (const ws of this.#shownTo(page)) this.#tellChooser(ws, page);
-    });
+    if (!this.#own)
+      page.on("filechooser", (chooser) => {
+        this.#choosers.set(page, chooser);
+        for (const ws of this.#shownTo(page)) this.#tellChooser(ws, page);
+      });
     page.on("framenavigated", (frame) => {
       if (frame === page.mainFrame()) void this.#tabs();
     });

@@ -617,9 +617,17 @@ export const OPENAPI = {
             "$ref": "#/components/schemas/Access"
           },
           "browser": {
-            "type": "boolean",
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "const": "own"
+              }
+            ],
             "default": false,
-            "description": "Whether it has a headless browser of its own. With access none, it must, or have the screen."
+            "description": "Its browser. true: a headless one of its own. own: the person's own, Chrome or else Edge, signed in, reached through the browser's own attach, which asks the person to allow the connection; attaching waits up to 2 minutes for that, and is refused with 409 if it isn't allowed, or where `info` says it isn't ready. Its agent works only in tabs it opens: the person's own tabs are left alone. It is never closed: when the computer stops, it is only let go. With access none, the computer must have a browser or the screen."
           },
           "screen": {
             "type": "boolean",
@@ -746,7 +754,16 @@ export const OPENAPI = {
             "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
           },
           "browser": {
-            "type": "boolean"
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "const": "own"
+              }
+            ],
+            "description": "Its browser, as it was given, or false where it has none."
           },
           "screen": {
             "type": "boolean",
@@ -2151,9 +2168,10 @@ export const OPENAPI = {
       "BrowserKind": {
         "type": "string",
         "enum": [
-          "headless"
+          "headless",
+          "own"
         ],
-        "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view."
+        "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or else Edge, signed in, offered for this computer: ready where it is open with its remote debugging switched on, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine."
       },
       "BrowserState": {
         "allOf": [
@@ -2387,9 +2405,10 @@ export const OPERATIONS: Operation[] = [
                           "kind": {
                             "type": "string",
                             "enum": [
-                              "headless"
+                              "headless",
+                              "own"
                             ],
-                            "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view."
+                            "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or else Edge, signed in, offered for this computer: ready where it is open with its remote debugging switched on, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine."
                           }
                         }
                       }
@@ -2500,9 +2519,10 @@ export const OPERATIONS: Operation[] = [
                                 "kind": {
                                   "type": "string",
                                   "enum": [
-                                    "headless"
+                                    "headless",
+                                    "own"
                                   ],
-                                  "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view."
+                                  "description": "headless: a headless browser with a profile of its own, beside the computer, which a person watches and controls through its live view. own: the person's own browser on the service's machine, Chrome or else Edge, signed in, offered for this computer: ready where it is open with its remote debugging switched on, which the person does once on its inspect page; the browser then asks them to allow each connection. Not ready, the reason names the browser and what to do on that machine."
                                 }
                               }
                             }
@@ -2681,7 +2701,16 @@ export const OPERATIONS: Operation[] = [
             "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
           },
           "browser": {
-            "type": "boolean"
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "const": "own"
+              }
+            ],
+            "description": "Its browser, as it was given, or false where it has none."
           },
           "screen": {
             "type": "boolean",
@@ -2939,7 +2968,16 @@ export const OPERATIONS: Operation[] = [
               "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
             },
             "browser": {
-              "type": "boolean"
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "const": "own"
+                }
+              ],
+              "description": "Its browser, as it was given, or false where it has none."
             },
             "screen": {
               "type": "boolean",
@@ -3053,9 +3091,17 @@ export const OPERATIONS: Operation[] = [
           "description": "How far it reaches into files and commands, each level containing the one before: `read` has about, read, list and search; `files` adds edit; `terminal` adds exec_command, write_stdin and list_sessions. Below terminal, the browser's code-running tool is hidden."
         },
         "browser": {
-          "type": "boolean",
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "const": "own"
+            }
+          ],
           "default": false,
-          "description": "Whether it has a headless browser of its own. With access none, it must, or have the screen."
+          "description": "Its browser. true: a headless one of its own. own: the person's own, Chrome or else Edge, signed in, reached through the browser's own attach, which asks the person to allow the connection; attaching waits up to 2 minutes for that, and is refused with 409 if it isn't allowed, or where `info` says it isn't ready. Its agent works only in tabs it opens: the person's own tabs are left alone. It is never closed: when the computer stops, it is only let go. With access none, the computer must have a browser or the screen."
         },
         "screen": {
           "type": "boolean",
@@ -3203,7 +3249,16 @@ export const OPERATIONS: Operation[] = [
               "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
             },
             "browser": {
-              "type": "boolean"
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "const": "own"
+                }
+              ],
+              "description": "Its browser, as it was given, or false where it has none."
             },
             "screen": {
               "type": "boolean",
@@ -3429,7 +3484,16 @@ export const OPERATIONS: Operation[] = [
               "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
             },
             "browser": {
-              "type": "boolean"
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "const": "own"
+                }
+              ],
+              "description": "Its browser, as it was given, or false where it has none."
             },
             "screen": {
               "type": "boolean",
@@ -3755,7 +3819,16 @@ export const OPERATIONS: Operation[] = [
           "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
         },
         "browser": {
-          "type": "boolean"
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "const": "own"
+            }
+          ],
+          "description": "Its browser, as it was given, or false where it has none."
         },
         "screen": {
           "type": "boolean",
@@ -3965,7 +4038,16 @@ export const OPERATIONS: Operation[] = [
           "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
         },
         "browser": {
-          "type": "boolean"
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "const": "own"
+            }
+          ],
+          "description": "Its browser, as it was given, or false where it has none."
         },
         "screen": {
           "type": "boolean",
@@ -4180,7 +4262,16 @@ export const OPERATIONS: Operation[] = [
           "description": "The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program."
         },
         "browser": {
-          "type": "boolean"
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "const": "own"
+            }
+          ],
+          "description": "Its browser, as it was given, or false where it has none."
         },
         "screen": {
           "type": "boolean",

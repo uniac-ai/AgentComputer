@@ -53,9 +53,12 @@ export interface CreateOpts extends ConnectionOpts {
   metadata?: Record<string, string>;
 }
 /** This computer, attached whole: its files and commands reach all of it, as the service's user. */
-export interface AttachOpts extends Omit<CreateOpts, "isolation" | "workspace" | "copyFrom"> {
+export interface AttachOpts
+  extends Omit<CreateOpts, "isolation" | "workspace" | "copyFrom" | "browser"> {
   /** Its work folder, where commands and relative paths start. Detaching never removes it. */
   workspace: string;
+  /** A headless browser of its own, or the person's own browser, signed in. */
+  browser?: boolean | "own";
   /** Whether its agent has the machine's screen, through Cua Driver. */
   screen?: boolean;
 }
@@ -83,7 +86,7 @@ export class ComputerError extends Error {
 const seconds = (ms: number) => Math.max(1, Math.ceil(ms / 1000));
 
 /** What making and attaching a computer both send, and where to. */
-function requestOf(opts: Omit<CreateOpts, "isolation" | "workspace" | "copyFrom">) {
+function requestOf(opts: Omit<AttachOpts, "workspace" | "screen">) {
   const { access, browser, name, timeoutMs, metadata, apiKey, apiUrl } = opts;
   return {
     connection: { ...(apiKey ? { apiKey } : {}), ...(apiUrl ? { apiUrl } : {}) },
@@ -368,6 +371,7 @@ export class Computer {
       await apiOf(connection).POST("/v1/computers", {
         body: {
           ...body,
+          browser: opts.browser ?? false,
           ...(isolation === undefined ? {} : { isolation }),
           ...(workspace === undefined ? {} : { workspace }),
           ...(copyFrom === undefined ? {} : { copyFrom }),

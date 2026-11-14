@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { isMainThread } from "node:worker_threads";
-import { hostBrowser } from "./browser-host.ts";
+import { CONNECT_VARIABLE, hostBrowser } from "./browser-host.ts";
 import { serveBrowserMcp } from "./browser-mcp.ts";
 import { ContainerRuntime } from "./container.ts";
 import { VERSION } from "./handlers.ts";
@@ -18,6 +18,7 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
   serve [--listen HOST:PORT] [--image IMAGE]
         [--tls-cert FILE --tls-key FILE | --tls-proxy] [--public-url URL] [--allow-origin ORIGIN]...
         [--browser-name NAME] [--browser-path PATH] [--screen-driver PATH]
+        [--own-browser-data DIR]
                                     run the service; 127.0.0.1:7878 by default, and
                                     anywhere else only with TLS
   up [the options of serve]         run the service in the background and return once it
@@ -30,10 +31,11 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
          [--name NAME] [--isolation container] [--timeout SECONDS] [--metadata KEY=VALUE]...
                                     make a computer, in a container; prints its endpoints and
                                     token, once
-  attach --access none|read|files|terminal --workspace DIR [--browser] [--screen] [--name NAME]
-         [--timeout SECONDS] [--metadata KEY=VALUE]...
+  attach --access none|read|files|terminal --workspace DIR [--browser | --own-browser] [--screen]
+         [--name NAME] [--timeout SECONDS] [--metadata KEY=VALUE]...
                                     attach this computer, whole and acting as you, with DIR its
-                                    work folder; prints its endpoints and token, once
+                                    work folder, and a headless browser or your own; prints its
+                                    endpoints and token, once
   list [--state starting|running|stopped|failed]
                                     the computers
   get <id>                          one computer
@@ -103,6 +105,9 @@ async function main() {
       executable: { type: "string" },
       "no-sandbox": { type: "boolean" },
       endpoint: { type: "string" },
+      "own-browser": { type: "boolean" },
+      own: { type: "boolean" },
+      "own-browser-data": { type: "string" },
       output: { type: "string" },
       access: { type: "string" },
       workspace: { type: "string" },
@@ -147,6 +152,10 @@ async function main() {
   for (const flag of ["isolation", "copy-from"] as const)
     if (values[flag] !== undefined && command !== "create")
       throw new UsageError(`Only create takes --${flag}.`);
+  if (values["own-browser"] && command !== "attach")
+    throw new UsageError("Only attach takes --own-browser.");
+  if (values["own-browser"] && values.browser)
+    throw new UsageError("Take --browser or --own-browser: a computer has one browser.");
   if (command === "serve") {
     const { "tls-cert": cert, "tls-key": key } = values;
     if (Boolean(cert) !== Boolean(key))
@@ -163,6 +172,7 @@ async function main() {
           { browser: values["browser-name"], path: values["browser-path"] },
           false,
           values["screen-driver"],
+          values["own-browser-data"],
         ),
         container: new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`),
       },
@@ -172,6 +182,7 @@ async function main() {
   if (command === "browser-host")
     return hostBrowser({
       profile: values.profile ?? "",
+      connect: process.env[CONNECT_VARIABLE],
       channel: values.channel,
       executable: values.executable,
       sandbox: values["no-sandbox"] ? false : undefined,
@@ -181,6 +192,7 @@ async function main() {
     return serveBrowserMcp({
       endpoint: values.endpoint ?? "",
       outputDir: values.output ?? "",
+      own: values.own === true,
     });
   // The image's command, not for a person to run.
   if (command === "inside") {
@@ -234,6 +246,7 @@ async function main() {
         await Computer.attach({
           ...making(),
           workspace: resolve(values.workspace),
+          ...(values["own-browser"] ? { browser: "own" as const } : {}),
           ...(values.screen ? { screen: true } : {}),
         }),
       );

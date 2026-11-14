@@ -586,8 +586,14 @@ for (const [why, reason, args] of [
   });
 
 test("info says what this computer offers, each ready or not and why", async (t) => {
-  // A driver that isn't there, so that no Cua Driver on the machine running this is asked.
-  const noDriver = ["--screen-driver", "/nonexistent/cua-driver"];
+  // A driver and a browser folder that aren't there, so that neither Cua Driver nor the person's
+  // browser on the machine running this is asked.
+  const noDriver = [
+    "--screen-driver",
+    "/nonexistent/cua-driver",
+    "--own-browser-data",
+    "/nonexistent/browser-data",
+  ];
   const { cli } = await setup(t, ["--browser-path", "/nonexistent/browser", ...noDriver]);
   const screen = {
     capability: "screen",
@@ -603,7 +609,15 @@ test("info says what this computer offers, each ready or not and why", async (t)
       { capability: "files", ready: true },
       screen,
     ],
-    browsers: [{ kind: "headless", ...browser }],
+    browsers: [
+      { kind: "headless", ...browser },
+      {
+        kind: "own",
+        ready: false,
+        reason:
+          "The browser's remote debugging is off, or the browser isn't open. On this machine, open the browser, version 144 or later, go to its inspect page, chrome://inspect/#remote-debugging and switch on remote debugging. The browser then asks you to allow each connection.",
+      },
+    ],
   });
   const { thisComputer } = JSON.parse(await cli("info")) as Record<string, unknown>;
   assert.deepEqual(
