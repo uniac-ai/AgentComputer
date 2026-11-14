@@ -61,7 +61,10 @@ interface Stored {
 interface Live {
   running?: Running;
   timer?: NodeJS.Timeout;
-  failed?: boolean;
+  /** While it is being started. */
+  starting?: true;
+  /** Why it failed, where it did. */
+  failed?: string;
 }
 
 /** How long a live session's ticket can wait to be opened. */
@@ -162,10 +165,13 @@ export class Computers {
     return { thisComputer, made };
   }
 
-  /** Bring back what was running when the service last stopped. */
+  /**
+   * Bring back what was running when the service last stopped, all at once: each is starting
+   * until it is running, and those in containers wait on one fetch of their image.
+   */
   async resume() {
-    for (const stored of this.#stored.values()) {
-      if (stored.state !== "running") continue;
+    const resumed = [...this.#stored.values()].map(async (stored) => {
+      if (stored.state !== "running") return;
       if (stored.endAt && Date.parse(stored.endAt) <= Date.now()) {
         stored.state = "stopped";
         await this.#runtimes[stored.isolation]
@@ -173,17 +179,21 @@ export class Computers {
           .catch((error: unknown) =>
             this.#log(stored.id, `What it left running wasn't stopped: ${messageOf(error)}`),
           );
-        continue;
+        return;
       }
-      await this.#start(stored).catch((error: unknown) => {
-        // It shows as failed, with why in its log, until it is stopped and started again.
-        const live = this.#live.get(stored.id);
-        if (live) live.failed = true;
+      const live: Live = {};
+      await this.#start(stored, live).catch((error: unknown) => {
+        const why = `It didn't start again: ${messageOf(error)}`;
+        this.#log(stored.id, why);
+        // Stopped, or started again, meanwhile: that is what it is now.
+        if (this.#live.get(stored.id) !== live) return;
+        // It shows as failed, with why, until it is stopped and started again.
+        live.failed = why;
         // Its time still runs, so that it ends when it was to.
         this.#arm(stored);
-        this.#log(stored.id, `It didn't start again: ${messageOf(error)}`);
       });
-    }
+    });
+    await Promise.all(resumed);
     this.#save();
   }
 
@@ -265,11 +275,13 @@ export class Computers {
         });
     }
     this.#stored.set(id, stored);
+    const live: Live = {};
     try {
-      await this.#start(stored);
+      await this.#start(stored, live);
     } catch (error) {
-      await this.#halt(id);
+      if (this.#live.get(id) === live) await this.#halt(id);
       this.#stored.delete(id);
+      this.#save();
       await this.#runtimes[stored.isolation].remove(id).catch(() => {});
       try {
         removeFolder(this.#folder(id));
@@ -337,12 +349,16 @@ export class Computers {
     if (timeout !== undefined) stored.endAt = expiry(timeout);
     else delete stored.endAt;
     stored.state = "running";
+    const live: Live = {};
     try {
-      await this.#start(stored);
+      await this.#start(stored, live);
     } catch (error) {
-      await this.#halt(id);
-      stored.state = "stopped";
-      this.#save();
+      // Unless it was stopped, or started again, meanwhile.
+      if (this.#live.get(id) === live) {
+        await this.#halt(id);
+        stored.state = "stopped";
+        this.#save();
+      }
       throw refusalOf(error);
     }
     this.#save();
@@ -409,7 +425,7 @@ export class Computers {
     if (endpoint === "screen" && !stored.screen)
       throw new ApiError(404, "This computer has no screen.");
     const running = this.#live.get(id)?.running;
-    if (!running) throw new ApiError(409, "It has stopped.");
+    if (!running) throw this.#notRunning(id);
     this.#log(id, `${request.method} mcp/${endpoint}`);
     return running.handle(endpoint, request, response);
   }
@@ -418,7 +434,7 @@ export class Computers {
   liveSession(id: string, surface: Surface, mode: LiveMode): Schemas["LiveSession"] {
     this.#found(id);
     const running = this.#live.get(id)?.running;
-    if (!running) throw new ApiError(409, "It has stopped.");
+    if (!running) throw this.#notRunning(id);
     const info = running.surfaces.find((one) => one.surface === surface);
     if (!info) throw new ApiError(409, `This computer has no ${surface} to open.`);
     if (info.unavailable) throw new ApiError(409, info.unavailable);
@@ -446,7 +462,7 @@ export class Computers {
     if (!found || found.expiresAt <= Date.now())
       throw new ApiError(404, "There's no such live session: it was used, or it expired.");
     const running = this.#live.get(found.computerID)?.running;
-    if (!running) throw new ApiError(409, "It has stopped.");
+    if (!running) throw this.#notRunning(found.computerID);
     this.#log(found.computerID, `live ${found.surface} ${found.mode}`);
     await running.openLive(found.surface, found.mode, request, socket, head);
   }
@@ -486,13 +502,25 @@ export class Computers {
     writePrivate(this.#file, JSON.stringify([...this.#stored.values()]));
   }
 
+  /** Why what needs it running can't be done now: what it waits on while starting, why while failed. */
+  #notRunning(id: string) {
+    return new ApiError(409, this.#describe(this.#found(id)).reason ?? "It has stopped.");
+  }
+
   #describe(stored: Stored): Schemas["Computer"] {
     const path = `${this.#base()}/v1/computers/${stored.id}/mcp`;
-    const down = this.#live.get(stored.id)?.failed === true;
+    const live = this.#live.get(stored.id);
+    const failed = stored.state === "running" ? live?.failed : undefined;
+    const starting =
+      stored.state === "running" && !failed && live?.starting
+        ? this.#runtimes[stored.isolation].starting()
+        : undefined;
     return {
       computerID: stored.id,
       name: stored.name,
-      state: stored.state === "running" && down ? "failed" : stored.state,
+      state: failed ? "failed" : starting ? "starting" : stored.state,
+      reason: failed ?? starting?.reason ?? null,
+      progress: starting?.progress ?? null,
       access: stored.access,
       isolation: stored.isolation,
       attached: stored.attached === true,
@@ -511,34 +539,51 @@ export class Computers {
     };
   }
 
-  async #start(stored: Stored) {
-    const live: Live = {};
+  /**
+   * Start it, as `live`. Stopped, killed or started again while it waits, it is refused, and what
+   * came up meanwhile is stopped: nothing is left that no call reaches.
+   */
+  async #start(stored: Stored, live: Live) {
     this.#live.set(stored.id, live);
+    const stopped = () => this.#live.get(stored.id) !== live;
+    const STOPPED = "It was stopped while it was starting.";
     if (stored.isolation === "none" && !stored.attached)
       throw new ApiError(409, noLongerMade(stored));
     if (stored.attached && this.#notHere) throw new ApiError(409, this.#notHere);
     stored.startedAt = new Date().toISOString();
     // In the isolation it was made in, and never another.
     const runtime = this.#runtimes[stored.isolation];
-    await runtime.prepare();
-    live.running = await runtime.start(
-      {
-        id: stored.id,
-        name: stored.name,
-        access: stored.access,
-        browser: stored.browser,
-        screen: stored.screen === true,
-        workspace: stored.workspace,
-      },
-      this.#folder(stored.id),
-      {
-        log: (line) => this.#log(stored.id, line),
-        failed: (reason) => {
-          live.failed = true;
-          this.#log(stored.id, reason);
+    live.starting = true;
+    try {
+      await runtime.prepare();
+      if (stopped()) throw new ApiError(409, STOPPED);
+      live.running = await runtime.start(
+        {
+          id: stored.id,
+          name: stored.name,
+          access: stored.access,
+          browser: stored.browser,
+          screen: stored.screen === true,
+          workspace: stored.workspace,
         },
-      },
-    );
+        this.#folder(stored.id),
+        {
+          log: (line) => this.#log(stored.id, line),
+          failed: (reason) => {
+            live.failed = reason;
+            this.#log(stored.id, reason);
+          },
+        },
+      );
+    } finally {
+      delete live.starting;
+    }
+    if (stopped()) {
+      await live.running.stop();
+      // Killed meanwhile: what it made is removed too.
+      if (!this.#stored.has(stored.id)) await runtime.remove(stored.id).catch(() => {});
+      throw new ApiError(409, STOPPED);
+    }
     // This computer runs this service's program; a container, its image's, if it says.
     const version = stored.isolation === "none" ? VERSION : live.running.version;
     if (version) stored.version = version;

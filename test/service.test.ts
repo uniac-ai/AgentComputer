@@ -160,6 +160,16 @@ async function setup(
     await stop();
     between();
     await start();
+    // What it brings back starts after it is up: wait until none is starting.
+    const deadline = Date.now() + 60_000;
+    while (
+      ((await (await api("")).json()) as { state: string }[]).some(
+        (computer) => computer.state === "starting",
+      )
+    ) {
+      assert.ok(Date.now() < deadline, "Waited too long for the computers brought back.");
+      await new Promise((done) => setTimeout(done, 100));
+    }
   };
   return {
     root,

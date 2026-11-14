@@ -22,6 +22,11 @@ import { ScreenLive } from "./screen-live.ts";
 import { privateFolder } from "./store.ts";
 
 type Schemas = components["schemas"];
+/** What a computer that is starting waits on, and how far that has come where it counts. */
+export interface Starting {
+  reason: string;
+  progress: Schemas["Progress"] | null;
+}
 export type Access = Schemas["Access"];
 export type Isolation = Schemas["Isolation"];
 /** What a computer run one way offers, and whether one can be run that way now. */
@@ -79,8 +84,10 @@ export interface Running {
 export interface Runtime {
   /** What a computer run this way offers, and whether one can be now. */
   offer(): Promise<Offer>;
-  /** Check what it needs, before a computer is started this way. */
+  /** Check what it needs, before a computer is started this way, and fetch what it lacks. */
   prepare(): Promise<void>;
+  /** What a computer starting this way is waiting on, and how far it has come where that counts. */
+  starting(): Starting;
   /** Start one, or start it again, its private folder being `folder`. */
   start(spec: ComputerSpec, folder: string, events: RuntimeEvents): Promise<Running>;
   /** Stop one left going by a service that ended without stopping it, or say why not. */
@@ -213,6 +220,10 @@ export class ProcessRuntime implements Runtime {
   }
 
   async prepare() {}
+
+  starting() {
+    return { reason: "It is being started.", progress: null };
+  }
 
   async stopLeftover() {}
 

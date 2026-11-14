@@ -34,7 +34,7 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
          [--timeout SECONDS] [--metadata KEY=VALUE]...
                                     attach this computer, whole and acting as you, with DIR its
                                     work folder; prints its endpoints and token, once
-  list [--state running|stopped|failed]
+  list [--state starting|running|stopped|failed]
                                     the computers
   get <id>                          one computer
   timeout <id> <seconds>            it now stops this long from now

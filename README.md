@@ -45,6 +45,14 @@ This computer:
 - **The person installs Cua Driver once,** the signed app from cua.ai/download, and on macOS grants it Screen Recording and Accessibility once. AgentComputer never installs or ships it, nor its optional perception extension, which is AGPL. `info` says whether the screen is ready, at Cua Driver 0.49.7 or later, and if not, what to do; attaching with it is refused with 409 until then. `serve --screen-driver PATH` names the program; otherwise it is `cua-driver` on the path, in `~/.local/bin`, or inside `/Applications/CuaDriver.app`.
 - **What the service starts of Cua Driver sends no telemetry.** The person's own Cua Driver app follows its own setting, which `cua-driver telemetry disable` turns off.
 
+**Upgrading from 0.0.19:**
+
+- **A computer has a new `state`, `starting`:** while it is made, started, or brought back as the service starts, until it is running. A client that knows only `running`, `stopped` and `failed` should take it as neither running nor stopped. `list --state running`, and the SDK's `isRunning()`, leave it out.
+- **The service says it is up, with `AgentComputer on …` and its record, before what was running is back.** That is brought back after, all at once, each `starting` until it is running: `Its container is being started.`, or for this computer `It is being started.` A script that starts the service and then uses a computer should wait until its `state` isn't `starting`; meanwhile what needs it running is refused with 409 and its `reason`.
+- **While `create` waits, `list` shows the computer as `starting`;** it showed `running`. `create` and `start` still answer once it is running.
+- **Every computer has `reason` and `progress`.** `reason` says why a failed one failed, which only its logs said.
+- **An image that can't be fetched is refused with 409,** `Its image couldn't be fetched: ` and Docker's words; it was 500.
+
 **Upgrading from 0.0.18 or earlier:**
 
 - **`create` with no `--isolation` used to make a computer with no isolation.** It now makes a container, which needs Docker, and is refused with 409 without it. To work on this machine as before, `attach` with `--workspace`.
@@ -61,7 +69,10 @@ A computer in a container:
 - Its image holds AgentExec, Playwright MCP and a headless Chromium. It is `ghcr.io/uniac-ai/agentcomputer/computer` at the service's version; `--image` names another.
 - `--workspace` is mounted at `/workspace`, read-only at `--access read`, and nothing else of the machine is visible. The computer is told that folder's path on the machine and the machine's name, which `about` answers. Docker has to be able to share that folder, and the data folder, where its home is. Without `--workspace`, the service makes one, in the data folder.
 - `--copy-from DIR` (`copyFrom`), used instead of `--workspace`, has the folder the service makes start with a copy of what is in `DIR`, taken once when the computer is made. `DIR` itself is never mounted or changed. Links are copied as they are, and sockets, pipes and devices are left out. It needs `--access` other than `none`.
-- The image is fetched the first time it is needed, which can take minutes: when the first computer in a container is made, a call that then waits for it. `docker pull` it beforehand to spare that wait.
+- **The image is fetched the first time it is needed,** which can take minutes: when the first computer in a container is made or started under this version, a call that then waits for it. `docker pull` it beforehand to spare that wait.
+  - Meanwhile the computer is listed with `state` `starting`. Its `reason` says what it waits on, in a line a person reads with no numbers, `Its image is being fetched.`, and its `progress` how far that has come: `{ "title": "Fetching its image", "done": …, "total": …, "moved": … }`, in bytes, with `total` as far as is known (Docker gives each layer's size as the layer begins, so it can grow) and `moved` the time it last moved: bytes came, or a layer was unpacked. A download that has stopped is still waited on: `moved` says since when. What needs the computer running is refused with 409 and its `reason`.
+  - Where Docker is on a socket here, as Docker Desktop and colima are, the image is fetched through Docker's API, which counts the bytes. Where it is elsewhere, or where that can't fetch the image, as from a registry that needs a sign-in, `docker pull` fetches it, which counts nothing: `progress` is null.
+  - When it can't be fetched, making the computer is refused with 409, `Its image couldn't be fetched: ` and Docker's words.
 - It runs as the user who started the service, with no capabilities.
 - Its home, `/home/computer`, is a folder of the machine's, in the computer's own folder in the data folder, mounted as the workspace is. What the agent keeps there stays, the browser's profile with its sign-ins among it. `stop` stops the container and keeps it, and `kill` removes it with the computer's folder.
 - **After an update,** a computer in a container is made again at its first start under a new version of the service, or under another `--image`: its container is removed and made again from the service's image. It keeps its workspace, its home, and its id, token, endpoints and settings. It loses its running commands, as at any restart, and everything else in the container: software installed there, and files outside `/workspace` and `/home/computer`, such as `/tmp`. Keep what must last in those two folders, or in an image of your own. Every computer's answer says the `version` of the program it runs.
@@ -265,7 +276,7 @@ A shell of your own needs [node-pty](https://github.com/microsoft/node-pty), an 
 
 - A container has no CPU or memory limit, and its network is Docker's default, so it reaches the internet and anything else Docker's network does.
 - In a container the browser runs without its own sandbox, which needs privileges a computer doesn't have. The container is the boundary.
-- A browser that stops, or a container that ends by itself, shows the computer as `failed`, and what can no longer be opened live says so in `surfaces`. So does a computer that couldn't be brought back when the service started, for one in a container because Docker didn't answer; its `logs` say why. Stop the computer and start it again.
+- A browser that stops, or a container that ends by itself, shows the computer as `failed`, with why in its `reason`, and what can no longer be opened live says so in `surfaces`. So does a computer that couldn't be brought back when the service started, for one in a container because Docker didn't answer or its image couldn't be fetched. Its `logs` say more. Stop the computer and start it again.
 - A file being written through the `files` surface sits beside its path as `.agentexec-…` until its last part, where a listing, and the agent, can see it. It stays if the service dies meanwhile.
 
 ## Tests
