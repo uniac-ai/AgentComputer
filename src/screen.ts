@@ -224,7 +224,44 @@ const Act = z
       ),
   })
   .strict();
+/** On a lent machine: no way of delivery to choose, since it is always the background. */
+const BackgroundAct = Act.omit({ delivery_mode: true });
 type Act = z.infer<typeof Act>;
+
+/** One window as the driver lists it, of which the agent is given what it can aim with. */
+type Listed = {
+  app_name: string;
+  title: string;
+  pid: number;
+  window_id: number;
+  bounds: { x: number; y: number; width: number; height: number };
+  z_index: number | null;
+};
+
+/** What the agent is told on a lent machine in place of the driver's advice to use the foreground. */
+const BACKGROUND = {
+  done: "It was sent in the background, with the person's pointer left where it is: see the window to check that it took effect.",
+  refused:
+    "It can't be done in the background in that window, and on this machine the agent acts only in the background: try an element_token from see, or leave it to the person.",
+};
+
+/** A call that failed, answered as a refusal in its own words. */
+const failed = (error: unknown): Answer => ({
+  content: [text(error instanceof Error ? error.message : String(error))],
+  isError: true,
+});
+
+/** The driver's answer without its hints and suggested next calls, which can name its own tools. */
+function forAgent(answer: Answer): Answer {
+  if (!answer.structuredContent) return answer;
+  const {
+    hint: _,
+    next_call: __,
+    summary: ___,
+    ...structured
+  } = answer.structuredContent as Record<string, unknown>;
+  return { ...answer, structuredContent: structured };
+}
 
 /** Each action, as the driver's tool that does it and the arguments it takes. */
 export function driverCall(input: Act): [string, Args] {
@@ -337,9 +374,13 @@ export class Screen extends Driver {
   readonly #noted: () => string | undefined;
   readonly #refused: () => string | undefined;
 
+  /** On a lent machine: the agent acts only in the background, leaving the person's pointer. */
+  readonly #onlyBackground: boolean;
+
   /**
    * `noted` gives the line to add to each answer: who else acted on the screen. `refused` says why
-   * no call is answered now, while the person has it switched off.
+   * no call is answered now, while the person has it switched off. `onlyBackground`: whether the
+   * agent acts only in the background, as on a lent machine.
    */
   constructor(
     driver: DriverAt,
@@ -347,10 +388,12 @@ export class Screen extends Driver {
     exited: () => void,
     noted: () => string | undefined,
     refused: () => string | undefined,
+    onlyBackground: boolean,
   ) {
     super(driver, log, exited);
     this.#noted = noted;
     this.#refused = refused;
+    this.#onlyBackground = onlyBackground;
   }
 
   /** The agent's three tools, each answered with what the driver answers, and the line after it. */
@@ -360,15 +403,7 @@ export class Screen extends Driver {
       const refusal = this.#refused();
       if (refusal) return { content: [text(refusal)], isError: true };
       const line = this.#noted();
-      let answer: Answer;
-      try {
-        answer = await work();
-      } catch (error) {
-        answer = {
-          content: [text(error instanceof Error ? error.message : String(error))],
-          isError: true,
-        };
-      }
+      const answer = forAgent(await work().catch(failed));
       return {
         content: [...(answer.content ?? []), ...(line ? [text(line)] : [])],
         ...(answer.structuredContent ? { structuredContent: answer.structuredContent } : {}),
@@ -380,7 +415,7 @@ export class Screen extends Driver {
       "see",
       {
         description:
-          "Returns the whole screen as a picture, with its windows. With pid and window_id from apps, returns that window's elements, each with an element_token, and a picture of it.",
+          "Returns the whole screen as a picture; apps lists its windows. With pid and window_id from apps, returns that window's elements, each with an element_token, and a picture of it.",
         inputSchema: Seen,
       },
       ({ pid, window_id }) =>
@@ -395,21 +430,49 @@ export class Screen extends Driver {
     server.registerTool(
       "act",
       {
-        description:
-          "Does one thing on the screen. click, double_click, right_click: an element_token, or x and y. drag: x and y, where it starts, and to_x and to_y. scroll: direction, and amount if not 3, at an element_token or x and y. type: text. key: key, such as enter. hotkey: keys pressed together. Aim at an element_token from see, or at x and y in pixels of the picture see gave last: a window's, with its pid and window_id, or the whole screen's, with neither. type, key and hotkey need a window or an element. See again after anything changes. If a call is refused because it can't be done in the background, repeat it with delivery_mode foreground, which takes the person's focus.",
-        inputSchema: Act,
+        description: `Does one thing on the screen. click, double_click, right_click: an element_token, or x and y. drag: x and y, where it starts, and to_x and to_y. scroll: direction, and amount if not 3, at an element_token or x and y. type: text. key: key, such as enter. hotkey: keys pressed together. Aim at an element_token from see, or at x and y in pixels of the picture see gave last: a window's, with its pid and window_id, or the whole screen's, with neither. Click an element that can't be pressed, such as a text area, by its point. type, key and hotkey need a window or an element. See again after anything changes. ${
+          this.#onlyBackground
+            ? "It is always done in the background, with the person's pointer left where it is."
+            : "If a call is refused because it can't be done in the background, repeat it with delivery_mode foreground, which takes the person's focus."
+        }`,
+        inputSchema: this.#onlyBackground ? BackgroundAct : Act,
       },
-      (input) =>
-        answered(() => {
+      (input: Act) =>
+        answered(async () => {
           const [tool, args] = driverCall(input);
-          return this.call(tool, args);
+          const answer = await this.call(tool, args).catch(failed);
+          const said = (answer.content ?? [])
+            .map((part) => (part as { text?: string }).text ?? "")
+            .join("\n");
+          // On a lent machine the driver's advice to use the foreground is said in plain words.
+          if (this.#onlyBackground && /delivery_mode\W*foreground/i.test(said))
+            return {
+              ...answer,
+              content: [text(BACKGROUND[answer.isError ? "refused" : "done"])],
+            };
+          // An element click the driver couldn't press: the agent is told to aim at its point.
+          if (
+            answer.isError &&
+            input.action.endsWith("click") &&
+            /AXUIElementPerformAction/.test(said)
+          )
+            return {
+              ...answer,
+              content: [
+                text(
+                  "That element can't be clicked by its reference. Aim at its point in the window's picture instead: x and y, with the window's pid and window_id. What the driver said:",
+                ),
+                ...(answer.content ?? []),
+              ],
+            };
+          return answer;
         }),
     );
     server.registerTool(
       "apps",
       {
         description:
-          "Lists the running apps and their windows, each window with its pid and window_id. With a pid and window_id, it first brings that window forward, in front of what the person sees.",
+          "Lists the running apps and their windows, each window with its pid and window_id, and, as fields, each window's app_name, title, pid, window_id, z_index (higher in front) and bounds, in the screen's points rather than the pixels act aims in: to aim at a window, see it and use its picture. With a pid and window_id, it first brings that window forward, in front of what the person sees.",
         inputSchema: Seen,
       },
       ({ pid, window_id }) =>
@@ -423,8 +486,24 @@ export class Screen extends Driver {
           const apps = await this.call("list_apps", {});
           if (apps.isError) return apps;
           const windows = await this.call("list_windows", { on_screen_only: true });
+          const found = (windows.structuredContent as { windows?: unknown } | undefined)?.windows;
+          const listed = Array.isArray(found) ? (found as Listed[]) : undefined;
           return {
             content: [...(apps.content ?? []), ...(windows.content ?? [])],
+            ...(listed
+              ? {
+                  structuredContent: {
+                    windows: listed.map(({ app_name, title, pid, window_id, bounds, z_index }) => ({
+                      app_name,
+                      title,
+                      pid,
+                      window_id,
+                      bounds,
+                      z_index,
+                    })),
+                  },
+                }
+              : {}),
             ...(windows.isError ? { isError: true } : {}),
           };
         }),

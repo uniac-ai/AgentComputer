@@ -55,6 +55,11 @@ export class Switches {
     this.#set = existsSync(this.#file) ? kept(this.#file) : {};
   }
 
+  /** Whether the service only lends this machine, as the app that lends a Mac runs it. */
+  get lends() {
+    return this.#lend;
+  }
+
   on(which: Switch) {
     return this.#set[which] ?? !this.#lend;
   }

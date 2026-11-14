@@ -397,6 +397,8 @@ export class ProcessRuntime implements Runtime {
               },
               () => presence.agentCalled({ capability: "screen" }),
               () => this.#switches?.refused("screen"),
+              // On a lent machine the agent acts only in the background.
+              this.#switches?.lends ?? false,
             )
           : undefined;
       try {

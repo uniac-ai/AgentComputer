@@ -133,9 +133,13 @@ try {
   );
   const call = async (name, args = {}) => {
     try {
-      const { content, isError } = await client.callTool({ name, arguments: args });
+      const { content, isError, structuredContent } = await client.callTool({
+        name,
+        arguments: args,
+      });
       return {
         isError: !!isError,
+        structured: structuredContent,
         kinds: content.map((one) => one.type),
         text: content
           .filter((one) => one.type === "text")

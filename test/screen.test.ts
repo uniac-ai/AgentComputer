@@ -5,12 +5,16 @@ import assert from "node:assert/strict";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import test, { before, describe } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { Screen } from "../src/screen.ts";
 import { personCall } from "../src/screen-live.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
@@ -152,6 +156,131 @@ esac
   assert.doesNotMatch(ran, /permissions status|^mcp$/m);
 });
 
+/** The agent's screen tools over a stand-in for the driver, on a lent machine or not. */
+async function overStandIn(t: test.TestContext, onlyBackground: boolean) {
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), "ac-")));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  const program = join(folder, "cua-driver");
+  const standIn = join(root, "test", "fixtures", "driver-stand-in.mjs");
+  writeFileSync(program, `#!/bin/sh\nexec "${process.execPath}" "${standIn}" "$@"\n`);
+  chmodSync(program, 0o755);
+  const none = () => undefined;
+  const screen = new Screen(
+    { program },
+    () => {},
+    () => {},
+    none,
+    none,
+    onlyBackground,
+  );
+  t.after(() => screen.stop());
+  await screen.ready();
+  const server = createServer((request, response) => void screen.handle(request, response));
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  t.after(() => server.close());
+  const client = new Client({ name: "screen", version: "1" });
+  const { port } = server.address() as AddressInfo;
+  await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/`)));
+  t.after(() => client.close());
+  const call = async (name: string, args: Record<string, unknown>) =>
+    (await client.callTool({ name, arguments: args })) as {
+      isError?: boolean;
+      content: { text?: string }[];
+      structuredContent?: Record<string, unknown>;
+    };
+  const act = (await client.listTools()).tools.find((one) => one.name === "act");
+  return { call, act };
+}
+const window = { pid: 19249, window_id: 12895 };
+
+test("on a lent machine the agent acts only in the background, and is told so in plain words", async (t) => {
+  const { call, act } = await overStandIn(t, true);
+  assert.equal("delivery_mode" in (act?.inputSchema.properties ?? {}), false);
+  assert.match(act?.description ?? "", /always done in the background/);
+  assert.doesNotMatch(act?.description ?? "", /foreground/);
+  // The driver's advice to retry in the foreground, and its hints naming its own tools, don't reach it.
+  const clicked = await call("act", { action: "click", ...window, x: 100, y: 200 });
+  assert.deepEqual(
+    clicked.content.map((one) => one.text),
+    [
+      "It was sent in the background, with the person's pointer left where it is: see the window to check that it took effect.",
+    ],
+  );
+  assert.deepEqual(clicked.structuredContent, {
+    delivery: { mode: "background" },
+    effect: "unverifiable",
+    route: "synthetic_events",
+  });
+  const asked = await call("act", {
+    action: "click",
+    ...window,
+    x: 1,
+    y: 1,
+    delivery_mode: "foreground",
+  });
+  assert.equal(asked.isError, true);
+  const typed = await call("act", { action: "type", ...window, text: "hi" });
+  assert.deepEqual(
+    [typed.isError, typed.content.map((one) => one.text)],
+    [
+      true,
+      [
+        "It can't be done in the background in that window, and on this machine the agent acts only in the background: try an element_token from see, or leave it to the person.",
+      ],
+    ],
+  );
+  // What the person's screen says is never rewritten, whatever it says.
+  assert.equal(
+    (await call("see", window)).content[0]?.text,
+    'Window "Prefs" (snapshot s1).\n- [3] AXCheckBox "Foreground colour"\n  - [4] AXStaticText "Use the foreground. Then save."',
+  );
+  assert.match((await call("apps", {})).content[1]?.text ?? "", /"foreground.txt"/);
+});
+
+test("an element that can't take a click says to aim at its point, and apps gives each window's fields", async (t) => {
+  const { call, act } = await overStandIn(t, false);
+  assert.equal("delivery_mode" in (act?.inputSchema.properties ?? {}), true);
+  const refused = await call("act", { action: "click", element_token: "s1:7" });
+  assert.equal(refused.isError, true);
+  assert.deepEqual(
+    refused.content.map((one) => one.text),
+    [
+      "That element can't be clicked by its reference. Aim at its point in the window's picture instead: x and y, with the window's pid and window_id. What the driver said:",
+      "AX action failed: AXUIElementPerformAction(AXPress) returned -25206",
+    ],
+  );
+  // A stale reference is not told to aim at its point: seeing again is what it needs.
+  const stale = await call("act", { action: "click", element_token: "s0:1" });
+  assert.deepEqual(
+    stale.content.map((one) => one.text),
+    ["The element_token s0:1 is from an earlier snapshot; see the window again."],
+  );
+  // Off a lent machine, the driver's own words reach the agent; its hints still don't.
+  const clicked = await call("act", { action: "click", ...window, x: 100, y: 200 });
+  assert.match(clicked.content[0]?.text ?? "", /delivery_mode:"foreground"/);
+  assert.equal("next_call" in (clicked.structuredContent ?? {}), false);
+  const apps = await call("apps", {});
+  assert.deepEqual(
+    apps.content.map((one) => one.text),
+    [
+      "✅ Found 1 app(s): 1 running.\n- TextEdit (pid 19249) [com.apple.TextEdit]",
+      'Found 2 window(s).\n- TextEdit (pid 19249) "Untitled" [window_id: 12895]\n- TextEdit (pid 19249) "foreground.txt" [window_id: 12896]',
+    ],
+  );
+  assert.deepEqual(apps.structuredContent, {
+    windows: [
+      {
+        app_name: "TextEdit",
+        title: "Untitled",
+        pid: 19249,
+        window_id: 12895,
+        bounds: { x: 120, y: 80, width: 586, height: 488 },
+        z_index: 3,
+      },
+    ],
+  });
+});
+
 test("the person's input in the live view is the driver's call, at the whole screen", () => {
   const desktop = { kind: "desktop", display_id: "primary" };
   const mouse = { type: "mouse", x: 10, y: 20 };
@@ -199,7 +328,7 @@ test("the person's input in the live view is the driver's call, at the whole scr
     assert.throws(() => personCall(wrong), { message }, JSON.stringify(wrong));
 });
 
-type Answer = { isError: boolean; kinds: string[]; text: string };
+type Answer = { isError: boolean; kinds: string[]; text: string; structured?: unknown };
 type Ran = Record<string, Answer> & {
   error?: string;
   ran: string;
@@ -278,6 +407,17 @@ describe("in a desktop of its own, with the pinned driver", {
     assert.match(done(out.window), /element_token/);
     assert.ok(out.window?.kinds.includes("image"));
     assert.match(done(out.apps), /window_id=\d+ pid=\d+ "screen-test"/);
+    // Each window's fields, to aim with: the terminal's among them.
+    const listed = out.apps?.structured as { windows?: Record<string, unknown>[] } | undefined;
+    const terminal = listed?.windows?.find((one) => one.title === "screen-test");
+    assert.deepEqual(Object.keys(terminal ?? {}).sort(), [
+      "app_name",
+      "bounds",
+      "pid",
+      "title",
+      "window_id",
+      "z_index",
+    ]);
   });
 
   test("switched off by the person, the agent's calls are refused; on again, they are answered", () => {
