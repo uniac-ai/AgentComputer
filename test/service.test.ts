@@ -458,6 +458,26 @@ test("a computer has only what it was asked for", withBrowser, async (t) => {
   // This computer only with a work folder.
   const bare = await api("/attach", { method: "POST", body: JSON.stringify({ access: "read" }) });
   assert.equal(bare.status, 400);
+  // A workspace that starts as a copy is one of its own, of a folder that is there, and made only
+  // where there is a workspace; this computer has none to copy into.
+  const make = async (path: string, body: object) => {
+    const answer = await api(path, { method: "POST", body: JSON.stringify(body) });
+    return [answer.status, ((await answer.json()) as { message: string }).message];
+  };
+  assert.deepEqual(await make("", { access: "read", workspace, copyFrom: workspace }), [
+    400,
+    "Give workspace or copyFrom, not both: copyFrom fills a workspace of its own.",
+  ]);
+  assert.deepEqual(await make("", { access: "none", browser: true, copyFrom: workspace }), [
+    400,
+    "With access none it has no workspace to copy into.",
+  ]);
+  for (const copyFrom of ["relative", join(workspace, "nope")])
+    assert.deepEqual(await make("", { access: "read", copyFrom }), [
+      400,
+      `There's no folder at ${copyFrom}.`,
+    ]);
+  assert.equal((await make("/attach", { access: "read", workspace, copyFrom: workspace }))[0], 400);
 });
 
 test("killing this computer detaches it, and removes nothing of the machine's", async (t) => {

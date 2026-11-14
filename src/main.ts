@@ -26,8 +26,8 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
   status                            where the service is running, if it is
   info                              the service's version and what it offers: this computer,
                                     the kinds it makes, and their browsers, each ready or not
-  create --access none|read|files|terminal [--browser] [--workspace DIR] [--name NAME]
-         [--isolation container] [--timeout SECONDS] [--metadata KEY=VALUE]...
+  create --access none|read|files|terminal [--browser] [--workspace DIR | --copy-from DIR]
+         [--name NAME] [--isolation container] [--timeout SECONDS] [--metadata KEY=VALUE]...
                                     make a computer, in a container; prints its endpoints and
                                     token, once
   attach --access none|read|files|terminal --workspace DIR [--browser] [--name NAME]
@@ -104,6 +104,7 @@ async function main() {
       output: { type: "string" },
       access: { type: "string" },
       workspace: { type: "string" },
+      "copy-from": { type: "string" },
       name: { type: "string" },
       timeout: { type: "string" },
       state: { type: "string" },
@@ -214,6 +215,7 @@ async function main() {
           ...making(),
           ...(isolation ? { isolation: isolation as CreateOpts["isolation"] } : {}),
           ...(values.workspace ? { workspace: resolve(values.workspace) } : {}),
+          ...(values["copy-from"] ? { copyFrom: resolve(values["copy-from"]) } : {}),
         }),
       );
     case "attach":

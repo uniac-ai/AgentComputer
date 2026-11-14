@@ -303,6 +303,26 @@ test(
   },
 );
 
+test("a workspace can start as a copy of a folder, which is left as it was", options, async (t) => {
+  const { Computer, to, root, data } = await setup(t);
+  const from = join(root, "old");
+  mkdirSync(join(from, "notes"), { recursive: true });
+  writeFileSync(join(from, "a.txt"), "a\n");
+  writeFileSync(join(from, "notes", "b.txt"), "b\n");
+  const computer = await Computer.create({ ...to(), access: "terminal", copyFrom: from });
+  t.after(() => computer.close());
+  const { workspace } = await computer.getInfo();
+  assert.equal(workspace, join(data, "computers", computer.computerID, "workspace"));
+  const sh = async (cmd: string) => (await computer.commands.run(cmd)).output;
+  assert.equal(await sh("cat /workspace/a.txt /workspace/notes/b.txt"), "a\nb\n");
+  await sh("echo changed > /workspace/a.txt && touch /workspace/new.txt");
+  assert.equal(readFileSync(join(from, "a.txt"), "utf8"), "a\n");
+  assert.equal(existsSync(join(from, "new.txt")), false);
+  await computer.kill();
+  assert.equal(existsSync(workspace as string), false);
+  assert.equal(readFileSync(join(from, "notes", "b.txt"), "utf8"), "b\n");
+});
+
 test(
   "stop keeps its disk and token, start brings it back, and kill removes it all",
   options,

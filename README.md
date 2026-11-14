@@ -46,13 +46,14 @@ This computer:
   - One that was running when the service last stopped is failed when it starts, and its `logs` say why. One that was stopped stays stopped.
   - Starting it is refused with 409, in words that say where its folder is and what to do instead: `A computer with no isolation is no longer made. Its folder is kept at <path>. Attach this computer with that folder as its work folder, or make a container with it as its workspace.`
   - In the API it is the one computer with `isolation` `none` and `attached` false, and its `workspace` is that folder.
-  - Killing it removes the rest of it and keeps that folder, even one the service made in its data folder. Kill it first, then attach or make a container with the folder.
+  - Killing it removes the rest of it and keeps that folder, even one the service made in its data folder. Kill it first, then attach this computer with the folder as its `--workspace`, or make a container whose workspace starts as a copy of it: `create --copy-from <path>`.
 - **A computer recorded by 0.0.14 or earlier kept no isolation,** and is taken as made with none, which was the default then. If you made computers in containers with 0.0.14 or earlier, run 0.0.18 once first, started as it was last started, so that each one's isolation is recorded. Otherwise each is refused as above, and killing one leaves its container behind.
 
 A computer in a container:
 
 - Its image holds AgentExec, Playwright MCP and a headless Chromium. It is `ghcr.io/uniac-ai/agentcomputer/computer` at the service's version; `--image` names another.
-- `--workspace` is mounted at `/workspace`, read-only at `--access read`, and nothing else of the machine is visible. The computer is told that folder's path on the machine and the machine's name, which `about` answers. Docker has to be able to share that folder, and the data folder, where its home is. Without `--workspace`, the service makes one.
+- `--workspace` is mounted at `/workspace`, read-only at `--access read`, and nothing else of the machine is visible. The computer is told that folder's path on the machine and the machine's name, which `about` answers. Docker has to be able to share that folder, and the data folder, where its home is. Without `--workspace`, the service makes one, in the data folder.
+- `--copy-from DIR` (`copyFrom`) has the folder the service makes start as a copy of `DIR`, copied once when the computer is made. `DIR` itself is never mounted or changed. It goes with neither `--workspace` nor `--access none`.
 - The image is fetched the first time it is needed, which can take minutes: when the first computer in a container is made, a call that then waits for it. `docker pull` it beforehand to spare that wait.
 - It runs as the user who started the service, with no capabilities.
 - Its home, `/home/computer`, is a folder of the machine's, in the computer's own folder in the data folder, mounted as the workspace is. What the agent keeps there stays, the browser's profile with its sign-ins among it. `stop` stops the container and keeps it, and `kill` removes it with the computer's folder.
@@ -96,18 +97,18 @@ The browser has no debug port: a small host process starts it and shares it on a
 
 ## Commands
 
-|                                           |                                                                                                                       |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `serve`                                   | Run the service: `--listen` (127.0.0.1:7878), `--data`                                                                |
-| `up`, `down`, `status`                    | Run the service in the background, stop it, say where it is running                                                   |
-| `info`                                    | The service's version and what it offers: this computer, and the kinds it makes, each ready or not                    |
-| `create`                                  | Make a computer: `--access`, `--browser`, `--isolation`, `--workspace`, `--name`, `--timeout`, `--metadata KEY=VALUE` |
-| `attach`                                  | Attach this computer: `--access`, `--workspace`, `--browser`, `--name`, `--timeout`, `--metadata KEY=VALUE`           |
-| `list [--state]`, `get <id>`, `logs <id>` | Look at them                                                                                                          |
-| `timeout <id> <seconds>`                  | It now stops this long from now                                                                                       |
-| `stop <id>`, `start <id> [--timeout]`     | Stop it, keeping its folder and token; start it again                                                                 |
-| `live <id> --surface [--mode]`            | A one-time ticket to open one of its surfaces live; see [Live sessions](#live-sessions)                               |
-| `kill <id>`                               | Stop it and remove what the service made; this computer, detach it                                                    |
+|                                           |                                                                                                                                        |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `serve`                                   | Run the service: `--listen` (127.0.0.1:7878), `--data`                                                                                 |
+| `up`, `down`, `status`                    | Run the service in the background, stop it, say where it is running                                                                    |
+| `info`                                    | The service's version and what it offers: this computer, and the kinds it makes, each ready or not                                     |
+| `create`                                  | Make a computer: `--access`, `--browser`, `--isolation`, `--workspace` or `--copy-from`, `--name`, `--timeout`, `--metadata KEY=VALUE` |
+| `attach`                                  | Attach this computer: `--access`, `--workspace`, `--browser`, `--name`, `--timeout`, `--metadata KEY=VALUE`                            |
+| `list [--state]`, `get <id>`, `logs <id>` | Look at them                                                                                                                           |
+| `timeout <id> <seconds>`                  | It now stops this long from now                                                                                                        |
+| `stop <id>`, `start <id> [--timeout]`     | Stop it, keeping its folder and token; start it again                                                                                  |
+| `live <id> --surface [--mode]`            | A one-time ticket to open one of its surfaces live; see [Live sessions](#live-sessions)                                                |
+| `kill <id>`                               | Stop it and remove what the service made; this computer, detach it                                                                     |
 
 **In the background.** `up` takes what `serve` takes, runs the service in the background for you, and returns once it answers, printing its `url`, `pid` and version. If one already answers for the data folder it prints that one and starts nothing. `status` prints the same, or exits 1 with none running. `down` ends it and says nothing; its computers stop with it, and start again when it next does. `serve` won't run beside a service that already answers for the same data folder. `--version` prints the program's version, with no service.
 

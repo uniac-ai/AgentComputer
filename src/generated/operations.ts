@@ -546,6 +546,11 @@ export const OPENAPI = {
             "maxLength": 4096,
             "description": "The full path of a folder that exists, on the service's machine. With none, the service makes a folder, which goes when the computer is killed. A folder named here never does."
           },
+          "copyFrom": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "The full path of a folder that exists, on the service's machine, that the workspace the service makes starts as a copy of. It is copied once, when the computer is made, and is never mounted or changed. Not with workspace, nor with access none."
+          },
           "isolation": {
             "$ref": "#/components/schemas/Isolation",
             "description": "How it is isolated, which it keeps for as long as it exists: container, the default. One with no isolation is no longer made, and asking for one is refused: attach this computer instead."
@@ -2444,6 +2449,11 @@ export const OPERATIONS: Operation[] = [
           "type": "string",
           "maxLength": 4096,
           "description": "The full path of a folder that exists, on the service's machine. With none, the service makes a folder, which goes when the computer is killed. A folder named here never does."
+        },
+        "copyFrom": {
+          "type": "string",
+          "maxLength": 4096,
+          "description": "The full path of a folder that exists, on the service's machine, that the workspace the service makes starts as a copy of. It is copied once, when the computer is made, and is never mounted or changed. Not with workspace, nor with access none."
         },
         "isolation": {
           "type": "string",

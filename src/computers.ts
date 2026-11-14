@@ -10,6 +10,7 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
+import { cp } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Duplex } from "node:stream";
@@ -79,6 +80,17 @@ const noLongerMade = (stored: Stored) =>
   (stored.workspace
     ? `Its folder is kept at ${stored.workspace}. Attach this computer with that folder as its work folder, or make a container with it as its workspace.`
     : "Attach this computer, or make a container.");
+/** A folder that exists, given by its full path, or the refusal of one that doesn't. */
+function folderAt(path: string) {
+  let folder = false;
+  try {
+    folder = isAbsolute(path) && statSync(path).isDirectory();
+  } catch {
+    // Refused below.
+  }
+  if (!folder) throw new ApiError(400, `There's no folder at ${path}.`);
+  return resolve(path);
+}
 /** Why it didn't start, as the service answers it. */
 const refusalOf = (error: unknown) =>
   error instanceof ApiError ? error : new ApiError(500, messageOf(error));
@@ -163,17 +175,15 @@ export class Computers {
     const browser = input.browser === true;
     if (access === "none" && !browser)
       throw new ApiError(400, "With no files, no commands and no browser, there's no computer.");
-    let workspace: string | undefined;
-    if (input.workspace !== undefined) {
-      let folder = false;
-      try {
-        folder = isAbsolute(input.workspace) && statSync(input.workspace).isDirectory();
-      } catch {
-        // Reported below.
-      }
-      if (!folder) throw new ApiError(400, `There's no folder at ${input.workspace}.`);
-      workspace = resolve(input.workspace);
-    }
+    if (input.copyFrom !== undefined && input.workspace !== undefined)
+      throw new ApiError(
+        400,
+        "Give workspace or copyFrom, not both: copyFrom fills a workspace of its own.",
+      );
+    if (input.copyFrom !== undefined && access === "none")
+      throw new ApiError(400, "With access none it has no workspace to copy into.");
+    const workspace = input.workspace === undefined ? undefined : folderAt(input.workspace);
+    const from = input.copyFrom === undefined ? undefined : folderAt(input.copyFrom);
     const id = `c_${randomBytes(9).toString("hex")}`;
     const token = newToken();
     const now = new Date().toISOString();
@@ -198,6 +208,15 @@ export class Computers {
     }
     this.#stored.set(id, stored);
     try {
+      // Copied once, now: the folder itself is never mounted or changed.
+      if (from)
+        await cp(from, stored.workspace as string, {
+          recursive: true,
+          verbatimSymlinks: true,
+          preserveTimestamps: true,
+        }).catch((error: unknown) => {
+          throw new ApiError(400, `${from} couldn't be copied: ${messageOf(error)}`);
+        });
       await this.#start(stored);
     } catch (error) {
       await this.#halt(id);
