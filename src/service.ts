@@ -250,9 +250,11 @@ export async function serve(options: ServeOptions) {
   // What one that crashed left names nothing, and at this address would be taken for this one.
   const record = recordOf(data);
   rmSync(record, { force: true });
-  await computers.resume();
   writePrivate(record, JSON.stringify({ url: base, pid: process.pid }));
   process.stdout.write(`AgentComputer on ${base}, data in ${data}\n`);
+  // What was running is brought back after: each says it is starting, and what it waits on, as
+  // fetching an image can take minutes, or never end.
+  computers.resume().catch((error: unknown) => process.stderr.write(`${String(error)}\n`));
 
   let stopping = false;
   const stop = async () => {

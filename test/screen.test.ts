@@ -264,7 +264,7 @@ describe("in a desktop of its own, with the pinned driver", {
       { label: "Reaches", value: "Read-only files, Screen" },
       {
         label: "Acting now",
-        value: "The person: the screen; can't tell whether the person is using the screen",
+        value: "The person: the screen",
       },
     ]);
   });

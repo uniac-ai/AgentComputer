@@ -42,8 +42,8 @@ const environment = () => ({
   ...(process.env.DOCKER_HOST ? { DOCKER_HOST: process.env.DOCKER_HOST } : {}),
 });
 
-async function until(check: () => Promise<boolean>, what: string) {
-  const deadline = Date.now() + 30_000;
+async function until(check: () => Promise<boolean>, what: string, ms = 30_000) {
+  const deadline = Date.now() + ms;
   while (!(await check())) {
     assert.ok(Date.now() < deadline, `Waited too long for ${what}.`);
     await new Promise((done) => setTimeout(done, 200));
@@ -121,6 +121,12 @@ async function setup(t: test.TestContext) {
     await stop();
     await between();
     await start(env, image);
+    // What it brings back starts after it is up: wait until none is starting.
+    await until(
+      async () => (await Computer.list(to())).every((computer) => computer.state !== "starting"),
+      "the computers brought back",
+      120_000,
+    );
   };
   return { Computer, to, root, data, workspace, mcp, restart, control: apiKey };
 }

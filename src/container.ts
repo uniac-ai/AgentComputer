@@ -12,6 +12,7 @@ import { createInterface } from "node:readline";
 import { type Duplex, Readable } from "node:stream";
 import { promisify } from "node:util";
 import { sendAnswer } from "./browser.ts";
+import { ImageFetch } from "./image-fetch.ts";
 import {
   INNER_PORT,
   INNER_TOKEN_VARIABLE,
@@ -69,6 +70,16 @@ const HOME = "/home/computer";
 const homeOf = (folder: string) => join(folder, "home");
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
+/** Docker's socket here, as the docker command finds it, where it is one. */
+async function dockerSocket() {
+  const host =
+    process.env.DOCKER_HOST ||
+    (await docker(["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"]).catch(
+      () => "",
+    ));
+  return host.startsWith("unix://") ? host.slice("unix://".length) : undefined;
+}
+
 interface Ready {
   browserTools: string[];
   surfaces: SurfaceInfo[];
@@ -84,10 +95,21 @@ interface Inspected {
   NetworkSettings: { Ports: Record<string, { HostPort: string }[] | null> };
 }
 
+/** An image being fetched, and what fetches it where that counts how far it has come. */
+interface Fetch {
+  done: Promise<void>;
+  through?: ImageFetch;
+}
+
 export class ContainerRuntime implements Runtime {
   readonly #image: string;
   /** The id of that image, as it is now on this machine. */
   #imageId: string | undefined;
+  /**
+   * The image being fetched, which every computer starting meanwhile waits on, and, while Docker's
+   * API fetches it, how far that has come.
+   */
+  #fetch: Fetch | undefined;
 
   constructor(image: string) {
     this.#image = image;
@@ -128,10 +150,47 @@ export class ContainerRuntime implements Runtime {
     try {
       this.#imageId = await id();
     } catch {
-      process.stdout.write(`Pulling ${this.#image}\n`);
-      await docker(["pull", this.#image]);
+      this.#fetch ??= this.#fetchImage();
+      const fetch = this.#fetch;
+      try {
+        await fetch.done;
+      } catch (error) {
+        throw new ApiError(409, `Its image couldn't be fetched: ${messageOf(error)}`);
+      } finally {
+        if (this.#fetch === fetch) this.#fetch = undefined;
+      }
       this.#imageId = await id();
     }
+  }
+
+  /**
+   * Through Docker's API where Docker is on a socket here, which counts how far it has come; else,
+   * or where that failed for whatever reason, as from a registry that wants a sign-in, through
+   * `docker pull`, which signs in as the person has and counts nothing.
+   */
+  #fetchImage() {
+    process.stdout.write(`Pulling ${this.#image}\n`);
+    const fetch: Fetch = { done: Promise.resolve() };
+    fetch.done = (async () => {
+      const socket = await dockerSocket();
+      if (socket) {
+        fetch.through = new ImageFetch(this.#image, socket);
+        try {
+          return await fetch.through.done;
+        } catch {
+          delete fetch.through;
+        }
+      }
+      await docker(["pull", this.#image]);
+    })();
+    return fetch;
+  }
+
+  starting() {
+    const fetch = this.#fetch;
+    return fetch
+      ? { reason: "Its image is being fetched.", progress: fetch.through?.progress() ?? null }
+      : { reason: "Its container is being started.", progress: null };
   }
 
   async #inspect(name: string): Promise<Inspected | undefined> {

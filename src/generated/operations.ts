@@ -504,11 +504,44 @@ export const OPENAPI = {
       "ComputerState": {
         "type": "string",
         "enum": [
+          "starting",
           "running",
           "stopped",
           "failed"
         ],
-        "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
+        "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+      },
+      "Progress": {
+        "type": "object",
+        "description": "How far a step that counts its bytes has come: today only fetching a computer's image, where Docker is on a socket on the service's machine.",
+        "required": [
+          "title",
+          "done",
+          "total",
+          "moved"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "The step, in words with no numbers: \"Fetching its image\"."
+          },
+          "done": {
+            "type": "integer",
+            "description": "Bytes come so far."
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Bytes to come, as far as is known: Docker gives each layer's size as the layer begins, so it can grow. Null while nothing is known."
+          },
+          "moved": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it last moved: bytes came, or, for an image, a layer was unpacked. When the step began, until then."
+          }
+        }
       },
       "Timeout": {
         "type": "integer",
@@ -661,7 +694,9 @@ export const OPENAPI = {
           "startedAt",
           "endAt",
           "metadata",
-          "endpoints"
+          "endpoints",
+          "reason",
+          "progress"
         ],
         "properties": {
           "computerID": {
@@ -672,6 +707,24 @@ export const OPENAPI = {
           },
           "state": {
             "$ref": "#/components/schemas/ComputerState"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "In a line a person reads: while it is starting, the step it waits on, with no numbers, such as \"Its image is being fetched.\", \"Its container is being started.\" or \"It is being started.\"; while it is failed, why. Null while it is running or stopped."
+          },
+          "progress": {
+            "description": "While it is starting, how far its step has come, where the step counts its bytes; null otherwise.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Progress"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "access": {
             "$ref": "#/components/schemas/Access"
@@ -2501,11 +2554,12 @@ export const OPERATIONS: Operation[] = [
         "state": {
           "type": "string",
           "enum": [
+            "starting",
             "running",
             "stopped",
             "failed"
           ],
-          "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
+          "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
         }
       },
       "required": []
@@ -2528,7 +2582,9 @@ export const OPERATIONS: Operation[] = [
           "startedAt",
           "endAt",
           "metadata",
-          "endpoints"
+          "endpoints",
+          "reason",
+          "progress"
         ],
         "properties": {
           "computerID": {
@@ -2540,11 +2596,59 @@ export const OPERATIONS: Operation[] = [
           "state": {
             "type": "string",
             "enum": [
+              "starting",
               "running",
               "stopped",
               "failed"
             ],
-            "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
+            "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "In a line a person reads: while it is starting, the step it waits on, with no numbers, such as \"Its image is being fetched.\", \"Its container is being started.\" or \"It is being started.\"; while it is failed, why. Null while it is running or stopped."
+          },
+          "progress": {
+            "description": "While it is starting, how far its step has come, where the step counts its bytes; null otherwise.",
+            "oneOf": [
+              {
+                "type": "object",
+                "description": "How far a step that counts its bytes has come: today only fetching a computer's image, where Docker is on a socket on the service's machine.",
+                "required": [
+                  "title",
+                  "done",
+                  "total",
+                  "moved"
+                ],
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "description": "The step, in words with no numbers: \"Fetching its image\"."
+                  },
+                  "done": {
+                    "type": "integer",
+                    "description": "Bytes come so far."
+                  },
+                  "total": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Bytes to come, as far as is known: Docker gives each layer's size as the layer begins, so it can grow. Null while nothing is known."
+                  },
+                  "moved": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "When it last moved: bytes came, or, for an image, a layer was unpacked. When the step began, until then."
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "access": {
             "type": "string",
@@ -2736,7 +2840,9 @@ export const OPERATIONS: Operation[] = [
             "startedAt",
             "endAt",
             "metadata",
-            "endpoints"
+            "endpoints",
+            "reason",
+            "progress"
           ],
           "properties": {
             "computerID": {
@@ -2748,11 +2854,59 @@ export const OPERATIONS: Operation[] = [
             "state": {
               "type": "string",
               "enum": [
+                "starting",
                 "running",
                 "stopped",
                 "failed"
               ],
-              "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
+              "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "In a line a person reads: while it is starting, the step it waits on, with no numbers, such as \"Its image is being fetched.\", \"Its container is being started.\" or \"It is being started.\"; while it is failed, why. Null while it is running or stopped."
+            },
+            "progress": {
+              "description": "While it is starting, how far its step has come, where the step counts its bytes; null otherwise.",
+              "oneOf": [
+                {
+                  "type": "object",
+                  "description": "How far a step that counts its bytes has come: today only fetching a computer's image, where Docker is on a socket on the service's machine.",
+                  "required": [
+                    "title",
+                    "done",
+                    "total",
+                    "moved"
+                  ],
+                  "properties": {
+                    "title": {
+                      "type": "string",
+                      "description": "The step, in words with no numbers: \"Fetching its image\"."
+                    },
+                    "done": {
+                      "type": "integer",
+                      "description": "Bytes come so far."
+                    },
+                    "total": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "Bytes to come, as far as is known: Docker gives each layer's size as the layer begins, so it can grow. Null while nothing is known."
+                    },
+                    "moved": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "When it last moved: bytes came, or, for an image, a layer was unpacked. When the step began, until then."
+                    }
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "access": {
               "type": "string",
@@ -2950,7 +3104,9 @@ export const OPERATIONS: Operation[] = [
             "startedAt",
             "endAt",
             "metadata",
-            "endpoints"
+            "endpoints",
+            "reason",
+            "progress"
           ],
           "properties": {
             "computerID": {
@@ -2962,11 +3118,59 @@ export const OPERATIONS: Operation[] = [
             "state": {
               "type": "string",
               "enum": [
+                "starting",
                 "running",
                 "stopped",
                 "failed"
               ],
-              "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
+              "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "In a line a person reads: while it is starting, the step it waits on, with no numbers, such as \"Its image is being fetched.\", \"Its container is being started.\" or \"It is being started.\"; while it is failed, why. Null while it is running or stopped."
+            },
+            "progress": {
+              "description": "While it is starting, how far its step has come, where the step counts its bytes; null otherwise.",
+              "oneOf": [
+                {
+                  "type": "object",
+                  "description": "How far a step that counts its bytes has come: today only fetching a computer's image, where Docker is on a socket on the service's machine.",
+                  "required": [
+                    "title",
+                    "done",
+                    "total",
+                    "moved"
+                  ],
+                  "properties": {
+                    "title": {
+                      "type": "string",
+                      "description": "The step, in words with no numbers: \"Fetching its image\"."
+                    },
+                    "done": {
+                      "type": "integer",
+                      "description": "Bytes come so far."
+                    },
+                    "total": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "Bytes to come, as far as is known: Docker gives each layer's size as the layer begins, so it can grow. Null while nothing is known."
+                    },
+                    "moved": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "When it last moved: bytes came, or, for an image, a layer was unpacked. When the step began, until then."
+                    }
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "access": {
               "type": "string",
@@ -3126,7 +3330,9 @@ export const OPERATIONS: Operation[] = [
             "startedAt",
             "endAt",
             "metadata",
-            "endpoints"
+            "endpoints",
+            "reason",
+            "progress"
           ],
           "properties": {
             "computerID": {
@@ -3138,11 +3344,59 @@ export const OPERATIONS: Operation[] = [
             "state": {
               "type": "string",
               "enum": [
+                "starting",
                 "running",
                 "stopped",
                 "failed"
               ],
-              "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
+              "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "In a line a person reads: while it is starting, the step it waits on, with no numbers, such as \"Its image is being fetched.\", \"Its container is being started.\" or \"It is being started.\"; while it is failed, why. Null while it is running or stopped."
+            },
+            "progress": {
+              "description": "While it is starting, how far its step has come, where the step counts its bytes; null otherwise.",
+              "oneOf": [
+                {
+                  "type": "object",
+                  "description": "How far a step that counts its bytes has come: today only fetching a computer's image, where Docker is on a socket on the service's machine.",
+                  "required": [
+                    "title",
+                    "done",
+                    "total",
+                    "moved"
+                  ],
+                  "properties": {
+                    "title": {
+                      "type": "string",
+                      "description": "The step, in words with no numbers: \"Fetching its image\"."
+                    },
+                    "done": {
+                      "type": "integer",
+                      "description": "Bytes come so far."
+                    },
+                    "total": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "Bytes to come, as far as is known: Docker gives each layer's size as the layer begins, so it can grow. Null while nothing is known."
+                    },
+                    "moved": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "When it last moved: bytes came, or, for an image, a layer was unpacked. When the step began, until then."
+                    }
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "access": {
               "type": "string",
@@ -3402,7 +3656,9 @@ export const OPERATIONS: Operation[] = [
         "startedAt",
         "endAt",
         "metadata",
-        "endpoints"
+        "endpoints",
+        "reason",
+        "progress"
       ],
       "properties": {
         "computerID": {
@@ -3414,11 +3670,59 @@ export const OPERATIONS: Operation[] = [
         "state": {
           "type": "string",
           "enum": [
+            "starting",
             "running",
             "stopped",
             "failed"
           ],
-          "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
+          "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "In a line a person reads: while it is starting, the step it waits on, with no numbers, such as \"Its image is being fetched.\", \"Its container is being started.\" or \"It is being started.\"; while it is failed, why. Null while it is running or stopped."
+        },
+        "progress": {
+          "description": "While it is starting, how far its step has come, where the step counts its bytes; null otherwise.",
+          "oneOf": [
+            {
+              "type": "object",
+              "description": "How far a step that counts its bytes has come: today only fetching a computer's image, where Docker is on a socket on the service's machine.",
+              "required": [
+                "title",
+                "done",
+                "total",
+                "moved"
+              ],
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "description": "The step, in words with no numbers: \"Fetching its image\"."
+                },
+                "done": {
+                  "type": "integer",
+                  "description": "Bytes come so far."
+                },
+                "total": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Bytes to come, as far as is known: Docker gives each layer's size as the layer begins, so it can grow. Null while nothing is known."
+                },
+                "moved": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "When it last moved: bytes came, or, for an image, a layer was unpacked. When the step began, until then."
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "access": {
           "type": "string",
@@ -3562,7 +3866,9 @@ export const OPERATIONS: Operation[] = [
         "startedAt",
         "endAt",
         "metadata",
-        "endpoints"
+        "endpoints",
+        "reason",
+        "progress"
       ],
       "properties": {
         "computerID": {
@@ -3574,11 +3880,59 @@ export const OPERATIONS: Operation[] = [
         "state": {
           "type": "string",
           "enum": [
+            "starting",
             "running",
             "stopped",
             "failed"
           ],
-          "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
+          "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "In a line a person reads: while it is starting, the step it waits on, with no numbers, such as \"Its image is being fetched.\", \"Its container is being started.\" or \"It is being started.\"; while it is failed, why. Null while it is running or stopped."
+        },
+        "progress": {
+          "description": "While it is starting, how far its step has come, where the step counts its bytes; null otherwise.",
+          "oneOf": [
+            {
+              "type": "object",
+              "description": "How far a step that counts its bytes has come: today only fetching a computer's image, where Docker is on a socket on the service's machine.",
+              "required": [
+                "title",
+                "done",
+                "total",
+                "moved"
+              ],
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "description": "The step, in words with no numbers: \"Fetching its image\"."
+                },
+                "done": {
+                  "type": "integer",
+                  "description": "Bytes come so far."
+                },
+                "total": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Bytes to come, as far as is known: Docker gives each layer's size as the layer begins, so it can grow. Null while nothing is known."
+                },
+                "moved": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "When it last moved: bytes came, or, for an image, a layer was unpacked. When the step began, until then."
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "access": {
           "type": "string",
@@ -3727,7 +4081,9 @@ export const OPERATIONS: Operation[] = [
         "startedAt",
         "endAt",
         "metadata",
-        "endpoints"
+        "endpoints",
+        "reason",
+        "progress"
       ],
       "properties": {
         "computerID": {
@@ -3739,11 +4095,59 @@ export const OPERATIONS: Operation[] = [
         "state": {
           "type": "string",
           "enum": [
+            "starting",
             "running",
             "stopped",
             "failed"
           ],
-          "description": "failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its logs say why. Stop it and start it again."
+          "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "In a line a person reads: while it is starting, the step it waits on, with no numbers, such as \"Its image is being fetched.\", \"Its container is being started.\" or \"It is being started.\"; while it is failed, why. Null while it is running or stopped."
+        },
+        "progress": {
+          "description": "While it is starting, how far its step has come, where the step counts its bytes; null otherwise.",
+          "oneOf": [
+            {
+              "type": "object",
+              "description": "How far a step that counts its bytes has come: today only fetching a computer's image, where Docker is on a socket on the service's machine.",
+              "required": [
+                "title",
+                "done",
+                "total",
+                "moved"
+              ],
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "description": "The step, in words with no numbers: \"Fetching its image\"."
+                },
+                "done": {
+                  "type": "integer",
+                  "description": "Bytes come so far."
+                },
+                "total": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Bytes to come, as far as is known: Docker gives each layer's size as the layer begins, so it can grow. Null while nothing is known."
+                },
+                "moved": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "When it last moved: bytes came, or, for an image, a layer was unpacked. When the step began, until then."
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "access": {
           "type": "string",
