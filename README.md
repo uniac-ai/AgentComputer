@@ -34,8 +34,7 @@ Each computer is this computer, attached with `attach`, or one made in a contain
 
 This computer:
 
-- **Only a service on loopback offers it,** with no `--tls-proxy`: a service that other machines can reach is a server, and its machine is no one's to attach. Elsewhere `info` says it isn't ready, and attaching it is refused with 409: `This service can be reached from other machines, so it doesn't offer the machine it runs on. A service that listens on loopback, with no proxy in front, does.` One attached before is refused at start with the same words.
-
+- **It is offered only by a service that no other machine reaches:** one that listens on loopback, with no `--tls-proxy` and no `--public-url`. A service that other machines can reach is a server, and doesn't offer its own machine. There `info` says why, attaching is refused with 409 in the same words, and a computer attached before is refused at start.
 - **`--workspace`, which `attach` needs, is its work folder.** Commands and relative paths start there, and `about` names it. But its files reach the whole machine, as whoever started the service, and so do its commands at `--access terminal`.
 - **`kill` detaches it.** What the service kept for it goes, and nothing of the machine's.
 - **Its browser,** with `--browser`, is a headless one with a profile of its own. It runs the Chrome installed on the machine, or what `serve --browser-name` or `--browser-path` names. `info` says whether that program is there.
@@ -198,7 +197,7 @@ docker run -d --name agentcomputer --network host \
 
 - Its data folder, and any `--workspace`, have to be mounted at the same path inside as outside, because Docker reads those paths on the machine.
 - `--network host` is how it reaches each computer's port on the machine's loopback, so this needs Linux.
-- The socket gives it full control of that machine's Docker. Whoever holds the control token can make computers, but not reach the socket: listening beyond loopback, the service doesn't offer this computer, its own container. From 0.0.15 to 0.0.18 a computer with no isolation could be made there, and reached the socket.
+- The socket gives it full control of that machine's Docker. Whoever holds the control token can make computers, but not reach the socket: a service that other machines reach doesn't offer this computer, which here is its own container.
 
 ## Live sessions
 

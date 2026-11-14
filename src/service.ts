@@ -39,6 +39,20 @@ export interface ServeOptions {
   allowOrigins?: string[] | undefined;
 }
 
+/** Why a service that other machines can reach doesn't offer this computer. */
+export const NOT_HERE =
+  "This service can be reached from other machines, so it doesn't offer the machine it runs on. Make a computer in a container, or attach this computer through a service that only this machine reaches.";
+
+/**
+ * Whether only this machine reaches the service: it listens on loopback, with no proxy in front
+ * and no other address given out. Only such a service offers this computer: one that other
+ * machines reach is a server, and its machine no one's to attach.
+ */
+export const onlyThisMachine = (
+  host: string,
+  options: Pick<ServeOptions, "tlsProxy" | "publicUrl">,
+) => LOOPBACK.has(host) && !options.tlsProxy && !options.publicUrl;
+
 /** Refuse what would send tokens in the clear or give clients an address they can't use. */
 function checkExposure(host: string, options: ServeOptions) {
   const { tls, tlsProxy, publicUrl } = options;
@@ -97,15 +111,11 @@ export async function serve(options: ServeOptions) {
   if (live)
     throw new Error(`A service is already running with its data in ${data}, at ${live.url}.`);
   let base = "";
-  // This computer is a person's own, reached only from it: a service other machines reach, by
-  // its address or through a proxy, is a server, and its machine no one's to attach.
   const computers = new Computers(
     data,
     () => base,
     options.runtimes,
-    LOOPBACK.has(host) && !options.tlsProxy
-      ? undefined
-      : "This service can be reached from other machines, so it doesn't offer the machine it runs on. A service that listens on loopback, with no proxy in front, does.",
+    onlyThisMachine(host, options) ? undefined : NOT_HERE,
   );
   const handlers = createHandlers(computers) as unknown as Record<
     string,
