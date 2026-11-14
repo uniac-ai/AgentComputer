@@ -1,6 +1,6 @@
 // Who is acting on a computer now, shown both ways: to the person on a presence@1 socket, and to
-// the agent in about and in a line on the answer to its next call on what the person acted on.
-// The same on this computer and in a container.
+// the agent in about and in a line on the answer to its next call on what the person acted on,
+// which isn't in what the SDK's file calls return. The same on this computer and in a container.
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -197,6 +197,12 @@ for (const [kind, extra] of KINDS)
     );
     const read = await call("read", { path: "note.txt" });
     assert.match(read.at(-1) ?? "", /^The person wrote a file here \d+ s ago\.$/);
+    // Through the SDK, what is read is the file alone, though the answer carries that line again.
+    files.ws.send(JSON.stringify({ ...write, id: "again", path: "again.txt" }));
+    files.ws.send(Buffer.from("hi"));
+    await until(() => files.heard.some((one) => one.id === "again"), "the second write");
+    assert.equal(files.heard.find((one) => one.id === "again")?.type, "written");
+    assert.equal(await computer.files.read("note.txt"), "hi");
   });
 
 for (const [kind, extra] of WITH_BROWSER)

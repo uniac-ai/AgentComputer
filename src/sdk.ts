@@ -160,7 +160,9 @@ class Endpoint {
       structuredContent?: unknown;
       isError?: boolean;
     };
-    const text = result.content.map((block) => block.text ?? "").join("");
+    // A tool's answer is its first block. A block after it, on who else just acted there, is for an
+    // agent, and no part of the answer.
+    const text = result.content[0]?.text ?? "";
     if (result.isError) throw new ComputerError(400, text);
     return { text, structured: result.structuredContent };
   }
