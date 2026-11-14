@@ -219,6 +219,22 @@ test("on a lent machine the agent acts only in the background, and is told so in
     delivery_mode: "foreground",
   });
   assert.equal(asked.isError, true);
+  const typed = await call("act", { action: "type", ...window, text: "hi" });
+  assert.deepEqual(
+    [typed.isError, typed.content.map((one) => one.text)],
+    [
+      true,
+      [
+        "It can't be done in the background in that window, and on this machine the agent acts only in the background: try an element_token from see, or leave it to the person.",
+      ],
+    ],
+  );
+  // What the person's screen says is never rewritten, whatever it says.
+  assert.equal(
+    (await call("see", window)).content[0]?.text,
+    'Window "Prefs" (snapshot s1).\n- [3] AXCheckBox "Foreground colour"\n  - [4] AXStaticText "Use the foreground. Then save."',
+  );
+  assert.match((await call("apps", {})).content[1]?.text ?? "", /"foreground.txt"/);
 });
 
 test("an element that can't take a click says to aim at its point, and apps gives each window's fields", async (t) => {
@@ -229,15 +245,29 @@ test("an element that can't take a click says to aim at its point, and apps give
   assert.deepEqual(
     refused.content.map((one) => one.text),
     [
-      "That element couldn't take it. Aim at its point in the window's picture instead: x and y, with the window's pid and window_id. What the driver said:",
+      "That element can't be clicked by its reference. Aim at its point in the window's picture instead: x and y, with the window's pid and window_id. What the driver said:",
       "AX action failed: AXUIElementPerformAction(AXPress) returned -25206",
     ],
+  );
+  // A stale reference is not told to aim at its point: seeing again is what it needs.
+  const stale = await call("act", { action: "click", element_token: "s0:1" });
+  assert.deepEqual(
+    stale.content.map((one) => one.text),
+    ["The element_token s0:1 is from an earlier snapshot; see the window again."],
   );
   // Off a lent machine, the driver's own words reach the agent; its hints still don't.
   const clicked = await call("act", { action: "click", ...window, x: 100, y: 200 });
   assert.match(clicked.content[0]?.text ?? "", /delivery_mode:"foreground"/);
   assert.equal("next_call" in (clicked.structuredContent ?? {}), false);
-  assert.deepEqual((await call("apps", {})).structuredContent, {
+  const apps = await call("apps", {});
+  assert.deepEqual(
+    apps.content.map((one) => one.text),
+    [
+      "✅ Found 1 app(s): 1 running.\n- TextEdit (pid 19249) [com.apple.TextEdit]",
+      'Found 2 window(s).\n- TextEdit (pid 19249) "Untitled" [window_id: 12895]\n- TextEdit (pid 19249) "foreground.txt" [window_id: 12896]',
+    ],
+  );
+  assert.deepEqual(apps.structuredContent, {
     windows: [
       {
         app_name: "TextEdit",
