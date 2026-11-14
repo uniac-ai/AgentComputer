@@ -60,6 +60,7 @@ This computer:
 
 **Upgrading from 0.0.21:**
 
+- **An agent's command keeps it acting on its terminal until the command ends,** and 10 seconds after, in `presence` and `GET /v1/acting`, where it was counted for 10 seconds from the command's start. One left running keeps it there, and its `at` can be older than 10 seconds: take the list as it is sent, and drop no one by their `at`.
 - **Asking for a screen grant opens no pane of System Settings.** `POST /v1/setup/screen/ask` makes the request alone. A client that relied on the pane opening calls `POST /v1/setup/screen/settings` with the grant, on the person's own choice, such as a button they press.
 
 **Upgrading from 0.0.20:**
@@ -318,7 +319,7 @@ Every running computer has two more, to watch only:
   - **`scope` says whose numbers they are.** A computer in a container reads its own (`computer`), against the machine's totals, since a container has no limit of its own. This computer has no edge to measure at, so it reads the whole machine's (`machine`); so does a container that can't read its own.
   - **The disk is the volume its workspace is on,** not the workspace's own size.
   - **Nothing depends on it.** Nothing is read while nobody watches or asks, a reading that can't be taken is left out, and a socket that hasn't read the one before is not sent the next.
-- **`presence`** (protocol `presence@1`): who is acting on it now, and on what: a terminal, the files, the browser or the screen. It sends the whole list, `{"type":"presence","acting":[…]}`, when it opens and each time someone starts or stops acting on something. Someone stops 10 seconds after they last acted there. `openapi.yaml` has each field, as `PresenceEvent` and `Acting`, with what counts as acting.
+- **`presence`** (protocol `presence@1`): who is acting on it now, and on what: a terminal, the files, the browser or the screen. It sends the whole list, `{"type":"presence","acting":[…]}`, when it opens and each time someone starts or stops acting on something. Someone stops 10 seconds after they last acted there. A command the agent started is acting on its terminal until it ends, and 10 seconds after: one left running, such as a server, keeps the agent shown there, as the terminal shows it running. The person's shell, and what runs in it, counts for 10 seconds after their last input there. `openapi.yaml` has each field, as `PresenceEvent` and `Acting`, with what counts as acting.
   - **The agent is told too.** `about` names who else is acting. The answer to the agent's call on something someone else acted on since its last call there ends with a line naming each of them: `The person used this terminal 3 s ago.`, `The person wrote a file here 2 s ago.`, `The person used the browser 4 s ago.` or `The person used the screen 1 s ago.`
   - **Computers attached to the same machine share its files and its screen.** Each is shown the person and the other computers' agents acting on them, by name, and its agent's line names each one since its last call: `The person wrote a file here 1 s ago. Helper used the files here 2 s ago.` A computer's terminals and browser stay its own; the person's own browser is shared by the computers attached with it, and each shows only its own agent acting there.
   - **Nothing is refused by it,** for the person or the agent.

@@ -98,9 +98,10 @@ export class Live {
     if (exec && access === "terminal") {
       this.#terminals = exec.terminals;
       exec.onCommand((event) => {
-        // The agent acts on a terminal it starts; one it types into is heard through its calls.
-        if (event.type === "start" && event.by === "agent")
-          presence.acted("agent", { capability: "terminal", terminal: event.id });
+        // The agent acts on a terminal it starts until the command ends; one it types into is heard
+        // through its calls.
+        if (event.type === "start" && event.by === "agent") presence.agentCommandStarted(event.id);
+        if (event.type === "exit") presence.commandEnded(event.id);
         for (const message of messages(event)) for (const ws of this.#viewers) deliver(ws, message);
       });
     }

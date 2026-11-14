@@ -335,7 +335,8 @@ export class ProcessRuntime implements Runtime {
         note: (tool, input) => {
           if (FILE_TOOLS.has(tool)) return presence.agentCalled({ capability: "files" });
           // Only a terminal that is there and running: one refused, or ended, is acted on by
-          // nobody. Waiting on its output, with nothing typed, isn't acting on it either.
+          // nobody. Waiting on its output, with nothing typed, adds nothing: a command the agent
+          // started is acting until it ends either way.
           const id = input.session_id;
           if (
             tool !== "write_stdin" ||

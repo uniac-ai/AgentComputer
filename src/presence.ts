@@ -1,8 +1,9 @@
 // Who has acted on what of a computer lately: the person, through a live view at operate, and its
-// agent, through its endpoints. It is kept only to be shown, to each of them: nothing is refused
-// by it, and nothing rests on who did a thing. Computers attached to the same machine share its
-// files, so they share one board for them, and each is shown the person and the other computers'
-// agents acting there.
+// agent, through its endpoints. A command the agent started is acting on its terminal until it
+// ends, as the terminal shows it running. It is kept only to be shown, to each of them: nothing is
+// refused by it, and nothing rests on who did a thing. Computers attached to the same machine share
+// its files, so they share one board for them, and each is shown the person and the other
+// computers' agents acting there.
 import type { components } from "./generated/schema.js";
 
 type Acting = components["schemas"]["Acting"];
@@ -22,7 +23,9 @@ interface Entry {
   actor: Actor;
   where: Where;
   at: number;
-  timer: NodeJS.Timeout;
+  /** Its 10 s count, while nothing holds it: none while a command started there runs. */
+  timer?: NodeJS.Timeout;
+  held: boolean;
 }
 
 /** How a person and an agent read where it was. */
@@ -40,21 +43,46 @@ const DID: Record<Where["capability"], string> = {
 const did = (actor: Actor, where: Where) =>
   `${label(actor)} ${actor.who === "person" ? DID[where.capability] : `used ${named(where)} here`}`;
 
-/** Who last acted on what, until 10 s after, and the way to hear each start and stop. */
+/**
+ * Who last acted on what, until 10 s after, or, for a command started there, until 10 s after it
+ * ends, and the way to hear each start and stop.
+ */
 export class Board {
   readonly #entries = new Map<string, Entry>();
   readonly #listeners = new Set<() => void>();
 
+  /** An act there: held still where a command runs, and otherwise its 10 s count starts again. */
   acted(actor: Actor, where: Where) {
-    const key = `${actorKey(actor)} ${named(where)}`;
+    this.#set(actor, where, this.#entries.get(this.#key(actor, where))?.held ?? false);
+  }
+
+  /** A command started there: acting until it ends, whatever is done there meanwhile. */
+  hold(actor: Actor, where: Where) {
+    this.#set(actor, where, true);
+  }
+
+  /** The command ended: its end is the last act there, and its 10 s count starts now. */
+  release(actor: Actor, where: Where) {
+    if (this.#entries.get(this.#key(actor, where))?.held) this.#set(actor, where, false);
+  }
+
+  #key(actor: Actor, where: Where) {
+    return `${actorKey(actor)} ${named(where)}`;
+  }
+
+  /** Acting now, held or counting down 10 s. */
+  #set(actor: Actor, where: Where, held: boolean) {
+    const key = this.#key(actor, where);
     const before = this.#entries.get(key);
     clearTimeout(before?.timer);
-    const timer = setTimeout(() => {
-      this.#entries.delete(key);
-      this.#changed();
-    }, ACTING_MS);
-    timer.unref();
-    this.#entries.set(key, { actor, where, at: Date.now(), timer });
+    const timer = held
+      ? undefined
+      : setTimeout(() => {
+          this.#entries.delete(key);
+          this.#changed();
+        }, ACTING_MS);
+    timer?.unref();
+    this.#entries.set(key, { actor, where, at: Date.now(), timer, held });
     if (!before) this.#changed();
   }
 
@@ -111,6 +139,16 @@ export class Presence {
     this.#board(where).acted(who === "person" ? { who } : this.#agent, where);
   }
 
+  /** The agent started a command on a terminal: it acts there until the command ends. */
+  agentCommandStarted(terminal: string) {
+    this.#own.hold(this.#agent, { capability: "terminal", terminal });
+  }
+
+  /** A command ended: where the agent started it, its 10 s count starts now. */
+  commandEnded(terminal: string) {
+    this.#own.release(this.#agent, { capability: "terminal", terminal });
+  }
+
   /**
    * The agent called on `where`, acting there unless `acts` is false, as when it only waits on a
    * command: the line to add to its answer, where anyone else acted there since its last call on
@@ -120,7 +158,8 @@ export class Presence {
     const key = named(where);
     const at = Date.now();
     const since = this.#called.get(key);
-    // A call longer ago than anyone is remembered acting tells nothing more than none.
+    // A call longer ago than anyone else is remembered acting tells nothing more than none: only
+    // this computer's own agent is ever held, and it isn't named to itself.
     for (const [one, when] of this.#called) if (at - when > ACTING_MS) this.#called.delete(one);
     this.#called.set(key, at);
     if (acts) this.acted("agent", where);
