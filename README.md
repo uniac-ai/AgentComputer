@@ -26,7 +26,7 @@ That gives an agent this computer instead: the machine the service runs on, whol
 Each computer is this computer, attached with `attach`, or one made in a container of its own with `create`. A service started with `serve --lend` only lends this computer: it makes nothing, `info.made` is empty, and `create` is refused with 409. It listens only on loopback, as this computer is offered only there, and a container it finds in its data folder from before can't be started or removed until a service without `--lend` has the folder. A container needs Docker on the service's machine. The service follows your `DOCKER_HOST` or current context and never changes them, and comes up without Docker.
 
 - **`info` says what the service offers**, each part ready or not and why, in a line a person reads:
-  - `thisComputer`: its capabilities (`about`, `terminal`, `files` and `screen`) and the browsers that can go with it. The screen is ready where Cua Driver is installed and granted.
+  - `thisComputer`: its capabilities (`about`, `terminal`, `files` and `screen`) and the browsers that can go with it. The screen is ready where Cua Driver is installed and granted. A reading more than 10 seconds old is checked again before `info` answers, waited for up to a second, while the rest is read; a check that takes longer is answered the next time. One the person switched off isn't checked.
   - `made`, each kind it makes: today a container, ready while Docker answers, with its capabilities and browsers.
 - **A container is refused with 409 where Docker doesn't answer:** `A container needs Docker, which isn't answering on this machine.` One already made isn't started there, and isn't killed there either, since its container couldn't be removed: both are refused with the same words, and it is kept.
 - **A computer with no isolation is no longer made.** `create --isolation none` is refused with 400, and `attach` is what does that now.
@@ -57,6 +57,10 @@ This computer:
   - Asked for, they are asked for by the app: the service opens it through the system with `--args grant` and each grant to ask for, `screen-recording` or `accessibility`, which it asks for in turn.
   - Once a grant changes, the app restarts its driver, which reads grants once. That ends the connections of computers using the screen, which then say Cua Driver has stopped.
 - **What the service starts of Cua Driver sends no telemetry and checks for no updates,** so no update notice reaches a computer's log. The person's own Cua Driver app follows its own settings: `cua-driver telemetry disable` turns its telemetry off.
+
+**Upgrading from 0.0.21:**
+
+- **Asking for a screen grant opens no pane of System Settings.** `POST /v1/setup/screen/ask` makes the request alone. A client that relied on the pane opening calls `POST /v1/setup/screen/settings` with the grant, on the person's own choice, such as a button they press.
 
 **Upgrading from 0.0.20:**
 
@@ -187,6 +191,7 @@ The data folder is `--data`, else `$AGENTCOMPUTER_DATA`, else `$XDG_DATA_HOME/ag
 | `GET /v1/setup`                           |                        |
 | `PUT /v1/setup/{capability}`              |                        |
 | `POST /v1/setup/{capability}/ask`         |                        |
+| `POST /v1/setup/{capability}/settings`    |                        |
 
 These take the control token, kept in the data folder. A computer's own endpoints take its `accessToken`, and neither token works for the other:
 
@@ -211,10 +216,11 @@ These take the control token, kept in the data folder. A computer's own endpoint
   - The screen needs Cua Driver, and on macOS its `screen-recording` and `accessibility` grants, each `granted`, `not-granted` or `unknown`; it is ready once both are granted. While Cua Driver isn't installed, the one item is `{ "need": "install", "state": "missing" }`. `holder` names whom System Settings lists the grants under: the outermost app Cua Driver is inside, CuaDriver for its own app, or an app that carries the driver.
   - The browser lists Chrome, then Edge, each `on` (open, with remote debugging on), `off`, or `missing` (not installed); a service given one browser's folder, with `--own-browser-data`, lists just that one as `named`. It is ready with one on. With both on, the agent's is Chrome.
 - **`POST /v1/setup/{capability}/ask`**, with `{ "need": "..." }` or no body, asks the person, on the service's machine, macOS only, for one thing the part needs, or for everything it is missing. It answers once the steps have started, with each part then:
-  - `screen-recording` or `accessibility`, while it is missing: Cua Driver's own grant, its app started first, through the system, so the Mac names that app. Cua Driver asks in its own order, Accessibility first. For a driver an app hosts, the app asks, for that grant alone. Then, missing or not, that grant's own pane in System Settings opens.
+  - `screen-recording` or `accessibility`, while it is missing: Cua Driver's own grant, its app started first, through the system, so the Mac names that app. Cua Driver asks in its own order, Accessibility first. For a driver an app hosts, the app asks, for that grant alone, in its own way. The service opens no pane of System Settings. macOS shows each request once: once it has been answered, asking again shows nothing and answers the same, so a client offers `settings` while a grant stays `not-granted`.
   - `chrome` or `edge`: that browser opens at its inspect page, where remote debugging is switched on. One the service was given only the folder of, the person opens themselves.
   - With none named: the screen's grant while either is missing; the first browser installed, Chrome before Edge, while none is on.
   - What the part doesn't need, a browser that isn't installed, or steps that couldn't be started answer 409, saying why.
+- **`POST /v1/setup/{capability}/settings`**, with `{ "need": "screen-recording" }` or `{ "need": "accessibility" }`, opens that grant's pane of System Settings, under Privacy & Security, on the service's machine, macOS only, whether the grant is missing or not, for the person to switch it there. macOS lists an app there once it has asked, so this follows `ask`. It is for the person's own choice, such as a button they press: the service opens a pane nowhere else. Where an app hosts the driver, it is that app that sees the change and starts its driver again. It answers once the pane is asked to open, with each part then. A need the part doesn't have, one with no pane, a pane that couldn't be opened, or a machine other than a Mac answers 409, saying why.
 - **`PUT /v1/setup/{capability}`** with `{ "on": true }` or `{ "on": false }` sets a switch. Turning it on, or on again, also asks for everything the part is missing, as asking with no need does. Where that couldn't be started, it answers 409, saying why, and the switch stays on.
 - **`GET /v1/acting`** is who is acting now on every computer attached to this machine, in one list, as each one's `presence` surface has it. A computer in a container isn't included: its own `presence` surface has it.
 

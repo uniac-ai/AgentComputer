@@ -288,7 +288,7 @@ test("turning the browser on opens Chrome at its switch, and turning off asks no
   assert.equal(switches.on("browser"), false);
 });
 
-test("each grant is asked for by itself, and its own pane opens", async (t) => {
+test("each grant is asked for by itself, opening no pane; its pane opens only when asked to", async (t) => {
   const folder = folderOf(t);
   const answering = join(folder, "answering");
   writeFileSync(answering, "");
@@ -297,23 +297,47 @@ test("each grant is asked for by itself, and its own pane opens", async (t) => {
   const mac = machine("darwin", folder);
   const setup = new Setup(new Switches(folder, true), { program: driver }, undefined, mac.stands);
   await setup.ask("screen", "screen-recording");
-  assert.deepEqual(mac.ran, [
-    [driver, ["permissions", "grant"]],
-    ["/usr/bin/open", [pane]],
-  ]);
-  // Granted, only its pane opens.
+  assert.deepEqual(mac.ran, [[driver, ["permissions", "grant"]]]);
+  // Its pane, on the person's own choice, whether it is missing or not.
+  mac.ran.length = 0;
+  await setup.settings("screen", "screen-recording");
+  assert.deepEqual(mac.ran, [["/usr/bin/open", [pane]]]);
+  // Granted, asking does nothing; its pane still opens when asked to.
   const granted = driverAt(join(folder, "granted", "cua-driver"), answering, true);
   const done = machine("darwin", folder);
-  await new Setup(new Switches(folder, true), { program: granted }, undefined, done.stands).ask(
-    "screen",
-    "accessibility",
-  );
+  const given = new Setup(new Switches(folder, true), { program: granted }, undefined, done.stands);
+  await given.ask("screen", "accessibility");
+  assert.deepEqual(done.ran, []);
+  await given.settings("screen", "accessibility");
   assert.deepEqual(done.ran, [
     [
       "/usr/bin/open",
       ["x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"],
     ],
   ]);
+  // Only a grant has a pane, and only one the part needs.
+  await assert.rejects(setup.settings("screen", "install"), {
+    status: 409,
+    message: 'There\'s no "install" for screen here.',
+  });
+  await assert.rejects(setup.settings("files", "accessibility"), {
+    status: 409,
+    message: 'There\'s no "accessibility" for files here.',
+  });
+  await assert.rejects(setup.settings("browser", "chrome"), {
+    status: 409,
+    message: '"chrome" has no pane of System Settings.',
+  });
+  // Off macOS there is no grant, and so no pane.
+  const linux = machine("linux", folder);
+  await assert.rejects(
+    new Setup(new Switches(folder, true), { program: driver }, undefined, linux.stands).settings(
+      "screen",
+      "accessibility",
+    ),
+    { status: 409, message: 'There\'s no "accessibility" for screen here.' },
+  );
+  assert.deepEqual(linux.ran, []);
   await assert.rejects(setup.ask("files", "accessibility"), {
     status: 409,
     message: 'There\'s no "accessibility" for files here.',
@@ -354,19 +378,8 @@ test("a driver an app runs embedded is read, and asked for, through that app", a
   await setup.ask("screen", "screen-recording");
   await setup.ask("screen");
   await setup.ask("screen", "accessibility");
-  assert.deepEqual(mac.ran, [
-    opened("screen-recording"),
-    [
-      "/usr/bin/open",
-      ["x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"],
-    ],
-    opened("screen-recording"),
-    // Already given, only its pane opens.
-    [
-      "/usr/bin/open",
-      ["x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"],
-    ],
-  ]);
+  // Already given, asking for it does nothing; no pane opens.
+  assert.deepEqual(mac.ran, [opened("screen-recording"), opened("screen-recording")]);
   // A driver on that socket that isn't the host's own, embedded, says nothing of its grants.
   const other = driverAt(
     join(folder, "Other.app", "Contents", "MacOS", "cua-driver"),

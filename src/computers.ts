@@ -161,18 +161,21 @@ export class Computers {
 
   /** What it offers: this computer, and each kind it makes, with whether it can be now. */
   async offers() {
-    const offered = await this.#runtimes.none.offer();
+    // Read together, so that what each waits for, such as Docker or the screen, doesn't add up.
+    const [offered, made] = await Promise.all([
+      this.#runtimes.none.offer(),
+      Promise.all(
+        (Object.keys(this.#runtimes) as Isolation[])
+          .filter((isolation) => isolation !== "none")
+          .map(async (isolation) => ({
+            isolation,
+            ...(await this.#runtime(isolation).offer()),
+          })),
+      ),
+    ]);
     const thisComputer = this.#notHere
       ? { ...offered, ready: false, reason: this.#notHere }
       : offered;
-    const made = await Promise.all(
-      (Object.keys(this.#runtimes) as Isolation[])
-        .filter((isolation) => isolation !== "none")
-        .map(async (isolation) => ({
-          isolation,
-          ...(await this.#runtime(isolation).offer()),
-        })),
-    );
     return { thisComputer, made };
   }
 

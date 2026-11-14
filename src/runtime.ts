@@ -181,6 +181,10 @@ const TOOL_SWITCH: Record<string, Switch> = {
 
 /** The most an agent's request to its computer may be, as AgentExec itself takes it. */
 const MAX_CALL = 4 * 1024 * 1024;
+/**
+ * How long `info` waits for a new check of the screen, well short of the seconds a client gives it.
+ */
+const SCREEN_WAIT_MS = 1_000;
 
 export class ProcessRuntime implements Runtime {
   readonly #config: BrowserConfig;
@@ -192,9 +196,11 @@ export class ProcessRuntime implements Runtime {
   /** The person's switches for this machine; inside a container there are none. */
   readonly #switches: Switches | undefined;
   /**
-   * Whether the screen can be reached, as last checked. Asking the driver can take seconds, which
-   * `info` doesn't wait for: it is checked when the service starts, again when it is more than 10 s
-   * old and someone asks, and afresh at every start of a computer with the screen.
+   * Whether the screen can be reached, as last checked. It is checked when the service starts,
+   * again when it is more than 10 s old and someone asks, and afresh at every start of a computer
+   * with the screen. Asking the driver can take seconds: `info` waits up to `SCREEN_WAIT_MS` for
+   * the new check, so that a reading more than 10 s old isn't answered as it was, and otherwise
+   * answers the last one.
    */
   #screen: { ready: boolean; reason?: string; at: number } = {
     ready: false,
@@ -235,9 +241,18 @@ export class ProcessRuntime implements Runtime {
     return this.#checking;
   }
 
-  /** The screen's readiness as last checked, starting another check where that is old. */
-  #screenNow() {
-    if (Date.now() - this.#screen.at > 10_000) void this.#checkScreen();
+  /** The screen's readiness: checked again where the last is old, waiting a little for that. */
+  async #screenNow() {
+    if (Date.now() - this.#screen.at > 10_000) {
+      let timer: NodeJS.Timeout | undefined;
+      await Promise.race([
+        this.#checkScreen(),
+        new Promise((done) => {
+          timer = setTimeout(done, SCREEN_WAIT_MS);
+        }),
+      ]);
+      clearTimeout(timer);
+    }
     const { at: _, ...ready } = this.#screen;
     return ready;
   }
@@ -254,25 +269,26 @@ export class ProcessRuntime implements Runtime {
       const reason = this.#switches?.refused(which);
       return reason ? { ready: false, reason } : ready;
     };
+    // The screen's check, where it is waited for, while the person's browser is read. One the
+    // person switched off isn't checked.
+    const [screen, own] = await Promise.all([
+      this.#switches?.refused("screen") ? { ready: false } : this.#screenNow(),
+      this.#contained ? undefined : ownBrowser(this.#ownBrowserData),
+    ]);
     return {
       ready: true,
       capabilities: [
         { capability: "about", ready: true },
         { capability: "terminal", ...unless("terminal", { ready: true }) },
         { capability: "files", ...unless("files", { ready: true }) },
-        { capability: "screen", ...unless("screen", this.#screenNow()) },
+        { capability: "screen", ...unless("screen", screen) },
       ],
       browsers: [
         { kind: "headless", ...browserProgram(this.#config) },
         // The person's own, which only this computer has.
-        ...(this.#contained
+        ...(own === undefined
           ? []
-          : [
-              {
-                kind: "own" as const,
-                ...unless("browser", readiness(await ownBrowser(this.#ownBrowserData))),
-              },
-            ]),
+          : [{ kind: "own" as const, ...unless("browser", readiness(own)) }]),
       ],
     };
   }

@@ -26,7 +26,7 @@ export const OPENAPI = {
       "get": {
         "operationId": "getInfo",
         "x-mcp-tool": "service_info",
-        "summary": "What this service offers: this computer, the kinds of computer it can make, and the browsers that can go with each, every one ready or not and why.",
+        "summary": "What this service offers: this computer, the kinds of computer it can make, and the browsers that can go with each, every one ready or not and why. The screen's readiness is read afresh where the last reading is more than 10 seconds old, waited for up to a second; a reading that takes longer is answered the next time.",
         "responses": {
           "200": {
             "description": "The service.",
@@ -159,7 +159,7 @@ export const OPENAPI = {
       ],
       "post": {
         "operationId": "askSetup",
-        "summary": "Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with none named, for everything it is missing. screen-recording or accessibility, while it is missing: Cua Driver's own grant, its app started first, which makes the system's requests in its own order, Accessibility first. For a driver an app hosts, the app asks, for that grant alone. Then that grant's own pane in System Settings opens. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. With none named, the screen's grant while either is missing, and the first browser installed, Chrome before Edge, while none is on. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing.",
+        "summary": "Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with none named, for everything it is missing. screen-recording or accessibility, while it is missing: Cua Driver's own grant, its app started first, which makes the system's requests in its own order, Accessibility first. For a driver an app hosts, the app asks, for that grant alone, in its own way. The service opens no pane of System Settings: the person opens one with settings. macOS shows each request once: once it has been answered, asking again shows nothing and answers the same, so a client offers settings while a grant stays not-granted. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. With none named, the screen's grant while either is missing, and the first browser installed, Chrome before Edge, while none is on. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -191,6 +191,66 @@ export const OPENAPI = {
           },
           "409": {
             "description": "The part doesn't need that here, or what it needs can't be asked for, such as a browser that isn't installed, or the steps couldn't be started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/setup/{capability}/settings": {
+      "parameters": [
+        {
+          "name": "capability",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Switch"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "openSetupSettings",
+        "summary": "Open the pane of System Settings for one thing a part needs, on the service's machine, macOS only, for the person to switch it there: screen-recording or accessibility, that grant's pane under Privacy & Security, whether it is missing or not. macOS lists an app there once it has asked, so this follows ask. It is for the person's own choice, such as a button they press: the service opens a pane nowhere else. Where an app hosts the driver, it is that app that sees the change and starts its driver again. It answers once the pane is asked to open, with each part then. Elsewhere it answers 409.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "need"
+                ],
+                "properties": {
+                  "need": {
+                    "$ref": "#/components/schemas/NeedName"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Its pane asked to open.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Setup"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "description": "The part doesn't need that here, it has no pane of System Settings, or the pane couldn't be opened.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2615,7 +2675,7 @@ export const OPERATIONS: Operation[] = [
     "method": "GET",
     "path": "/v1/info",
     "tool": "service_info",
-    "summary": "What this service offers: this computer, the kinds of computer it can make, and the browsers that can go with each, every one ready or not and why.",
+    "summary": "What this service offers: this computer, the kinds of computer it can make, and the browsers that can go with each, every one ready or not and why. The screen's readiness is read afresh where the last reading is more than 10 seconds old, waited for up to a second; a reading that takes longer is answered the next time.",
     "status": 200,
     "hasBody": false,
     "pathParameters": [],
@@ -3167,7 +3227,7 @@ export const OPERATIONS: Operation[] = [
     "operationId": "askSetup",
     "method": "POST",
     "path": "/v1/setup/{capability}/ask",
-    "summary": "Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with none named, for everything it is missing. screen-recording or accessibility, while it is missing: Cua Driver's own grant, its app started first, which makes the system's requests in its own order, Accessibility first. For a driver an app hosts, the app asks, for that grant alone. Then that grant's own pane in System Settings opens. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. With none named, the screen's grant while either is missing, and the first browser installed, Chrome before Edge, while none is on. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing.",
+    "summary": "Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with none named, for everything it is missing. screen-recording or accessibility, while it is missing: Cua Driver's own grant, its app started first, which makes the system's requests in its own order, Accessibility first. For a driver an app hosts, the app asks, for that grant alone, in its own way. The service opens no pane of System Settings: the person opens one with settings. macOS shows each request once: once it has been answered, asking again shows nothing and answers the same, so a client offers settings while a grant stays not-granted. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. With none named, the screen's grant while either is missing, and the first browser installed, Chrome before Edge, while none is on. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing.",
     "status": 200,
     "hasBody": true,
     "pathParameters": [
@@ -3203,6 +3263,137 @@ export const OPERATIONS: Operation[] = [
       },
       "required": [
         "capability"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "required": [
+        "capabilities"
+      ],
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "description": "terminal, files, screen and browser, in that order.",
+          "items": {
+            "type": "object",
+            "required": [
+              "capability",
+              "on",
+              "ready",
+              "needs"
+            ],
+            "properties": {
+              "capability": {
+                "type": "string",
+                "enum": [
+                  "terminal",
+                  "files",
+                  "screen",
+                  "browser"
+                ],
+                "description": "A part of the service's machine an agent can use: its terminal, its files, its screen, and the person's own browser."
+              },
+              "on": {
+                "type": "boolean",
+                "description": "The person's switch. Off, agents' new calls to the part refuse, saying the person turned it off, and `info` says so; what an agent already started runs on. The terminal and the screen each reach the whole machine: commands read any file, and the screen acts in any app. The browser's switch is for the person's own; any browser's code-running tool answers to the terminal's switch, and a browser call that names files, by `paths` or `filename`, to the files'. A service started with `--lend` starts with every one off; any other, with every one on."
+              },
+              "ready": {
+                "type": "boolean",
+                "description": "Whether the part has all it needs, apart from its switch: the screen, each item granted; the browser, one browser on. The terminal and files always do."
+              },
+              "needs": {
+                "type": "array",
+                "description": "Each thing the part needs, always, with its state. The terminal and files need nothing. The screen needs Cua Driver, which while it isn't installed is the one item, and on macOS its two grants. The browser lists Chrome then Edge, each on, off or missing, or the one browser named; with both on, the agent's is Chrome.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "need",
+                    "state"
+                  ],
+                  "properties": {
+                    "need": {
+                      "type": "string",
+                      "enum": [
+                        "install",
+                        "screen-recording",
+                        "accessibility",
+                        "chrome",
+                        "edge",
+                        "named"
+                      ],
+                      "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser, with remote debugging on or off; named: the one browser a service was given the folder of."
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "A browser's name: Chrome, Edge, or the browser."
+                    },
+                    "holder": {
+                      "type": "string",
+                      "description": "For a grant, whose it is, as System Settings lists it: the outermost app Cua Driver is inside, CuaDriver for its own app, or an app that carries the driver. None where Cua Driver is in no app."
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "missing",
+                        "granted",
+                        "not-granted",
+                        "unknown",
+                        "on",
+                        "off"
+                      ],
+                      "description": "missing: not installed. unknown: it can't be read now. A browser is on while it is open with its remote debugging switched on."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "websocket": false
+  },
+  {
+    "operationId": "openSetupSettings",
+    "method": "POST",
+    "path": "/v1/setup/{capability}/settings",
+    "summary": "Open the pane of System Settings for one thing a part needs, on the service's machine, macOS only, for the person to switch it there: screen-recording or accessibility, that grant's pane under Privacy & Security, whether it is missing or not. macOS lists an app there once it has asked, so this follows ask. It is for the person's own choice, such as a button they press: the service opens a pane nowhere else. Where an app hosts the driver, it is that app that sees the change and starts its driver again. It answers once the pane is asked to open, with each part then. Elsewhere it answers 409.",
+    "status": 200,
+    "hasBody": true,
+    "pathParameters": [
+      "capability"
+    ],
+    "queryParameters": [],
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capability": {
+          "type": "string",
+          "enum": [
+            "terminal",
+            "files",
+            "screen",
+            "browser"
+          ],
+          "description": "A part of the service's machine an agent can use: its terminal, its files, its screen, and the person's own browser."
+        },
+        "need": {
+          "type": "string",
+          "enum": [
+            "install",
+            "screen-recording",
+            "accessibility",
+            "chrome",
+            "edge",
+            "named"
+          ],
+          "description": "install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser, with remote debugging on or off; named: the one browser a service was given the folder of."
+        }
+      },
+      "required": [
+        "capability",
+        "need"
       ]
     },
     "output": {
