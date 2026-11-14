@@ -12,6 +12,8 @@ import { down, recorded, running, up } from "./running.ts";
 import { ProcessRuntime } from "./runtime.ts";
 import { Computer, type CreateOpts, type LiveMode, type LiveSurface } from "./sdk.ts";
 import { serve } from "./service.ts";
+import { Setup } from "./setup.ts";
+import { Switches } from "./switches.ts";
 
 const USAGE = `Usage: agentcomputer <command> [--data DIR]
 
@@ -159,6 +161,7 @@ async function main() {
   if (values["own-browser"] && values.browser)
     throw new UsageError("Take --browser or --own-browser: a computer has one browser.");
   if (command === "serve") {
+    const switches = new Switches(data, values.lend === true);
     const { "tls-cert": cert, "tls-key": key } = values;
     if (Boolean(cert) !== Boolean(key))
       throw new UsageError("--tls-cert and --tls-key go together.");
@@ -169,12 +172,14 @@ async function main() {
       tlsProxy: values["tls-proxy"],
       publicUrl: values["public-url"],
       allowOrigins: values["allow-origin"],
+      setup: new Setup(switches, values["screen-driver"], values["own-browser-data"]),
       runtimes: {
         none: new ProcessRuntime(
           { browser: values["browser-name"], path: values["browser-path"] },
           false,
           values["screen-driver"],
           values["own-browser-data"],
+          switches,
         ),
         // Lending this machine only, it makes no computers.
         ...(values.lend

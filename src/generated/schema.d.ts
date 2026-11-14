@@ -38,6 +38,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** For each part of the service's machine an agent can use, the person's switch and what it still needs before it works, read afresh each time. */
+        get: operations["getSetup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/setup/{capability}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability: components["schemas"]["Switch"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Set a part's switch, which lasts across restarts. Turning it on, or on again, also takes the steps that ask for what it still needs, on the service's machine, macOS only: for the screen, Cua Driver's own grant of Screen Recording and Accessibility, its app started first; for the browser, Chrome, or Edge where there is no Chrome, opened at its remote-debugging switch. It answers once they have started, with each part then; what the person does next is read afresh later. That a browser opens at its switch's address this way is yet to be tried. */
+        put: operations["setSetup"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/acting": {
         parameters: {
             query?: never;
@@ -600,6 +636,37 @@ export interface components {
             /** @description Bytes on that volume. */
             diskTotal: number;
         };
+        /**
+         * @description A part of the service's machine an agent can use: its terminal, its files, its screen, and the person's own browser.
+         * @enum {string}
+         */
+        Switch: "terminal" | "files" | "screen" | "browser";
+        Need: {
+            /**
+             * @description install: what the part works through isn't installed: Cua Driver, or both Chrome and Edge. screen-recording and accessibility: Cua Driver's two grants. chrome, edge and named: a browser here and its remote-debugging switch.
+             * @enum {string}
+             */
+            need: "install" | "screen-recording" | "accessibility" | "chrome" | "edge" | "named";
+            /** @description A browser's name: Chrome, Edge, or the browser. */
+            name?: string;
+            /** @description For a grant, whose it is, as System Settings lists it: the app Cua Driver is the program of, such as CuaDriver. */
+            holder?: string;
+            /**
+             * @description unknown is that it can't be read now.
+             * @enum {string}
+             */
+            state: "missing" | "granted" | "not-granted" | "unknown" | "on" | "off";
+        };
+        Setup: {
+            /** @description terminal, files, screen and browser, in that order. */
+            capabilities: {
+                capability: components["schemas"]["Switch"];
+                /** @description The person's switch. Off, agents can't use the part: its tools refuse, saying the person turned it off, and `info` says so. A service started with `--lend` starts with every one off; any other, with every one on. */
+                on: boolean;
+                /** @description While anything the part needs isn't right yet, each such item with its state; none once all are. The terminal and files need nothing. The screen needs Cua Driver, and on macOS its two grants. The browser needs Chrome or Edge with its switch on: while none is on, each one here, off. */
+                needs: components["schemas"]["Need"][];
+            }[];
+        };
         Connection: {
             /** @description Whether any client holds a connection now. */
             connected: boolean;
@@ -832,6 +899,57 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Each part. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Setup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    setSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability: components["schemas"]["Switch"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    on: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Set, and its steps started. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Setup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Error"];
         };
     };
     getActing: {

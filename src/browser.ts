@@ -55,6 +55,18 @@ export interface BrowserGate {
   sessionEnded(session: string): void;
 }
 
+/** Answer a tool's call with a refusal the agent reads, as the tool's own answer. */
+export function refuseCall(response: ServerResponse, id: unknown, words: string) {
+  response.writeHead(200, { "Content-Type": "application/json" });
+  response.end(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: id ?? null,
+      result: { content: [{ type: "text", text: words }], isError: true },
+    }),
+  );
+}
+
 /** Give a client what the server answered, however it ends. */
 export function sendAnswer(upstream: Response, response: ServerResponse) {
   const answer: Record<string, string> = {};
@@ -191,6 +203,8 @@ export class Browser {
    * it comes: one that fails leaves it for the next.
    */
   noted: (() => string | undefined) | undefined;
+  /** Why no tool is answered now, while the person has it switched off. */
+  refused: (() => string | undefined) | undefined;
 
   constructor(
     config: BrowserConfig,
@@ -339,6 +353,8 @@ export class Browser {
       );
     }
     const tool = message?.method === "tools/call" ? String(message.params?.name) : undefined;
+    const refusal = tool ? this.refused?.() : undefined;
+    if (refusal) return refuseCall(response, message?.id, refusal);
     if (tool && this.#hidden.has(tool)) {
       response.writeHead(200, { "Content-Type": "application/json" });
       return void response.end(

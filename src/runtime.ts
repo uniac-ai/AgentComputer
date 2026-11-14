@@ -9,7 +9,7 @@ import { basename, dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import { type AgentExec, createAgentExec, type PtySpawn } from "@agentorg/exec";
 import { aboutTool } from "./about.ts";
-import { Browser, type BrowserConfig } from "./browser.ts";
+import { Browser, type BrowserConfig, refuseCall } from "./browser.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { FilesLive } from "./files-live.ts";
 import type { components } from "./generated/schema.js";
@@ -21,6 +21,7 @@ import { Board, Presence } from "./presence.ts";
 import { driverProgram, Screen, screenReadiness } from "./screen.ts";
 import { ScreenLive } from "./screen-live.ts";
 import { privateFolder } from "./store.ts";
+import type { Switch, Switches } from "./switches.ts";
 
 type Schemas = components["schemas"];
 /** What a computer that is starting waits on, and how far that has come where it counts. */
@@ -165,6 +166,44 @@ function browserProgram(config: BrowserConfig): Schemas["Readiness"] {
  * acts on nothing.
  */
 const FILE_TOOLS = new Set(["read", "list", "search", "edit"]);
+/** The switch each of the computer's own tools answers to; `about` answers to none. */
+const TOOL_SWITCH: Record<string, Switch> = {
+  read: "files",
+  list: "files",
+  search: "files",
+  edit: "files",
+  exec_command: "terminal",
+  write_stdin: "terminal",
+  list_sessions: "terminal",
+};
+
+/** The most an agent's request to the computer may be. */
+const MAX_CALL = 8 * 1024 * 1024;
+/** One MCP request, read whole: its body as parsed, and the tool it calls, if it calls one. */
+async function readCall(request: IncomingMessage) {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_CALL) throw new ApiError(413, "That request is too large.");
+    chunks.push(chunk as Buffer);
+  }
+  const text = Buffer.concat(chunks).toString("utf8");
+  let body: unknown;
+  try {
+    body = text ? JSON.parse(text) : undefined;
+  } catch {
+    return { body: undefined };
+  }
+  const message = body as
+    | { method?: string; id?: unknown; params?: { name?: unknown } }
+    | undefined;
+  return {
+    body,
+    id: message?.id,
+    tool: message?.method === "tools/call" ? String(message.params?.name) : undefined,
+  };
+}
 
 export class ProcessRuntime implements Runtime {
   readonly #config: BrowserConfig;
@@ -173,6 +212,8 @@ export class ProcessRuntime implements Runtime {
   readonly #screenDriver: string | undefined;
   /** The person's browser's user data folder, where named; otherwise Chrome's, then Edge's. */
   readonly #ownBrowserData: string | undefined;
+  /** The person's switches for this machine; inside a container there are none. */
+  readonly #switches: Switches | undefined;
   /**
    * Whether the screen can be reached, as last checked. Asking the driver can take seconds, which
    * `info` doesn't wait for: it is checked when the service starts, again when it is more than 10 s
@@ -197,8 +238,10 @@ export class ProcessRuntime implements Runtime {
     contained = false,
     screenDriver?: string,
     ownBrowserData?: string,
+    switches?: Switches,
   ) {
     this.#ownBrowserData = ownBrowserData;
+    this.#switches = switches;
     this.#config = config;
     this.#contained = contained;
     this.#screenDriver = screenDriver;
@@ -223,20 +266,30 @@ export class ProcessRuntime implements Runtime {
   }
 
   async offer(): Promise<Offer> {
+    // A part the person switched off isn't ready, whatever else is.
+    const unless = (which: Switch, ready: Schemas["Readiness"]): Schemas["Readiness"] => {
+      const reason = this.#switches?.refused(which);
+      return reason ? { ready: false, reason } : ready;
+    };
     return {
       ready: true,
       capabilities: [
         { capability: "about", ready: true },
-        { capability: "terminal", ready: true },
-        { capability: "files", ready: true },
-        { capability: "screen", ...this.#screenNow() },
+        { capability: "terminal", ...unless("terminal", { ready: true }) },
+        { capability: "files", ...unless("files", { ready: true }) },
+        { capability: "screen", ...unless("screen", this.#screenNow()) },
       ],
       browsers: [
         { kind: "headless", ...browserProgram(this.#config) },
         // The person's own, which only this computer has.
         ...(this.#contained
           ? []
-          : [{ kind: "own" as const, ...readiness(await ownBrowser(this.#ownBrowserData)) }]),
+          : [
+              {
+                kind: "own" as const,
+                ...unless("browser", readiness(await ownBrowser(this.#ownBrowserData))),
+              },
+            ]),
       ],
     };
   }
@@ -306,9 +359,11 @@ export class ProcessRuntime implements Runtime {
       let name = "";
       if (spec.browser === "own") {
         const found = await ownBrowser(this.#ownBrowserData);
-        if (!found.ready) {
+        const refused =
+          this.#switches?.refused("browser") ?? (found.ready ? undefined : found.reason);
+        if (refused || !found.ready) {
           await exec?.close();
-          throw new ApiError(409, found.reason);
+          throw new ApiError(409, refused ?? "The browser isn't ready.");
         }
         ({ endpoint: connect, name } = found);
         events.log(`Its browser is the person's own: ${name}.`);
@@ -346,20 +401,23 @@ export class ProcessRuntime implements Runtime {
     if (spec.screen) {
       // Asked afresh, not as last seen: it is what this start rests on.
       const ready = await this.#checkScreen();
+      const refused = this.#switches?.refused("screen");
       const program = driverProgram(this.#screenDriver) as string;
-      screen = ready.ready
-        ? new Screen(
-            program,
-            events.log,
-            () => {
-              screenDown = true;
-              events.failed("Cua Driver stopped.");
-            },
-            () => presence.agentCalled({ capability: "screen" }),
-          )
-        : undefined;
+      screen =
+        ready.ready && !refused
+          ? new Screen(
+              program,
+              events.log,
+              () => {
+                screenDown = true;
+                events.failed("Cua Driver stopped.");
+              },
+              () => presence.agentCalled({ capability: "screen" }),
+              () => this.#switches?.refused("screen"),
+            )
+          : undefined;
       try {
-        if (!screen) throw new ApiError(409, ready.reason ?? "The screen isn't ready.");
+        if (!screen) throw new ApiError(409, refused ?? ready.reason ?? "The screen isn't ready.");
         await screen.ready();
       } catch (error) {
         await Promise.all([exec?.close(), browser?.stop(), screen?.stop()]);
@@ -381,6 +439,8 @@ export class ProcessRuntime implements Runtime {
       );
       browser.gate = browserLive;
       browser.noted = () => presence.agentCalled({ capability: "browser" });
+      // The person's switch is for their own browser, not one the computer has of its own.
+      if (spec.browser === "own") browser.refused = () => this.#switches?.refused("browser");
     }
     const files =
       exec &&
@@ -413,7 +473,14 @@ export class ProcessRuntime implements Runtime {
       openLive: async (surface, mode, request, socket, head) =>
         live.open(surface, mode, request, socket, head),
       handle: async (endpoint, request, response) => {
-        if (endpoint === "computer") return (exec as AgentExec).handle(request, response);
+        if (endpoint === "computer") {
+          // Read whole, to refuse a terminal's or a file's tool while the person has it off.
+          const { body, tool, id } = await readCall(request);
+          const switched = tool ? TOOL_SWITCH[tool] : undefined;
+          const refusal = switched && this.#switches?.refused(switched);
+          if (refusal) return refuseCall(response, id, refusal);
+          return (exec as AgentExec).handle(request, response, body);
+        }
         if (endpoint === "screen") {
           if (screenDown) throw new ApiError(502, "Cua Driver has stopped.");
           return (screen as Screen).handle(request, response);

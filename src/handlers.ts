@@ -4,6 +4,7 @@ import type { Computers } from "./computers.ts";
 import type { Connections } from "./connection.ts";
 import type { operations } from "./generated/schema.js";
 import { ApiError } from "./runtime.ts";
+import type { Setup } from "./setup.ts";
 
 type Json<T> = T extends { content: { "application/json": infer B } } ? B : never;
 type Fields<T> = [NonNullable<T>] extends [never] ? object : NonNullable<T>;
@@ -21,10 +22,16 @@ type Handlers = {
 
 export const VERSION = "0.0.19";
 
-export function createHandlers(computers: Computers, connections: Connections): Handlers {
+export function createHandlers(
+  computers: Computers,
+  connections: Connections,
+  setup: Setup,
+): Handlers {
   return {
     getInfo: async () => ({ version: VERSION, ...(await computers.offers()) }),
     getConnection: async () => connections.state(),
+    getSetup: () => setup.capabilities(),
+    setSetup: ({ capability, on }) => setup.set(capability, on),
     getActing: async () => computers.acting(),
     listComputers: async ({ state }) => computers.list(state),
     createComputer: (input) => computers.create(input),

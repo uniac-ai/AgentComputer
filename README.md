@@ -168,6 +168,8 @@ The data folder is `--data`, else `$AGENTCOMPUTER_DATA`, else `$XDG_DATA_HOME/ag
 | `POST /v1/computers/{computerID}/live`    | `computer_live`        |
 | `GET /v1/connection`                      |                        |
 | `GET /v1/acting`                          |                        |
+| `GET /v1/setup`                           |                        |
+| `PUT /v1/setup/{capability}`              |                        |
 
 These take the control token, kept in the data folder. A computer's own endpoints take its `accessToken`, and neither token works for the other:
 
@@ -179,6 +181,18 @@ These take the control token, kept in the data folder. A computer's own endpoint
 `POST /v1/computers` and `POST /v1/computers/attach` are the only places an `accessToken` is shown. Failures are `{ "code": 404, "message": "..." }`.
 
 - **A client that relies on the service can hold a connection to it:** a WebSocket at `/v1/connection?name=NAME`, with the control token in its `Authorization` header. Nothing is sent either way; the service pings, and drops one that stops answering. `GET /v1/connection` says who holds one: `{ "connected": true, "clients": [{ "name", "since", "local" }] }`, where `name` is its first 100 characters and `local` is whether it connects from the service's machine, false behind `--tls-proxy`.
+- **The person's switches.** Each part of this computer an agent can use (`terminal`, `files`, `screen`, and `browser`, the person's own) has the person's own switch.
+  - Off, agents can't use that part: its tools refuse with "The person turned off the screen for agents on this Mac" (or "this machine" off macOS), `info` says the same, and attaching with the screen or the person's browser is refused with 409.
+  - A service started with `--lend` starts with every switch off, for the person to turn on. Any other starts with every one on, as before. They are kept in the data folder, so they last across a restart.
+- **`GET /v1/setup`** gives each part as `{ "capability", "on", "needs" }`, read afresh each time.
+  - `needs` lists every item the part needs, each with its state, while any of them isn't right yet. It is empty once all are.
+  - The terminal and files need nothing; on macOS the Mac asks folder by folder.
+  - The screen needs Cua Driver, and on macOS its `screen-recording` and `accessibility` grants, each `granted`, `not-granted` or `unknown`. `holder` names whom System Settings lists them under: the app Cua Driver is the program of.
+  - The browser needs Chrome or Edge with its remote-debugging switch on. While none is on, each one here is listed `off`. The one that is on is used, Chrome first.
+  - What isn't installed is `{ "need": "install", "state": "missing" }`.
+- **`PUT /v1/setup/{capability}`** with `{ "on": true }` or `{ "on": false }` sets a switch. Turning it on, or on again, also takes the steps that ask for what it still needs, on the service's machine, macOS only, and answers once they have started:
+  - the screen: Cua Driver's own grant, its app started first, through the system, so the Mac names that app;
+  - the browser: Chrome, or Edge where there is no Chrome, opened at its switch. That a browser opens at that address this way is yet to be tried.
 - **`GET /v1/acting`** is who is acting now on every computer attached to this machine, in one list, as each one's `presence` surface has it. A computer in a container isn't included: its own `presence` surface has it.
 
 ## SDK
