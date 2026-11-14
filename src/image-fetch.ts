@@ -28,7 +28,7 @@ function refOf(image: string): [string, string] {
 
 export class ImageFetch {
   readonly #progress: Progress = {
-    title: "Fetching its image",
+    title: "Downloading its image",
     done: 0,
     total: null,
     moved: new Date().toISOString(),

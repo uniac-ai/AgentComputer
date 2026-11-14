@@ -82,6 +82,7 @@ export const OPENAPI = {
         "operationId": "createComputer",
         "x-mcp-tool": "computer_create",
         "summary": "Create a computer. It answers once the computer is running.",
+        "description": "Meanwhile, once any `copyFrom` copy is done, it is listed by `listComputers` as `starting`, with the name and metadata given here, its `reason`, and its image's `progress` where that is counted: that is how a caller shows a computer being made before `create` has answered.",
         "requestBody": {
           "required": true,
           "content": {
@@ -523,7 +524,7 @@ export const OPENAPI = {
         "properties": {
           "title": {
             "type": "string",
-            "description": "The step, in words with no numbers: \"Fetching its image\"."
+            "description": "The step, in words with no numbers: \"Downloading its image\"."
           },
           "done": {
             "type": "integer",
@@ -2625,7 +2626,7 @@ export const OPERATIONS: Operation[] = [
                 "properties": {
                   "title": {
                     "type": "string",
-                    "description": "The step, in words with no numbers: \"Fetching its image\"."
+                    "description": "The step, in words with no numbers: \"Downloading its image\"."
                   },
                   "done": {
                     "type": "integer",
@@ -2883,7 +2884,7 @@ export const OPERATIONS: Operation[] = [
                   "properties": {
                     "title": {
                       "type": "string",
-                      "description": "The step, in words with no numbers: \"Fetching its image\"."
+                      "description": "The step, in words with no numbers: \"Downloading its image\"."
                     },
                     "done": {
                       "type": "integer",
@@ -3147,7 +3148,7 @@ export const OPERATIONS: Operation[] = [
                   "properties": {
                     "title": {
                       "type": "string",
-                      "description": "The step, in words with no numbers: \"Fetching its image\"."
+                      "description": "The step, in words with no numbers: \"Downloading its image\"."
                     },
                     "done": {
                       "type": "integer",
@@ -3373,7 +3374,7 @@ export const OPERATIONS: Operation[] = [
                   "properties": {
                     "title": {
                       "type": "string",
-                      "description": "The step, in words with no numbers: \"Fetching its image\"."
+                      "description": "The step, in words with no numbers: \"Downloading its image\"."
                     },
                     "done": {
                       "type": "integer",
@@ -3699,7 +3700,7 @@ export const OPERATIONS: Operation[] = [
               "properties": {
                 "title": {
                   "type": "string",
-                  "description": "The step, in words with no numbers: \"Fetching its image\"."
+                  "description": "The step, in words with no numbers: \"Downloading its image\"."
                 },
                 "done": {
                   "type": "integer",
@@ -3909,7 +3910,7 @@ export const OPERATIONS: Operation[] = [
               "properties": {
                 "title": {
                   "type": "string",
-                  "description": "The step, in words with no numbers: \"Fetching its image\"."
+                  "description": "The step, in words with no numbers: \"Downloading its image\"."
                 },
                 "done": {
                   "type": "integer",
@@ -4124,7 +4125,7 @@ export const OPERATIONS: Operation[] = [
               "properties": {
                 "title": {
                   "type": "string",
-                  "description": "The step, in words with no numbers: \"Fetching its image\"."
+                  "description": "The step, in words with no numbers: \"Downloading its image\"."
                 },
                 "done": {
                   "type": "integer",

@@ -147,7 +147,7 @@ test("Docker's API counts the image's bytes as each layer downloads, and when it
   );
   // Before any byte: nothing done, nothing known, moved when it began.
   const first = fetch.progress();
-  assert.deepEqual([first.title, first.done, first.total], ["Fetching its image", 0, null]);
+  assert.deepEqual([first.title, first.done, first.total], ["Downloading its image", 0, null]);
   assert.ok(Date.parse(first.moved) >= began - 1_000);
   await pause(50);
   pull.send(
@@ -205,7 +205,7 @@ test("a computer being made is starting, with its step and how far it has come, 
   const [starting] = await listed((all) => all[0]?.progress?.done === 3 * MB);
   assert.deepEqual(
     [starting?.name, starting?.state, starting?.reason, starting?.progress?.title],
-    ["Scout", "starting", "Its image is being fetched.", "Fetching its image"],
+    ["Scout", "starting", "Its image is being fetched.", "Downloading its image"],
   );
   assert.deepEqual([starting?.progress?.done, starting?.progress?.total], [3 * MB, 9 * MB]);
   const id = starting?.computerID as string;
