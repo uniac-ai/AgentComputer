@@ -66,12 +66,16 @@ export function aboutTool(facts: Facts, load: LoadLive, presence: Presence): Ext
               value: "None: it acts as you, on the whole machine",
               caution: true,
             },
-        // Who else is acting on it now, as the person is shown who acts.
+        // Who else is acting on it now, as the person is shown who acts. The person's own use of
+        // the screen can't be seen, unless they act on it in its live view.
         {
           label: "Acting now",
           value:
             presence.othersForAbout() +
-            (facts.screen ? "; can't tell whether the person is using the screen" : ""),
+            (facts.screen &&
+            !presence.acting().some((one) => one.who === "person" && one.capability === "screen")
+              ? "; can't tell whether the person is using the screen"
+              : ""),
         },
       ];
       const reading = await load.now();
