@@ -239,6 +239,11 @@ export interface components {
              * @default false
              */
             browser: boolean;
+            /**
+             * @description Whether its agent has the machine's screen: to see it, act on it and bring apps forward, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. Refused with 409 where `info` says the screen isn't ready.
+             * @default false
+             */
+            screen: boolean;
             /** @description Its work folder: the full path of a folder that exists. Commands and relative paths start there and its agent is told to work there, but nothing keeps its files inside it. Detaching never removes it. */
             workspace: string;
             timeout?: components["schemas"]["Timeout"];
@@ -255,6 +260,8 @@ export interface components {
             computer: string | null;
             /** @description The browser. */
             browser: string | null;
+            /** @description The screen, for this computer attached with it: its tools are see, act and apps. */
+            screen: string | null;
         };
         Computer: {
             computerID: string;
@@ -268,6 +275,8 @@ export interface components {
             /** @description The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program. */
             version: string | null;
             browser: boolean;
+            /** @description Whether its agent has the screen: only this computer can. */
+            screen: boolean;
             workspace: string | null;
             /**
              * Format: date-time
@@ -293,6 +302,7 @@ export interface components {
             tools: {
                 computer: string[];
                 browser: string[];
+                screen: string[];
             };
         };
         /**
@@ -508,7 +518,7 @@ export interface components {
             /** @description The agent's name */
             name?: string;
             /** @enum {string} */
-            capability: "terminal" | "files" | "browser";
+            capability: "terminal" | "files" | "browser" | "screen";
             /** @description Which terminal, by its id; only for a terminal. */
             terminal?: string;
             /**
@@ -621,7 +631,7 @@ export interface components {
             reason?: string;
         };
         /**
-         * @description What a computer offers its agent and the person: what it is, its terminals, its files and its screen.
+         * @description What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do.
          * @enum {string}
          */
         Capability: "about" | "terminal" | "files" | "screen";

@@ -587,6 +587,11 @@ export const OPENAPI = {
             "default": false,
             "description": "Whether it has a headless browser of its own. With access none, it must."
           },
+          "screen": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether its agent has the machine's screen: to see it, act on it and bring apps forward, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. Refused with 409 where `info` says the screen isn't ready."
+          },
           "workspace": {
             "type": "string",
             "maxLength": 4096,
@@ -612,7 +617,8 @@ export const OPENAPI = {
         "type": "object",
         "required": [
           "computer",
-          "browser"
+          "browser",
+          "screen"
         ],
         "description": "MCP over Streamable HTTP, each taking the computer's access token as a bearer.",
         "properties": {
@@ -629,6 +635,13 @@ export const OPENAPI = {
               "null"
             ],
             "description": "The browser."
+          },
+          "screen": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The screen, for this computer attached with it: its tools are see, act and apps."
           }
         }
       },
@@ -643,6 +656,7 @@ export const OPENAPI = {
           "attached",
           "version",
           "browser",
+          "screen",
           "workspace",
           "startedAt",
           "endAt",
@@ -679,6 +693,10 @@ export const OPENAPI = {
           },
           "browser": {
             "type": "boolean"
+          },
+          "screen": {
+            "type": "boolean",
+            "description": "Whether its agent has the screen: only this computer can."
           },
           "workspace": {
             "type": [
@@ -753,7 +771,8 @@ export const OPENAPI = {
                 "type": "object",
                 "required": [
                   "computer",
-                  "browser"
+                  "browser",
+                  "screen"
                 ],
                 "properties": {
                   "computer": {
@@ -763,6 +782,12 @@ export const OPENAPI = {
                     }
                   },
                   "browser": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "screen": {
                     "type": "array",
                     "items": {
                       "type": "string"
@@ -1512,7 +1537,8 @@ export const OPENAPI = {
             "enum": [
               "terminal",
               "files",
-              "browser"
+              "browser",
+              "screen"
             ]
           },
           "terminal": {
@@ -1914,7 +1940,7 @@ export const OPENAPI = {
           "files",
           "screen"
         ],
-        "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen."
+        "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do."
       },
       "CapabilityState": {
         "allOf": [
@@ -2137,7 +2163,7 @@ export const OPERATIONS: Operation[] = [
                               "files",
                               "screen"
                             ],
-                            "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen."
+                            "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do."
                           }
                         }
                       }
@@ -2250,7 +2276,7 @@ export const OPERATIONS: Operation[] = [
                                     "files",
                                     "screen"
                                   ],
-                                  "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen."
+                                  "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do."
                                 }
                               }
                             }
@@ -2363,6 +2389,7 @@ export const OPERATIONS: Operation[] = [
           "attached",
           "version",
           "browser",
+          "screen",
           "workspace",
           "startedAt",
           "endAt",
@@ -2417,6 +2444,10 @@ export const OPERATIONS: Operation[] = [
           "browser": {
             "type": "boolean"
           },
+          "screen": {
+            "type": "boolean",
+            "description": "Whether its agent has the screen: only this computer can."
+          },
           "workspace": {
             "type": [
               "string",
@@ -2449,7 +2480,8 @@ export const OPERATIONS: Operation[] = [
             "type": "object",
             "required": [
               "computer",
-              "browser"
+              "browser",
+              "screen"
             ],
             "description": "MCP over Streamable HTTP, each taking the computer's access token as a bearer.",
             "properties": {
@@ -2466,6 +2498,13 @@ export const OPERATIONS: Operation[] = [
                   "null"
                 ],
                 "description": "The browser."
+              },
+              "screen": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The screen, for this computer attached with it: its tools are see, act and apps."
               }
             }
           }
@@ -2558,6 +2597,7 @@ export const OPERATIONS: Operation[] = [
             "attached",
             "version",
             "browser",
+            "screen",
             "workspace",
             "startedAt",
             "endAt",
@@ -2612,6 +2652,10 @@ export const OPERATIONS: Operation[] = [
             "browser": {
               "type": "boolean"
             },
+            "screen": {
+              "type": "boolean",
+              "description": "Whether its agent has the screen: only this computer can."
+            },
             "workspace": {
               "type": [
                 "string",
@@ -2644,7 +2688,8 @@ export const OPERATIONS: Operation[] = [
               "type": "object",
               "required": [
                 "computer",
-                "browser"
+                "browser",
+                "screen"
               ],
               "description": "MCP over Streamable HTTP, each taking the computer's access token as a bearer.",
               "properties": {
@@ -2661,6 +2706,13 @@ export const OPERATIONS: Operation[] = [
                     "null"
                   ],
                   "description": "The browser."
+                },
+                "screen": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The screen, for this computer attached with it: its tools are see, act and apps."
                 }
               }
             }
@@ -2716,6 +2768,11 @@ export const OPERATIONS: Operation[] = [
           "default": false,
           "description": "Whether it has a headless browser of its own. With access none, it must."
         },
+        "screen": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether its agent has the machine's screen: to see it, act on it and bring apps forward, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. Refused with 409 where `info` says the screen isn't ready."
+        },
         "workspace": {
           "type": "string",
           "maxLength": 4096,
@@ -2754,6 +2811,7 @@ export const OPERATIONS: Operation[] = [
             "attached",
             "version",
             "browser",
+            "screen",
             "workspace",
             "startedAt",
             "endAt",
@@ -2808,6 +2866,10 @@ export const OPERATIONS: Operation[] = [
             "browser": {
               "type": "boolean"
             },
+            "screen": {
+              "type": "boolean",
+              "description": "Whether its agent has the screen: only this computer can."
+            },
             "workspace": {
               "type": [
                 "string",
@@ -2840,7 +2902,8 @@ export const OPERATIONS: Operation[] = [
               "type": "object",
               "required": [
                 "computer",
-                "browser"
+                "browser",
+                "screen"
               ],
               "description": "MCP over Streamable HTTP, each taking the computer's access token as a bearer.",
               "properties": {
@@ -2857,6 +2920,13 @@ export const OPERATIONS: Operation[] = [
                     "null"
                   ],
                   "description": "The browser."
+                },
+                "screen": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The screen, for this computer attached with it: its tools are see, act and apps."
                 }
               }
             }
@@ -2917,6 +2987,7 @@ export const OPERATIONS: Operation[] = [
             "attached",
             "version",
             "browser",
+            "screen",
             "workspace",
             "startedAt",
             "endAt",
@@ -2971,6 +3042,10 @@ export const OPERATIONS: Operation[] = [
             "browser": {
               "type": "boolean"
             },
+            "screen": {
+              "type": "boolean",
+              "description": "Whether its agent has the screen: only this computer can."
+            },
             "workspace": {
               "type": [
                 "string",
@@ -3003,7 +3078,8 @@ export const OPERATIONS: Operation[] = [
               "type": "object",
               "required": [
                 "computer",
-                "browser"
+                "browser",
+                "screen"
               ],
               "description": "MCP over Streamable HTTP, each taking the computer's access token as a bearer.",
               "properties": {
@@ -3020,6 +3096,13 @@ export const OPERATIONS: Operation[] = [
                     "null"
                   ],
                   "description": "The browser."
+                },
+                "screen": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The screen, for this computer attached with it: its tools are see, act and apps."
                 }
               }
             }
@@ -3077,7 +3160,8 @@ export const OPERATIONS: Operation[] = [
               "type": "object",
               "required": [
                 "computer",
-                "browser"
+                "browser",
+                "screen"
               ],
               "properties": {
                 "computer": {
@@ -3087,6 +3171,12 @@ export const OPERATIONS: Operation[] = [
                   }
                 },
                 "browser": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "screen": {
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -3172,6 +3262,7 @@ export const OPERATIONS: Operation[] = [
         "attached",
         "version",
         "browser",
+        "screen",
         "workspace",
         "startedAt",
         "endAt",
@@ -3226,6 +3317,10 @@ export const OPERATIONS: Operation[] = [
         "browser": {
           "type": "boolean"
         },
+        "screen": {
+          "type": "boolean",
+          "description": "Whether its agent has the screen: only this computer can."
+        },
         "workspace": {
           "type": [
             "string",
@@ -3258,7 +3353,8 @@ export const OPERATIONS: Operation[] = [
           "type": "object",
           "required": [
             "computer",
-            "browser"
+            "browser",
+            "screen"
           ],
           "description": "MCP over Streamable HTTP, each taking the computer's access token as a bearer.",
           "properties": {
@@ -3275,6 +3371,13 @@ export const OPERATIONS: Operation[] = [
                 "null"
               ],
               "description": "The browser."
+            },
+            "screen": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The screen, for this computer attached with it: its tools are see, act and apps."
             }
           }
         }
@@ -3319,6 +3422,7 @@ export const OPERATIONS: Operation[] = [
         "attached",
         "version",
         "browser",
+        "screen",
         "workspace",
         "startedAt",
         "endAt",
@@ -3373,6 +3477,10 @@ export const OPERATIONS: Operation[] = [
         "browser": {
           "type": "boolean"
         },
+        "screen": {
+          "type": "boolean",
+          "description": "Whether its agent has the screen: only this computer can."
+        },
         "workspace": {
           "type": [
             "string",
@@ -3405,7 +3513,8 @@ export const OPERATIONS: Operation[] = [
           "type": "object",
           "required": [
             "computer",
-            "browser"
+            "browser",
+            "screen"
           ],
           "description": "MCP over Streamable HTTP, each taking the computer's access token as a bearer.",
           "properties": {
@@ -3422,6 +3531,13 @@ export const OPERATIONS: Operation[] = [
                 "null"
               ],
               "description": "The browser."
+            },
+            "screen": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The screen, for this computer attached with it: its tools are see, act and apps."
             }
           }
         }
@@ -3471,6 +3587,7 @@ export const OPERATIONS: Operation[] = [
         "attached",
         "version",
         "browser",
+        "screen",
         "workspace",
         "startedAt",
         "endAt",
@@ -3525,6 +3642,10 @@ export const OPERATIONS: Operation[] = [
         "browser": {
           "type": "boolean"
         },
+        "screen": {
+          "type": "boolean",
+          "description": "Whether its agent has the screen: only this computer can."
+        },
         "workspace": {
           "type": [
             "string",
@@ -3557,7 +3678,8 @@ export const OPERATIONS: Operation[] = [
           "type": "object",
           "required": [
             "computer",
-            "browser"
+            "browser",
+            "screen"
           ],
           "description": "MCP over Streamable HTTP, each taking the computer's access token as a bearer.",
           "properties": {
@@ -3574,6 +3696,13 @@ export const OPERATIONS: Operation[] = [
                 "null"
               ],
               "description": "The browser."
+            },
+            "screen": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The screen, for this computer attached with it: its tools are see, act and apps."
             }
           }
         }

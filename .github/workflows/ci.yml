@@ -38,8 +38,11 @@ jobs:
           npm run build
           docker build -t agentcomputer-computer:test .
           docker build -f Dockerfile.service -t agentcomputer-service:test .
+          # A Linux desktop with the pinned Cua Driver, for the screen's tests.
+          docker build -f test/fixtures/screen.Dockerfile -t agentcomputer-screen:test test/fixtures
           export AGENTCOMPUTER_TEST_IMAGE=agentcomputer-computer:test
           export AGENTCOMPUTER_TEST_SERVICE_IMAGE=agentcomputer-service:test
+          export AGENTCOMPUTER_TEST_SCREEN_IMAGE=agentcomputer-screen:test
           npm test
 
   # The browser host on macOS, where a user's temporary folder is long enough to matter.

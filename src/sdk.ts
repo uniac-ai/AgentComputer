@@ -56,6 +56,8 @@ export interface CreateOpts extends ConnectionOpts {
 export interface AttachOpts extends Omit<CreateOpts, "isolation" | "workspace" | "copyFrom"> {
   /** Its work folder, where commands and relative paths start. Detaching never removes it. */
   workspace: string;
+  /** Whether its agent has the machine's screen, through Cua Driver. */
+  screen?: boolean;
 }
 export interface CommandResult {
   exitCode: number;
@@ -380,7 +382,7 @@ export class Computer {
     const { connection, body } = requestOf(opts);
     const attached = answered(
       await apiOf(connection).POST("/v1/computers/attach", {
-        body: { ...body, workspace: opts.workspace },
+        body: { ...body, workspace: opts.workspace, screen: opts.screen ?? false },
       }),
     );
     return new Computer(connection, attached, attached.accessToken);

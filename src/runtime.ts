@@ -17,6 +17,7 @@ import { Live, type LiveMode, type Surface, type SurfaceInfo } from "./live.ts";
 import { LoadLive } from "./load-live.ts";
 import { channelProgram, DEFAULT_CHANNEL, playwright } from "./playwright.ts";
 import { Board, Presence } from "./presence.ts";
+import { driverProgram, Screen, screenReadiness } from "./screen.ts";
 import { privateFolder } from "./store.ts";
 
 type Schemas = components["schemas"];
@@ -24,7 +25,7 @@ export type Access = Schemas["Access"];
 export type Isolation = Schemas["Isolation"];
 /** What a computer run one way offers, and whether one can be run that way now. */
 export type Offer = Schemas["Offer"];
-export type Endpoint = "computer" | "browser";
+export type Endpoint = "computer" | "browser" | "screen";
 
 /** A refusal of the request, with the HTTP status that says so. */
 export class ApiError extends Error {
@@ -42,6 +43,8 @@ export interface ComputerSpec {
   name: string;
   access: Access;
   browser: boolean;
+  /** Whether its agent has the machine's screen, which only this computer can. */
+  screen?: boolean | undefined;
   workspace?: string | undefined;
   /** Its workspace and its machine as they are outside, where this is inside a container. */
   outside?: { workspace?: string | undefined; machine?: string | undefined } | undefined;
@@ -150,6 +153,8 @@ const FILE_TOOLS = new Set(["read", "list", "search", "edit"]);
 export class ProcessRuntime implements Runtime {
   readonly #config: BrowserConfig;
   readonly #contained: boolean;
+  /** Cua Driver, where it was named; otherwise it is looked for. */
+  readonly #screenDriver: string | undefined;
   /** Who acts on this machine's files: shared by the computers attached to it. */
   readonly #machine: Board | undefined;
 
@@ -158,9 +163,10 @@ export class ProcessRuntime implements Runtime {
    * for inside one, where the computer and its load are its own and its files stay in its
    * workspace.
    */
-  constructor(config: BrowserConfig, contained = false) {
+  constructor(config: BrowserConfig, contained = false, screenDriver?: string) {
     this.#config = config;
     this.#contained = contained;
+    this.#screenDriver = screenDriver;
     this.#machine = contained ? undefined : new Board();
   }
 
@@ -171,7 +177,7 @@ export class ProcessRuntime implements Runtime {
         { capability: "about", ready: true },
         { capability: "terminal", ready: true },
         { capability: "files", ready: true },
-        { capability: "screen", ready: false, reason: "This service can't reach the screen yet." },
+        { capability: "screen", ...(await screenReadiness(this.#screenDriver)) },
       ],
       browsers: [{ kind: "headless", ...browserProgram(this.#config) }],
     };
@@ -200,6 +206,7 @@ export class ProcessRuntime implements Runtime {
           workspace: { outside: spec.outside?.workspace ?? workspace, inside: workspace },
           access: spec.access,
           browser: spec.browser,
+          screen: spec.screen === true,
           contained: this.#contained,
         },
         load,
@@ -250,6 +257,26 @@ export class ProcessRuntime implements Runtime {
         throw error;
       }
     }
+    // The screen is the machine's, through Cua Driver, which the person installed and granted.
+    let screen: Screen | undefined;
+    let screenDown = false;
+    if (spec.screen) {
+      const ready = await screenReadiness(this.#screenDriver);
+      screen = ready.ready
+        ? new Screen(driverProgram(this.#screenDriver) as string, events.log, () => {
+            screenDown = true;
+            events.failed("Cua Driver stopped.");
+          })
+        : undefined;
+      try {
+        if (!screen) throw new ApiError(409, ready.reason ?? "The screen isn't ready.");
+        await screen.ready();
+      } catch (error) {
+        await Promise.all([exec?.close(), browser?.stop(), screen?.stop()]);
+        throw error;
+      }
+      screen.noted = () => presence.agentCalled({ capability: "screen" });
+    }
     let browserLive: BrowserLive | undefined;
     if (browser) {
       browserLive = new BrowserLive(browser.endpoint, () =>
@@ -284,13 +311,17 @@ export class ProcessRuntime implements Runtime {
         live.open(surface, mode, request, socket, head),
       handle: async (endpoint, request, response) => {
         if (endpoint === "computer") return (exec as AgentExec).handle(request, response);
+        if (endpoint === "screen") {
+          if (screenDown) throw new ApiError(502, "Cua Driver has stopped.");
+          return (screen as Screen).handle(request, response);
+        }
         if (browserDown) throw new ApiError(502, "Its browser has stopped.");
         return (browser as Browser).handle(request, response);
       },
       stop: async () => {
         live.close();
         presence.close();
-        await Promise.all([exec?.close(), browser?.stop()]);
+        await Promise.all([exec?.close(), browser?.stop(), screen?.stop()]);
       },
     };
   }

@@ -13,7 +13,7 @@ export const ACTING_MS = 10_000;
 /** What of the computer an action is on. */
 export type Where =
   | { capability: "terminal"; terminal: string }
-  | { capability: "files" | "browser" };
+  | { capability: "files" | "browser" | "screen" };
 
 /** Who acted: the person, or an agent, by its computer's id and name. */
 type Actor = { who: "person" } | { who: "agent"; id: string; name: string };
@@ -34,6 +34,7 @@ const DID: Record<Where["capability"], string> = {
   terminal: "used this terminal",
   files: "wrote a file here",
   browser: "used the browser",
+  screen: "used the screen",
 };
 /** What one did there, as the agent is told it. */
 const did = (actor: Actor, where: Where) =>
@@ -100,7 +101,9 @@ export class Presence {
   }
 
   #board(where: Where) {
-    return this.#machine && where.capability === "files" ? this.#machine : this.#own;
+    return this.#machine && where.capability !== "terminal" && where.capability !== "browser"
+      ? this.#machine
+      : this.#own;
   }
 
   /** Someone acted: the person, or this computer's agent. */

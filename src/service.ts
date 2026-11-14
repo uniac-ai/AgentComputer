@@ -17,7 +17,7 @@ import { Computers } from "./computers.ts";
 import { OPENAPI, OPERATIONS, type Operation } from "./generated/operations.ts";
 import { createHandlers, VERSION } from "./handlers.ts";
 import { recordOf, running } from "./running.ts";
-import { ApiError, type Isolation, type Runtime } from "./runtime.ts";
+import { ApiError, type Endpoint, type Isolation, type Runtime } from "./runtime.ts";
 import { controlToken, digestOf, privateFolder, sameToken, writePrivate } from "./store.ts";
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -170,11 +170,11 @@ export async function serve(options: ServeOptions) {
     if (pathname === "/openapi.json") return send(response, 200, OPENAPI);
     if (pathname.startsWith("/v1/live/")) throw new ApiError(426, "Open it as a WebSocket.");
     // A computer's own endpoints take its own token and nothing else.
-    const endpoint = /^\/v1\/computers\/([^/]+)\/mcp\/(computer|browser)$/.exec(pathname);
+    const endpoint = /^\/v1\/computers\/([^/]+)\/mcp\/(computer|browser|screen)$/.exec(pathname);
     if (endpoint)
       return computers.serve(
         endpoint[1] as string,
-        endpoint[2] as "computer" | "browser",
+        endpoint[2] as Endpoint,
         bearerOf(request),
         request,
         response,

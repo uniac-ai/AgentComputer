@@ -17,7 +17,7 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
 
   serve [--listen HOST:PORT] [--image IMAGE]
         [--tls-cert FILE --tls-key FILE | --tls-proxy] [--public-url URL] [--allow-origin ORIGIN]...
-        [--browser-name NAME] [--browser-path PATH]
+        [--browser-name NAME] [--browser-path PATH] [--screen-driver PATH]
                                     run the service; 127.0.0.1:7878 by default, and
                                     anywhere else only with TLS
   up [the options of serve]         run the service in the background and return once it
@@ -30,7 +30,7 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
          [--name NAME] [--isolation container] [--timeout SECONDS] [--metadata KEY=VALUE]...
                                     make a computer, in a container; prints its endpoints and
                                     token, once
-  attach --access none|read|files|terminal --workspace DIR [--browser] [--name NAME]
+  attach --access none|read|files|terminal --workspace DIR [--browser] [--screen] [--name NAME]
          [--timeout SECONDS] [--metadata KEY=VALUE]...
                                     attach this computer, whole and acting as you, with DIR its
                                     work folder; prints its endpoints and token, once
@@ -94,6 +94,8 @@ async function main() {
       surface: { type: "string" },
       mode: { type: "string" },
       browser: { type: "boolean" },
+      screen: { type: "boolean" },
+      "screen-driver": { type: "string" },
       "browser-name": { type: "string" },
       "browser-path": { type: "string" },
       profile: { type: "string" },
@@ -157,7 +159,11 @@ async function main() {
       publicUrl: values["public-url"],
       allowOrigins: values["allow-origin"],
       runtimes: {
-        none: new ProcessRuntime({ browser: values["browser-name"], path: values["browser-path"] }),
+        none: new ProcessRuntime(
+          { browser: values["browser-name"], path: values["browser-path"] },
+          false,
+          values["screen-driver"],
+        ),
         container: new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`),
       },
     });
@@ -225,7 +231,11 @@ async function main() {
     case "attach":
       if (!values.workspace) throw new UsageError("attach takes --workspace.");
       return printMade(
-        await Computer.attach({ ...making(), workspace: resolve(values.workspace) }),
+        await Computer.attach({
+          ...making(),
+          workspace: resolve(values.workspace),
+          ...(values.screen ? { screen: true } : {}),
+        }),
       );
     case "list":
       return out(

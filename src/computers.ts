@@ -20,6 +20,7 @@ import type { components } from "./generated/schema.js";
 import { VERSION } from "./handlers.ts";
 import type { LiveMode, Surface } from "./live.ts";
 import { ApiError, type Endpoint, type Isolation, type Running, type Runtime } from "./runtime.ts";
+import { SCREEN_TOOLS } from "./screen.ts";
 import { digestOf, newToken, privateFolder, sameToken, writePrivate } from "./store.ts";
 
 type Schemas = components["schemas"];
@@ -47,6 +48,8 @@ interface Stored {
   /** The version of the program it ran at its last start, where that is known. */
   version?: string;
   browser: boolean;
+  /** Its agent has the machine's screen: only this computer, attached with it. */
+  screen?: true;
   workspace?: string;
   metadata: Record<string, string>;
   tokenDigest: string;
@@ -199,13 +202,16 @@ export class Computers {
   }
 
   async #make(
-    input: Schemas["NewComputer"],
+    input: Schemas["NewComputer"] & { screen?: boolean },
     isolation: Isolation,
   ): Promise<Schemas["CreatedComputer"]> {
     const { access, name, timeout, metadata } = input;
     const browser = input.browser === true;
-    if (access === "none" && !browser)
-      throw new ApiError(400, "With no files, no commands and no browser, there's no computer.");
+    if (access === "none" && !browser && !input.screen)
+      throw new ApiError(
+        400,
+        "With no files, no commands, no browser and no screen, there's no computer.",
+      );
     if (input.copyFrom !== undefined && input.workspace !== undefined)
       throw new ApiError(
         400,
@@ -229,6 +235,7 @@ export class Computers {
       isolation,
       ...(isolation === "none" ? { attached: true } : {}),
       browser,
+      ...(input.screen ? { screen: true } : {}),
       ...(workspace ? { workspace } : {}),
       metadata: metadata ?? {},
       tokenDigest: digestOf(token),
@@ -294,6 +301,7 @@ export class Computers {
       tools: {
         computer: stored.access === "none" ? [] : TOOLS[stored.access],
         browser: live?.running?.browserTools ?? [],
+        screen: stored.screen && live?.running ? SCREEN_TOOLS : [],
       },
       surfaces: live?.running?.surfaces ?? [],
     };
@@ -398,6 +406,8 @@ export class Computers {
       throw new ApiError(404, "This computer has no files or terminal.");
     if (endpoint === "browser" && !stored.browser)
       throw new ApiError(404, "This computer has no browser.");
+    if (endpoint === "screen" && !stored.screen)
+      throw new ApiError(404, "This computer has no screen.");
     const running = this.#live.get(id)?.running;
     if (!running) throw new ApiError(409, "It has stopped.");
     this.#log(id, `${request.method} mcp/${endpoint}`);
@@ -488,6 +498,7 @@ export class Computers {
       attached: stored.attached === true,
       version: stored.version ?? null,
       browser: stored.browser,
+      screen: stored.screen === true,
       workspace: stored.workspace ?? null,
       startedAt: stored.startedAt,
       endAt: stored.endAt ?? null,
@@ -495,6 +506,7 @@ export class Computers {
       endpoints: {
         computer: stored.access === "none" ? null : `${path}/computer`,
         browser: stored.browser ? `${path}/browser` : null,
+        screen: stored.screen ? `${path}/screen` : null,
       },
     };
   }
@@ -515,6 +527,7 @@ export class Computers {
         name: stored.name,
         access: stored.access,
         browser: stored.browser,
+        screen: stored.screen === true,
         workspace: stored.workspace,
       },
       this.#folder(stored.id),
