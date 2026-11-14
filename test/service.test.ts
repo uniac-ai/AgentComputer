@@ -357,6 +357,18 @@ for (const [access, tools] of [
     assert.deepEqual([...got.tools.computer].sort(), tools);
   });
 
+test("commands on this computer get the service's environment, less its own variables", async (t) => {
+  const { attach, mcp, workspace } = await setup(t, [], {
+    AGENTCOMPUTER_API_KEY: "the-control-token",
+    THE_PERSONS: "theirs",
+  });
+  const computer = await attach("--access", "terminal", "--workspace", workspace);
+  const { call } = await mcp(computer.endpoints.computer as string, computer.accessToken);
+  const { text } = await call("exec_command", { cmd: "env" });
+  assert.match(text, /^THE_PERSONS=theirs$/m);
+  assert.doesNotMatch(text, /AGENTCOMPUTER_/);
+});
+
 test("about tells the agent what a person reads of its computer", async (t) => {
   const { attach, mcp, workspace } = await setup(t);
   const made = await attach("--access", "files", "--workspace", workspace);
