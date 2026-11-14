@@ -221,6 +221,8 @@ export class ContainerRuntime implements Runtime {
         "inside",
         "--access",
         spec.access,
+        // As one argument: a name beginning with "-" would otherwise read as an option.
+        `--name=${spec.name}`,
         ...(spec.browser ? ["--browser"] : []),
       ],
       { ...process.env, ...told },

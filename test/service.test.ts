@@ -344,17 +344,18 @@ test("about tells the agent what a person reads of its computer", async (t) => {
   const { text, isError } = await computer.call("about");
   assert.equal(isError, false);
   const { rows } = JSON.parse(text) as { rows: Record<string, unknown>[] };
-  assert.deepEqual(rows.slice(0, 4), [
+  assert.deepEqual(rows.slice(0, 5), [
     { label: "Where", value: hostname() },
     { label: "Folder", value: workspace, path: true },
     { label: "Reaches", value: "Files" },
     { label: "Isolation", value: "None: it acts as you, on the whole machine", caution: true },
+    { label: "Acting now", value: "Nobody else" },
   ]);
-  const [cpu, memory, disk] = rows.slice(4).map((row) => `${row.label}: ${row.value}`);
+  const [cpu, memory, disk] = rows.slice(5).map((row) => `${row.label}: ${row.value}`);
   assert.match(cpu ?? "", /^CPU: \d+%$/);
   assert.match(memory ?? "", /^Memory: [\d.]+ of [\d.]+ GB$/);
   assert.match(disk ?? "", /^Disk: \d+ of \d+ GB$/);
-  assert.equal(rows.length, 7);
+  assert.equal(rows.length, 8);
 });
 
 test(

@@ -180,6 +180,11 @@ export class Browser {
   /** The tools it offers, read once it is up. */
   tools: string[] = [];
   gate: BrowserGate | undefined;
+  /**
+   * The line to add to the answer to each of the agent's calls, asked as an answer that can carry
+   * it comes: one that fails leaves it for the next.
+   */
+  noted: (() => string | undefined) | undefined;
 
   constructor(
     config: BrowserConfig,
@@ -348,7 +353,17 @@ export class Browser {
     if (message?.method === "tools/list" && this.#hidden.size > 0)
       change = withoutHidden(this.#hidden);
     else if (tool === SCREENSHOT) change = withoutLarge;
-    // Every other answer goes on as it comes; these two are read whole first.
+    const { noted } = this;
+    if (tool && noted) {
+      const before = change;
+      change = (answer) => {
+        before?.(answer);
+        const content = answer.result?.content;
+        const line = content && noted();
+        if (line) content.push({ type: "text", text: line });
+      };
+    }
+    // Every other answer goes on as it comes; these are read whole first.
     if (!change) return sendAnswer(upstream, response);
     sendAnswer(new Response(changed(await upstream.text(), change), upstream), response);
   }

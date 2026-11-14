@@ -33,10 +33,14 @@ export class FilesLive {
   /** How many files are part written, over every socket. */
   #uploads = 0;
 
+  /** Heard each time a person acts here: each part of a file they write, once it is written. */
+  readonly #acted: () => void;
+
   /** `workspace` is what the workspace is called: its folder's own name, not where it is. */
-  constructor(files: Files, workspace: string) {
+  constructor(files: Files, workspace: string, acted: () => void) {
     this.#files = files;
     this.#workspace = workspace;
+    this.#acted = acted;
   }
 
   close() {
@@ -200,7 +204,10 @@ export class FilesLive {
         writing = writing
           .then(() => (closed ? undefined : writePart(write, data)))
           .then(
-            (done) => done && send(done),
+            (done) => {
+              this.#acted();
+              if (done) send(done);
+            },
             async (error: unknown) => {
               await giveUp(write.path);
               refuse(write.id, reason(error));

@@ -16,6 +16,7 @@ import type { components } from "./generated/schema.js";
 import { Live, type LiveMode, type Surface, type SurfaceInfo } from "./live.ts";
 import { LoadLive } from "./load-live.ts";
 import { channelProgram, DEFAULT_CHANNEL, playwright } from "./playwright.ts";
+import { Presence } from "./presence.ts";
 import { privateFolder } from "./store.ts";
 
 type Schemas = components["schemas"];
@@ -37,6 +38,8 @@ export class ApiError extends Error {
 
 export interface ComputerSpec {
   id: string;
+  /** What its agent is called, as a person is shown it. */
+  name: string;
   access: Access;
   browser: boolean;
   workspace?: string | undefined;
@@ -137,6 +140,13 @@ function browserProgram(config: BrowserConfig): Schemas["Readiness"] {
   };
 }
 
+/**
+ * The agent's tools that act on its files, for presence. A command it starts is heard as it
+ * starts, and one it types into by `write_stdin`; reading its sessions, or what the computer is,
+ * acts on nothing.
+ */
+const FILE_TOOLS = new Set(["read", "list", "search", "edit"]);
+
 export class ProcessRuntime implements Runtime {
   readonly #config: BrowserConfig;
   readonly #contained: boolean;
@@ -172,6 +182,7 @@ export class ProcessRuntime implements Runtime {
 
   async start(spec: ComputerSpec, folder: string, events: RuntimeEvents): Promise<Running> {
     const load = new LoadLive(spec.workspace ?? folder, this.#contained);
+    const presence = new Presence(spec.name);
     let exec: AgentExec | undefined;
     if (spec.access !== "none") {
       const workspace = spec.workspace as string;
@@ -184,6 +195,7 @@ export class ProcessRuntime implements Runtime {
           contained: this.#contained,
         },
         load,
+        presence,
       );
       exec = createAgentExec({
         workspace,
@@ -191,6 +203,21 @@ export class ProcessRuntime implements Runtime {
         reach: this.#contained ? "workspace" : "machine",
         pty: await loadPty(),
         extraTools: [about],
+        note: (tool, input) => {
+          if (FILE_TOOLS.has(tool)) return presence.agentCalled({ capability: "files" });
+          // Only a terminal that is there and running: one refused, or ended, is acted on by
+          // nobody. Waiting on its output, with nothing typed, isn't acting on it either.
+          const id = input.session_id;
+          if (
+            tool !== "write_stdin" ||
+            !exec?.terminals.list().some((one) => one.id === id && one.exitCode === undefined)
+          )
+            return undefined;
+          return presence.agentCalled(
+            { capability: "terminal", terminal: id as string },
+            typeof input.chars === "string" && input.chars !== "",
+          );
+        },
       });
     }
     let browser: Browser | undefined;
@@ -217,13 +244,20 @@ export class ProcessRuntime implements Runtime {
     }
     let browserLive: BrowserLive | undefined;
     if (browser) {
-      browserLive = new BrowserLive(browser.endpoint);
+      browserLive = new BrowserLive(browser.endpoint, () =>
+        presence.acted("person", { capability: "browser" }),
+      );
       browser.gate = browserLive;
+      browser.noted = () => presence.agentCalled({ capability: "browser" });
     }
     const files =
       exec &&
-      new FilesLive(exec.files, basename(spec.outside?.workspace ?? (spec.workspace as string)));
-    const live = new Live(exec, spec.access, load, files, browserLive);
+      new FilesLive(
+        exec.files,
+        basename(spec.outside?.workspace ?? (spec.workspace as string)),
+        () => presence.acted("person", { capability: "files" }),
+      );
+    const live = new Live(exec, spec.access, load, presence, files, browserLive);
     const surfaces = live.surfaces();
     return {
       browserTools: browser?.tools ?? [],
@@ -247,6 +281,7 @@ export class ProcessRuntime implements Runtime {
       },
       stop: async () => {
         live.close();
+        presence.close();
         await Promise.all([exec?.close(), browser?.stop()]);
       },
     };
