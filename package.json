@@ -1,6 +1,6 @@
 {
   "name": "@agentorg/computer",
-  "version": "0.0.19",
+  "version": "0.0.20",
   "description": "Computers for agents, as a service: a terminal, files and a browser over MCP",
   "license": "Apache-2.0",
   "repository": {
