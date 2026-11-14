@@ -13,12 +13,11 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { WebSocket } from "ws";
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+/** Until `check` holds, for at most 10 s; `what` names it, and may say more when it doesn't. */
 async function until(check, what) {
-  for (let i = 0; i < 200; i++) {
+  for (const deadline = Date.now() + 10_000; Date.now() < deadline; await sleep(50))
     if (await check()) return;
-    await sleep(50);
-  }
-  throw new Error(`Waited too long for ${what}.`);
+  throw new Error(`Waited too long for ${typeof what === "function" ? what() : what}.`);
 }
 
 const children = [];
@@ -32,9 +31,10 @@ try {
   // Larger than a frame, so the frames are scaled down from it.
   start("Xvfb", [":99", "-screen", "0", "1920x1200x24"]);
   await until(() => existsSync("/tmp/.X11-unix/X99"), "the display");
-  // A window manager, which makes a window active as foreground delivery needs.
-  start("openbox", []);
-  await sleep(500);
+  // A window manager, which makes a window active as foreground delivery needs, once it says it
+  // has started.
+  start("openbox", ["--startup", "touch /tmp/wm-ready"]);
+  await until(() => existsSync("/tmp/wm-ready"), "the window manager");
   start("xterm", ["-T", "screen-test", "-geometry", "80x20+40+40"]);
 
   const data = mkdtempSync(join(tmpdir(), "ac-"));
@@ -85,6 +85,47 @@ try {
     surface: info.surfaces.find((one) => one.surface === "screen"),
   };
 
+  const client = new Client({ name: "screen-run", version: "1" });
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(info.endpoints.screen), {
+      requestInit: { headers: { Authorization: `Bearer ${computer.getMcpToken()}` } },
+    }),
+  );
+  const call = async (name, args = {}) => {
+    try {
+      const { content, isError, structuredContent } = await client.callTool({
+        name,
+        arguments: args,
+      });
+      return {
+        isError: !!isError,
+        structured: structuredContent,
+        kinds: content.map((one) => one.type),
+        text: content
+          .filter((one) => one.type === "text")
+          .map((one) => one.text)
+          .join("\n"),
+      };
+    } catch (error) {
+      // Input the tool's schema refuses comes back as a protocol error.
+      return {
+        isError: true,
+        kinds: [],
+        text: error instanceof Error ? error.message : String(error),
+      };
+    }
+  };
+  // The terminal's window, once the driver lists it, before anything watches or acts on it: on a
+  // busy machine it can come later than the driver, the service and the computer.
+  const listed = /window_id=(\d+) pid=(\d+) "screen-test"/;
+  await until(
+    async () => {
+      out.apps = await call("apps");
+      return listed.test(out.apps.text);
+    },
+    () => `the terminal's window, in ${JSON.stringify(out.apps)}`,
+  );
+
   // The person's live view of the screen: what a socket is sent, and what one at operate does.
   const socket = async (mode) => {
     const ws = new WebSocket((await computer.liveSession("screen", mode)).url);
@@ -125,39 +166,8 @@ try {
     };
   });
 
-  const client = new Client({ name: "screen-run", version: "1" });
-  await client.connect(
-    new StreamableHTTPClientTransport(new URL(info.endpoints.screen), {
-      requestInit: { headers: { Authorization: `Bearer ${computer.getMcpToken()}` } },
-    }),
-  );
-  const call = async (name, args = {}) => {
-    try {
-      const { content, isError, structuredContent } = await client.callTool({
-        name,
-        arguments: args,
-      });
-      return {
-        isError: !!isError,
-        structured: structuredContent,
-        kinds: content.map((one) => one.type),
-        text: content
-          .filter((one) => one.type === "text")
-          .map((one) => one.text)
-          .join("\n"),
-      };
-    } catch (error) {
-      // Input the tool's schema refuses comes back as a protocol error.
-      return {
-        isError: true,
-        kinds: [],
-        text: error instanceof Error ? error.message : String(error),
-      };
-    }
-  };
   out.tools = (await client.listTools()).tools.map((one) => one.name).sort();
   out.see = await call("see");
-  out.apps = await call("apps");
   // Switched off by the person, the agent's next call is refused; on again, it is answered.
   const setScreen = (on) =>
     fetch(`${url}/v1/setup/screen`, {
@@ -169,7 +179,7 @@ try {
   out.switchedOff = await call("apps");
   await setScreen(true);
   out.switchedOn = await call("apps");
-  const [, windowId, pid] = /window_id=(\d+) pid=(\d+) "screen-test"/.exec(out.apps.text) ?? [];
+  const [, windowId, pid] = listed.exec(out.apps.text) ?? [];
   const term = { pid: Number(pid), window_id: Number(windowId) };
   // The terminal window: typing into it in the background is refused here, where nothing can
   // deliver keys without the focus; in the foreground it is typed, and enter runs it.
@@ -182,7 +192,11 @@ try {
     key: "enter",
     delivery_mode: "foreground",
   });
-  await until(() => existsSync("/tmp/screen-ok"), "the command typed on the screen");
+  await until(
+    () => existsSync("/tmp/screen-ok"),
+    () =>
+      `the command typed on the screen: typed ${JSON.stringify(out.typed)}, enter ${JSON.stringify(out.pressed)}`,
+  );
   out.ran = readFileSync("/tmp/screen-ok", "utf8");
   out.window = await call("see", term);
   // What act refuses before the driver is asked: a key it doesn't know, keys with nowhere to go.
