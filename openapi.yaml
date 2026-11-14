@@ -331,14 +331,17 @@ components:
         browser:
           type: boolean
           default: false
-          description: Whether it has a headless browser of its own. With access none, it must.
+          description: >-
+            Whether it has a headless browser of its own. With access none, it must, or have the
+            screen.
         screen:
           type: boolean
           default: false
           description: >-
             Whether its agent has the machine's screen: to see it, act on it and bring apps
             forward, through Cua Driver, which the person installs and grants Screen Recording and
-            Accessibility once. Refused with 409 where `info` says the screen isn't ready.
+            Accessibility once. It acts as the person, whatever `access` says. Refused with 409
+            where `info` says the screen isn't ready.
         workspace:
           type: string
           maxLength: 4096
@@ -365,7 +368,7 @@ components:
         screen:
           type: [string, "null"]
           description: >-
-            The screen, for this computer attached with it: its tools are see, act and apps.
+            The screen endpoint, or null when this computer was attached without `screen`.
     Computer:
       type: object
       required:
@@ -411,7 +414,7 @@ components:
         screen:
           {
             type: boolean,
-            description: "Whether its agent has the screen: only this computer can.",
+            description: "Whether its agent has the screen: only this computer can have one.",
           }
         workspace: { type: [string, "null"] }
         startedAt: { type: string, format: date-time, description: When it last started. }

@@ -86,7 +86,17 @@ async function setup(
   const start = async () => {
     child = spawn(
       process.execPath,
-      [CLI, "serve", "--listen", "127.0.0.1:0", "--data", data, ...extra],
+      [
+        CLI,
+        "serve",
+        "--listen",
+        "127.0.0.1:0",
+        "--data",
+        data,
+        "--screen-driver",
+        "/nonexistent/cua-driver",
+        ...extra,
+      ],
       {
         env: { PATH: process.env.PATH ?? "", HOME: root, SHELL: "/bin/bash", ...env },
         stdio: ["ignore", "pipe", "inherit"],

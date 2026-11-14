@@ -26,7 +26,7 @@ That gives an agent this computer instead: the machine the service runs on, whol
 Each computer is this computer, attached with `attach`, or one made in a container of its own with `create`. A container needs Docker on the service's machine. The service follows your `DOCKER_HOST` or current context and never changes them, and comes up without Docker.
 
 - **`info` says what the service offers**, each part ready or not and why, in a line a person reads:
-  - `thisComputer`: its capabilities (`about`, `terminal`, `files` and `screen`) and the browsers that can go with it. The screen is ready where Cua Driver is installed and granted; see below.
+  - `thisComputer`: its capabilities (`about`, `terminal`, `files` and `screen`) and the browsers that can go with it. The screen is ready where Cua Driver is installed and granted.
   - `made`, each kind it makes: today a container, ready while Docker answers, with its capabilities and browsers.
 - **A container is refused with 409 where Docker doesn't answer:** `A container needs Docker, which isn't answering on this machine.` One already made isn't started there, and isn't killed there either, since its container couldn't be removed: both are refused with the same words, and it is kept.
 - **A computer with no isolation is no longer made.** `create --isolation none` is refused with 400, and `attach` is what does that now.
@@ -38,12 +38,12 @@ This computer:
 - **`--workspace`, which `attach` needs, is its work folder.** Commands and relative paths start there, and `about` names it. But its files reach the whole machine, as whoever started the service, and so do its commands at `--access terminal`.
 - **`kill` detaches it.** What the service kept for it goes, and nothing of the machine's.
 - **Its browser,** with `--browser`, is a headless one with a profile of its own. It runs the Chrome installed on the machine, or what `serve --browser-name` or `--browser-path` names. `info` says whether that program is there.
-- **Its screen,** with `--screen` (`screen: true`), is the machine's own, through [Cua Driver](https://github.com/trycua/cua/tree/main/libs/cua-driver). Its agent gets a `screen` endpoint with three tools:
+- **Its screen,** with `--screen` (`screen: true`), is the machine's own, through [Cua Driver](https://github.com/trycua/cua/tree/main/libs/cua-driver). It acts as the person, whatever `--access` says: its agent can type into any window, a terminal's too. Its agent gets a `screen` endpoint with three tools, and none of the driver's others:
   - `see`: the whole screen as a picture with its windows, or one window's elements, each with a reference, and a picture of it;
   - `act`: one thing on the screen (click, double or right click, drag, scroll, type, a key or keys together), aimed at an element's reference or at a point in the picture just seen. It acts in the background by default, without moving the person's pointer or taking their focus. Where that can't be done it is refused, and `delivery_mode: "foreground"` brings the window forward and acts there.
   - `apps`: the running apps and their windows, and bringing one forward.
-
-  None of the driver's other tools is offered. The person installs Cua Driver once, the signed app from cua.ai/download, and on macOS grants it Screen Recording and Accessibility once. AgentComputer never installs or ships it, and never installs its optional perception extension, which is AGPL. `info` says whether the screen is ready, at Cua Driver 0.49.7 or later, and if not, what to do; attaching with it is refused with 409 until then. `serve --screen-driver PATH` names the program; otherwise it is `cua-driver` on the path, in `~/.local/bin`, or inside `/Applications/CuaDriver.app`. What the service starts of Cua Driver sends no telemetry; the person's own Cua Driver app follows its own setting, which `cua-driver telemetry disable` turns off.
+- **The person installs Cua Driver once,** the signed app from cua.ai/download, and on macOS grants it Screen Recording and Accessibility once. AgentComputer never installs or ships it, nor its optional perception extension, which is AGPL. `info` says whether the screen is ready, at Cua Driver 0.49.7 or later, and if not, what to do; attaching with it is refused with 409 until then. `serve --screen-driver PATH` names the program; otherwise it is `cua-driver` on the path, in `~/.local/bin`, or inside `/Applications/CuaDriver.app`.
+- **What the service starts of Cua Driver sends no telemetry.** The person's own Cua Driver app follows its own setting, which `cua-driver telemetry disable` turns off.
 
 **Upgrading from 0.0.18 or earlier:**
 

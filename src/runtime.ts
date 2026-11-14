@@ -155,6 +155,17 @@ export class ProcessRuntime implements Runtime {
   readonly #contained: boolean;
   /** Cua Driver, where it was named; otherwise it is looked for. */
   readonly #screenDriver: string | undefined;
+  /**
+   * Whether the screen can be reached, as last checked. Asking the driver can take seconds, which
+   * `info` doesn't wait for: it is checked when the service starts, again when it is more than 10 s
+   * old and someone asks, and afresh at every start of a computer with the screen.
+   */
+  #screen: { ready: boolean; reason?: string; at: number } = {
+    ready: false,
+    reason: "Cua Driver is being looked for.",
+    at: 0,
+  };
+  #checking: Promise<{ ready: boolean; reason?: string }> | undefined;
   /** Who acts on this machine's files: shared by the computers attached to it. */
   readonly #machine: Board | undefined;
 
@@ -167,7 +178,24 @@ export class ProcessRuntime implements Runtime {
     this.#config = config;
     this.#contained = contained;
     this.#screenDriver = screenDriver;
+    if (!contained) void this.#checkScreen();
     this.#machine = contained ? undefined : new Board();
+  }
+
+  #checkScreen() {
+    this.#checking ??= screenReadiness(this.#screenDriver).then((ready) => {
+      this.#screen = { ...ready, at: Date.now() };
+      this.#checking = undefined;
+      return ready;
+    });
+    return this.#checking;
+  }
+
+  /** The screen's readiness as last checked, starting another check where that is old. */
+  #screenNow() {
+    if (Date.now() - this.#screen.at > 10_000) void this.#checkScreen();
+    const { at: _, ...ready } = this.#screen;
+    return ready;
   }
 
   async offer(): Promise<Offer> {
@@ -177,7 +205,7 @@ export class ProcessRuntime implements Runtime {
         { capability: "about", ready: true },
         { capability: "terminal", ready: true },
         { capability: "files", ready: true },
-        { capability: "screen", ...(await screenReadiness(this.#screenDriver)) },
+        { capability: "screen", ...this.#screenNow() },
       ],
       browsers: [{ kind: "headless", ...browserProgram(this.#config) }],
     };
@@ -195,7 +223,7 @@ export class ProcessRuntime implements Runtime {
     const presence = new Presence(
       spec.id,
       spec.name,
-      spec.access === "none" ? undefined : this.#machine,
+      spec.access === "none" && !spec.screen ? undefined : this.#machine,
     );
     let exec: AgentExec | undefined;
     if (spec.access !== "none") {
@@ -261,12 +289,18 @@ export class ProcessRuntime implements Runtime {
     let screen: Screen | undefined;
     let screenDown = false;
     if (spec.screen) {
-      const ready = await screenReadiness(this.#screenDriver);
+      // Asked afresh, not as last seen: it is what this start rests on.
+      const ready = await this.#checkScreen();
       screen = ready.ready
-        ? new Screen(driverProgram(this.#screenDriver) as string, events.log, () => {
-            screenDown = true;
-            events.failed("Cua Driver stopped.");
-          })
+        ? new Screen(
+            driverProgram(this.#screenDriver) as string,
+            events.log,
+            () => {
+              screenDown = true;
+              events.failed("Cua Driver stopped.");
+            },
+            () => presence.agentCalled({ capability: "screen" }),
+          )
         : undefined;
       try {
         if (!screen) throw new ApiError(409, ready.reason ?? "The screen isn't ready.");
@@ -275,7 +309,6 @@ export class ProcessRuntime implements Runtime {
         await Promise.all([exec?.close(), browser?.stop(), screen?.stop()]);
         throw error;
       }
-      screen.noted = () => presence.agentCalled({ capability: "screen" });
     }
     let browserLive: BrowserLive | undefined;
     if (browser) {

@@ -382,7 +382,13 @@ export class Computer {
     const { connection, body } = requestOf(opts);
     const attached = answered(
       await apiOf(connection).POST("/v1/computers/attach", {
-        body: { ...body, workspace: opts.workspace, screen: opts.screen ?? false },
+        // Only when asked for: a service from before the screen refuses what it doesn't know, so
+        // the body leaves out the default the generated type would have it carry.
+        body: {
+          ...body,
+          workspace: opts.workspace,
+          ...(opts.screen ? { screen: true } : {}),
+        } as Schemas["AttachComputer"],
       }),
     );
     return new Computer(connection, attached, attached.accessToken);

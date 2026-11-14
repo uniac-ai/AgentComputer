@@ -71,15 +71,24 @@ try {
     }),
   );
   const call = async (name, args = {}) => {
-    const { content, isError } = await client.callTool({ name, arguments: args });
-    return {
-      isError: !!isError,
-      kinds: content.map((one) => one.type),
-      text: content
-        .filter((one) => one.type === "text")
-        .map((one) => one.text)
-        .join("\n"),
-    };
+    try {
+      const { content, isError } = await client.callTool({ name, arguments: args });
+      return {
+        isError: !!isError,
+        kinds: content.map((one) => one.type),
+        text: content
+          .filter((one) => one.type === "text")
+          .map((one) => one.text)
+          .join("\n"),
+      };
+    } catch (error) {
+      // Input the tool's schema refuses comes back as a protocol error.
+      return {
+        isError: true,
+        kinds: [],
+        text: error instanceof Error ? error.message : String(error),
+      };
+    }
   };
   out.tools = (await client.listTools()).tools.map((one) => one.name).sort();
   out.see = await call("see");
@@ -97,11 +106,23 @@ try {
     key: "enter",
     delivery_mode: "foreground",
   });
-  await until(() => existsSync("/tmp/screen-ok"), "the command typed on the screen").catch(
-    () => {},
-  );
-  out.ran = existsSync("/tmp/screen-ok") ? readFileSync("/tmp/screen-ok", "utf8") : null;
+  await until(() => existsSync("/tmp/screen-ok"), "the command typed on the screen");
+  out.ran = readFileSync("/tmp/screen-ok", "utf8");
   out.window = await call("see", term);
+  // What act refuses before the driver is asked: a key it doesn't know, keys with nowhere to go.
+  out.unknownKey = await call("act", { action: "click", element: "s0:0" });
+  out.noTarget = await call("act", { action: "type", text: "x" });
+  out.halfWindow = await call("act", { action: "click", pid: term.pid, x: 5, y: 5 });
+  // The rest of what act does, in the foreground as this display needs, and bringing it forward.
+  const fore = { ...term, delivery_mode: "foreground" };
+  out.click = await call("act", { action: "click", ...fore, x: 20, y: 20 });
+  out.double = await call("act", { action: "double_click", ...fore, x: 20, y: 20 });
+  out.right = await call("act", { action: "right_click", ...fore, x: 20, y: 20 });
+  await call("act", { action: "key", ...fore, key: "escape" });
+  out.scroll = await call("act", { action: "scroll", ...fore, x: 20, y: 20, direction: "down" });
+  out.hotkey = await call("act", { action: "hotkey", ...fore, keys: ["ctrl", "l"] });
+  out.drag = await call("act", { action: "drag", ...fore, x: 20, y: 20, to_x: 60, to_y: 40 });
+  out.front = await call("apps", term);
   // Another computer attached to the machine, without the screen, sees the agent on it.
   const other = await Computer.attach({ ...to, access: "read", workspace, name: "Helper" });
   const otherInfo = await other.getInfo();

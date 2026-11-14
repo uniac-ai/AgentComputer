@@ -37,7 +37,17 @@ async function setup(t: test.TestContext, extra: string[]) {
   mkdirSync(workspace);
   const child: ChildProcess = spawn(
     process.execPath,
-    [join(dist, "agentcomputer.js"), "serve", "--listen", "127.0.0.1:0", "--data", data, ...extra],
+    [
+      join(dist, "agentcomputer.js"),
+      "serve",
+      "--listen",
+      "127.0.0.1:0",
+      "--data",
+      data,
+      "--screen-driver",
+      "/nonexistent/cua-driver",
+      ...extra,
+    ],
     {
       env: {
         PATH: process.env.PATH ?? "",

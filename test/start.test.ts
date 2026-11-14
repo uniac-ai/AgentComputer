@@ -21,7 +21,8 @@ const CLI = join(here, "..", "..", "dist", "agentcomputer.js");
 const { version } = JSON.parse(readFileSync(join(here, "..", "..", "package.json"), "utf8")) as {
   version: string;
 };
-const anyPort = ["--listen", "127.0.0.1:0"];
+// A driver that isn't there, so that no Cua Driver on the machine running this is asked.
+const anyPort = ["--listen", "127.0.0.1:0", "--screen-driver", "/nonexistent/cua-driver"];
 
 /** A data folder of the test's own, and the program run on it. */
 function setup(t: test.TestContext) {

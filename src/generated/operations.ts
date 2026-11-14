@@ -585,12 +585,12 @@ export const OPENAPI = {
           "browser": {
             "type": "boolean",
             "default": false,
-            "description": "Whether it has a headless browser of its own. With access none, it must."
+            "description": "Whether it has a headless browser of its own. With access none, it must, or have the screen."
           },
           "screen": {
             "type": "boolean",
             "default": false,
-            "description": "Whether its agent has the machine's screen: to see it, act on it and bring apps forward, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. Refused with 409 where `info` says the screen isn't ready."
+            "description": "Whether its agent has the machine's screen: to see it, act on it and bring apps forward, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. It acts as the person, whatever `access` says. Refused with 409 where `info` says the screen isn't ready."
           },
           "workspace": {
             "type": "string",
@@ -641,7 +641,7 @@ export const OPENAPI = {
               "string",
               "null"
             ],
-            "description": "The screen, for this computer attached with it: its tools are see, act and apps."
+            "description": "The screen endpoint, or null when this computer was attached without `screen`."
           }
         }
       },
@@ -696,7 +696,7 @@ export const OPENAPI = {
           },
           "screen": {
             "type": "boolean",
-            "description": "Whether its agent has the screen: only this computer can."
+            "description": "Whether its agent has the screen: only this computer can have one."
           },
           "workspace": {
             "type": [
@@ -2446,7 +2446,7 @@ export const OPERATIONS: Operation[] = [
           },
           "screen": {
             "type": "boolean",
-            "description": "Whether its agent has the screen: only this computer can."
+            "description": "Whether its agent has the screen: only this computer can have one."
           },
           "workspace": {
             "type": [
@@ -2504,7 +2504,7 @@ export const OPERATIONS: Operation[] = [
                   "string",
                   "null"
                 ],
-                "description": "The screen, for this computer attached with it: its tools are see, act and apps."
+                "description": "The screen endpoint, or null when this computer was attached without `screen`."
               }
             }
           }
@@ -2654,7 +2654,7 @@ export const OPERATIONS: Operation[] = [
             },
             "screen": {
               "type": "boolean",
-              "description": "Whether its agent has the screen: only this computer can."
+              "description": "Whether its agent has the screen: only this computer can have one."
             },
             "workspace": {
               "type": [
@@ -2712,7 +2712,7 @@ export const OPERATIONS: Operation[] = [
                     "string",
                     "null"
                   ],
-                  "description": "The screen, for this computer attached with it: its tools are see, act and apps."
+                  "description": "The screen endpoint, or null when this computer was attached without `screen`."
                 }
               }
             }
@@ -2766,12 +2766,12 @@ export const OPERATIONS: Operation[] = [
         "browser": {
           "type": "boolean",
           "default": false,
-          "description": "Whether it has a headless browser of its own. With access none, it must."
+          "description": "Whether it has a headless browser of its own. With access none, it must, or have the screen."
         },
         "screen": {
           "type": "boolean",
           "default": false,
-          "description": "Whether its agent has the machine's screen: to see it, act on it and bring apps forward, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. Refused with 409 where `info` says the screen isn't ready."
+          "description": "Whether its agent has the machine's screen: to see it, act on it and bring apps forward, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. It acts as the person, whatever `access` says. Refused with 409 where `info` says the screen isn't ready."
         },
         "workspace": {
           "type": "string",
@@ -2868,7 +2868,7 @@ export const OPERATIONS: Operation[] = [
             },
             "screen": {
               "type": "boolean",
-              "description": "Whether its agent has the screen: only this computer can."
+              "description": "Whether its agent has the screen: only this computer can have one."
             },
             "workspace": {
               "type": [
@@ -2926,7 +2926,7 @@ export const OPERATIONS: Operation[] = [
                     "string",
                     "null"
                   ],
-                  "description": "The screen, for this computer attached with it: its tools are see, act and apps."
+                  "description": "The screen endpoint, or null when this computer was attached without `screen`."
                 }
               }
             }
@@ -3044,7 +3044,7 @@ export const OPERATIONS: Operation[] = [
             },
             "screen": {
               "type": "boolean",
-              "description": "Whether its agent has the screen: only this computer can."
+              "description": "Whether its agent has the screen: only this computer can have one."
             },
             "workspace": {
               "type": [
@@ -3102,7 +3102,7 @@ export const OPERATIONS: Operation[] = [
                     "string",
                     "null"
                   ],
-                  "description": "The screen, for this computer attached with it: its tools are see, act and apps."
+                  "description": "The screen endpoint, or null when this computer was attached without `screen`."
                 }
               }
             }
@@ -3319,7 +3319,7 @@ export const OPERATIONS: Operation[] = [
         },
         "screen": {
           "type": "boolean",
-          "description": "Whether its agent has the screen: only this computer can."
+          "description": "Whether its agent has the screen: only this computer can have one."
         },
         "workspace": {
           "type": [
@@ -3377,7 +3377,7 @@ export const OPERATIONS: Operation[] = [
                 "string",
                 "null"
               ],
-              "description": "The screen, for this computer attached with it: its tools are see, act and apps."
+              "description": "The screen endpoint, or null when this computer was attached without `screen`."
             }
           }
         }
@@ -3479,7 +3479,7 @@ export const OPERATIONS: Operation[] = [
         },
         "screen": {
           "type": "boolean",
-          "description": "Whether its agent has the screen: only this computer can."
+          "description": "Whether its agent has the screen: only this computer can have one."
         },
         "workspace": {
           "type": [
@@ -3537,7 +3537,7 @@ export const OPERATIONS: Operation[] = [
                 "string",
                 "null"
               ],
-              "description": "The screen, for this computer attached with it: its tools are see, act and apps."
+              "description": "The screen endpoint, or null when this computer was attached without `screen`."
             }
           }
         }
@@ -3644,7 +3644,7 @@ export const OPERATIONS: Operation[] = [
         },
         "screen": {
           "type": "boolean",
-          "description": "Whether its agent has the screen: only this computer can."
+          "description": "Whether its agent has the screen: only this computer can have one."
         },
         "workspace": {
           "type": [
@@ -3702,7 +3702,7 @@ export const OPERATIONS: Operation[] = [
                 "string",
                 "null"
               ],
-              "description": "The screen, for this computer attached with it: its tools are see, act and apps."
+              "description": "The screen endpoint, or null when this computer was attached without `screen`."
             }
           }
         }

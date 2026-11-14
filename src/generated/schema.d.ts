@@ -235,12 +235,12 @@ export interface components {
             name?: string;
             access: components["schemas"]["Access"];
             /**
-             * @description Whether it has a headless browser of its own. With access none, it must.
+             * @description Whether it has a headless browser of its own. With access none, it must, or have the screen.
              * @default false
              */
             browser: boolean;
             /**
-             * @description Whether its agent has the machine's screen: to see it, act on it and bring apps forward, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. Refused with 409 where `info` says the screen isn't ready.
+             * @description Whether its agent has the machine's screen: to see it, act on it and bring apps forward, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. It acts as the person, whatever `access` says. Refused with 409 where `info` says the screen isn't ready.
              * @default false
              */
             screen: boolean;
@@ -260,7 +260,7 @@ export interface components {
             computer: string | null;
             /** @description The browser. */
             browser: string | null;
-            /** @description The screen, for this computer attached with it: its tools are see, act and apps. */
+            /** @description The screen endpoint, or null when this computer was attached without `screen`. */
             screen: string | null;
         };
         Computer: {
@@ -275,7 +275,7 @@ export interface components {
             /** @description The version of the program it ran at its last start. For this computer it is the service's `version` (see `getInfo`). In a container it is the version inside its image, and null for a container made before 0.0.17, which doesn't say, until it is made again. It is kept from its last start, so a stopped computer's can be older than the service's until it starts. Compare it with the service's to show that a computer runs an older program. */
             version: string | null;
             browser: boolean;
-            /** @description Whether its agent has the screen: only this computer can. */
+            /** @description Whether its agent has the screen: only this computer can have one. */
             screen: boolean;
             workspace: string | null;
             /**
