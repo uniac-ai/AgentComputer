@@ -273,6 +273,8 @@ try {
     watch.ws.close();
     operate.ws.close();
   });
+  // The computer's log, where the driver's own words go.
+  out.logs = (await computer.getLogs()).map((one) => one.line);
   await client.close();
   await computer.kill();
   await other.kill();

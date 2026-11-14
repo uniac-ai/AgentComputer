@@ -347,6 +347,7 @@ type Ran = Record<string, Answer> & {
   watchTyped: boolean;
   operated: unknown[];
   aboutAfter: unknown;
+  logs: string[];
   tools: string[];
   about: unknown;
   other: unknown;
@@ -502,6 +503,12 @@ describe("in a desktop of its own, with the pinned driver", {
     assert.deepEqual(out.operated, [{ type: "size", width: 1280, height: 800 }, refused, refused]);
   });
 
+  // It can fail only where the driver reaches its releases, which is where it would tell.
+  test("no update notice of the driver's reaches the computer's log", () => {
+    assert.ok(out.logs.length > 0);
+    assert.ok(!out.logs.some((line) => /is available \(you have/.test(line)), out.logs.join("\n"));
+  });
+
   test("the agent is told the person used the screen, in its next answer there and in about", () => {
     assert.match(done(out.personLine), /\nThe person used the screen \d+ s ago\.$/);
     assert.deepEqual(out.aboutAfter, [
@@ -533,5 +540,6 @@ describe("with the pinned driver run embedded, as an app hosting it runs it", {
     assert.equal(out.ran, "screen-ok\n");
     assert.deepEqual(out.watched.frames, ["PNG"]);
     assert.equal(out.liveRan, "live-ok\n");
+    assert.ok(!out.logs.some((line) => /is available \(you have/.test(line)), out.logs.join("\n"));
   });
 });

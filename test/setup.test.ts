@@ -53,6 +53,7 @@ const machine = (platform: NodeJS.Platform, home: string, onRun?: () => void, fa
     },
     start: async (program, args, env) => {
       assert.equal(env.DO_NOT_TRACK, "1");
+      assert.equal(env.CUA_DRIVER_RS_UPDATE_CHECK, "false");
       ran.push([program, args]);
     },
   };
@@ -248,7 +249,20 @@ test("turning the screen on starts the driver's app through the system, then its
   await new Setup(switches, { program: driver }, undefined, mac.stands).set("screen", true);
   assert.equal(switches.on("screen"), true);
   assert.deepEqual(mac.ran, [
-    ["/usr/bin/open", ["-g", "-a", app, "--env", "DO_NOT_TRACK=1", "--args", "serve"]],
+    [
+      "/usr/bin/open",
+      [
+        "-g",
+        "-a",
+        app,
+        "--env",
+        "DO_NOT_TRACK=1",
+        "--env",
+        "CUA_DRIVER_RS_UPDATE_CHECK=false",
+        "--args",
+        "serve",
+      ],
+    ],
     [driver, ["permissions", "grant"]],
   ]);
   // On again, while its app answers: only the grant.

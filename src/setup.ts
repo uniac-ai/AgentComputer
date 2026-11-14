@@ -12,7 +12,7 @@ import { promisify } from "node:util";
 import type { components } from "./generated/schema.js";
 import { browsers, here, reachedAt, type Where } from "./own-browser.ts";
 import { ApiError } from "./runtime.ts";
-import { type DriverAt, driverGrants, findDriver, quiet, screenCheck } from "./screen.ts";
+import { type DriverAt, driverGrants, findDriver, QUIET, quiet, screenCheck } from "./screen.ts";
 import { SWITCHES, type Switch, type Switches } from "./switches.ts";
 
 type Schemas = components["schemas"];
@@ -225,7 +225,7 @@ export class Setup {
   /**
    * Cua Driver's own grant, with its app running first, started through the system so that the
    * Mac names CuaDriver in what it asks, not whatever started the service. It asks in its own
-   * order, Accessibility first. Neither sends telemetry.
+   * order, Accessibility first. Neither sends telemetry nor checks for updates.
    */
   async #askScreen(driver: DriverAt) {
     const answers = async () => (await driverGrants(driver)).accessibility !== undefined;
@@ -236,8 +236,7 @@ export class Setup {
         "-g",
         "-a",
         app.app,
-        "--env",
-        "DO_NOT_TRACK=1",
+        ...Object.entries(QUIET).flatMap(([name, value]) => ["--env", `${name}=${value}`]),
         "--args",
         "serve",
       ]);
