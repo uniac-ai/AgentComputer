@@ -67,9 +67,14 @@ paths:
     put:
       operationId: setSetup
       summary: >-
-        Set a part's switch, which lasts across restarts. Turning it on, or on again, also asks
-        for everything the part is missing, as asking for it with no need named does. Where that
-        couldn't be started, it answers 409, saying why, and the switch stays on.
+        Set a part's switch, which lasts across restarts. Turning it on, or on again, makes only the
+        requests that show nothing, on the service's machine, macOS only: from macOS 26, Screen
+        Recording's for an app hosting Cua Driver, while it is missing, which lists the app in its
+        pane. Nothing that shows an alert or a window comes from the switch: Accessibility's alert,
+        Cua Driver's own grant window and a browser's inspect page each come from ask with that
+        need, on the person's click. Before macOS 26 Screen Recording's request is taken to draw
+        an alert, so it waits for ask too; that is untested. Where a request it makes couldn't be
+        started, it answers 409, saying why, and the switch stays on.
       requestBody:
         required: true
         content:
@@ -82,13 +87,13 @@ paths:
                 "on": { type: boolean }
       responses:
         "200":
-          description: Set, and its steps started.
+          description: Set, and any request it makes started.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Setup" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409":
-          description: On, but the steps that ask for what it needs couldn't be started.
+          description: On, but a request it makes couldn't be started.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -101,19 +106,22 @@ paths:
     post:
       operationId: askSetup
       summary: >-
-        Ask the person, on the service's machine, macOS only, for one thing a part needs, or, with
-        none named, for everything it is missing. screen-recording or accessibility, while it is
-        missing: Cua Driver's own grant, its app started first, which makes the system's requests in
-        its own order, Accessibility first. For a driver an app hosts, the app asks, for that grant
-        alone, in its own way. The service opens no pane of System Settings: the person opens one
-        with settings. macOS shows each request once: once it has been answered, asking again shows
-        nothing and answers the same, so a client offers settings while a grant stays not-granted.
-        chrome or edge:
-        that browser opens at its inspect page, where remote debugging is switched on. With none
-        named, the screen's grant while either is missing, and the first browser installed, Chrome
-        before Edge, while none is on. It answers once the steps have started, with each part
-        then; what the person does next is read afresh later. A browser the service was given only
-        the folder of, the person opens. Elsewhere it asks for nothing.
+        Ask the person, on the service's machine, macOS only, for one thing a part needs, for a
+        button they press for it. screen-recording or accessibility, while it is missing: for a
+        driver an app hosts, the app makes macOS's request each time, so that macOS asks again
+        whenever it would, such as after a reset of the app's privacy entries. That grant's pane of
+        System Settings opens as well, a second later, except at the first request the service has
+        made, for that app's bundle identifier, of a grant whose request may draw an alert:
+        accessibility, and screen-recording before macOS 26. macOS draws that alert until it has
+        been answered, and the alert's own button opens the pane; after a reset, the alert and the
+        pane both come. From macOS 26 Screen Recording's request draws nothing, so its pane opens
+        each time. For Cua Driver's own app, while it is missing: its own grant, its app started
+        first, which makes the system's requests in its own order, Accessibility first, in a window
+        of its own. chrome or edge: that browser opens at its inspect page, where remote debugging
+        is switched on. With none named, it makes only what turning the part on makes. It answers
+        once the steps have started, with each part then; what the person does next is read afresh
+        later. A browser the service was given only the folder of, the person opens. Elsewhere it
+        asks for nothing.
       requestBody:
         content:
           application/json:
@@ -132,7 +140,8 @@ paths:
         "409":
           description: >-
             The part doesn't need that here, or what it needs can't be asked for, such as a
-            browser that isn't installed, or the steps couldn't be started.
+            browser that isn't installed, or the steps couldn't be started, or, once macOS's
+            request was made, the grant's pane couldn't be opened.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -149,7 +158,8 @@ paths:
         macOS only, for the person to switch it there: screen-recording or accessibility, that
         grant's pane under Privacy & Security, whether it is missing or not. macOS lists an app
         there once it has asked, so this follows ask. It is for the person's own choice, such as a
-        button they press: the service opens a pane nowhere else. Where an app hosts the driver, it
+        button they press: the service opens a pane only here and from ask, each on the person's
+        click. Where an app hosts the driver, it
         is that app that sees the change and starts its driver again. It answers once the pane is
         asked to open, with each part then. Elsewhere it answers 409.
       requestBody:

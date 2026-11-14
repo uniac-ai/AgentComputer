@@ -43,6 +43,8 @@ const WHAT: Record<Switch, string> = {
 };
 
 export class Switches {
+  /** The service's own folder, where they are kept. */
+  readonly folder: string;
   readonly #file: string;
   readonly #lend: boolean;
   /** Only those the person set: the rest take the default of the way the service was started. */
@@ -50,6 +52,7 @@ export class Switches {
 
   /** `folder` is the service's own; `lend`, whether it only lends its machine. */
   constructor(folder: string, lend: boolean) {
+    this.folder = folder;
     this.#file = join(folder, "switches.json");
     this.#lend = lend;
     this.#set = existsSync(this.#file) ? kept(this.#file) : {};

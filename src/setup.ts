@@ -4,15 +4,18 @@
 // window, wherever it is drawn, only shows them. The terminal and the files need nothing: on
 // macOS the Mac asks folder by folder. The screen needs Cua Driver, and Screen Recording and
 // Accessibility for the app whose grants it uses, its own or the app hosting it; the browser needs
-// remote debugging on. Only macOS asks.
+// remote debugging on. Only macOS asks. Nothing that shows an alert or a window comes from a
+// switch: each comes from asking for that one need, on the person's click.
 import { execFile, spawn } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { release } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import type { components } from "./generated/schema.js";
 import { browsers, here, reachedAt, type Where } from "./own-browser.ts";
 import { ApiError } from "./runtime.ts";
 import { type DriverAt, driverGrants, findDriver, QUIET, quiet, screenCheck } from "./screen.ts";
+import { writePrivate } from "./store.ts";
 import { SWITCHES, type Switch, type Switches } from "./switches.ts";
 
 type Schemas = components["schemas"];
@@ -25,6 +28,8 @@ type Granted = "granted" | "not-granted" | "unknown";
  * except where a test stands in.
  */
 export interface Machine extends Where {
+  /** The kernel's release, as `uname -r` gives it: on a Mac, Darwin's, 25 for macOS 26. */
+  release: string;
   /** Run a program to its end; it fails with what the program said. */
   run(program: string, args: string[]): Promise<void>;
   /** Start a program, and let it run on by itself. */
@@ -34,6 +39,7 @@ export interface Machine extends Where {
 const exec = promisify(execFile);
 const thisMachine = (): Machine => ({
   ...here(),
+  release: release(),
   run: async (program, args) => {
     try {
       await exec(program, args, { timeout: 30_000 });
@@ -60,6 +66,13 @@ const thisMachine = (): Machine => ({
 const IN_APP = /^(.*?\/[^/]+\.app)\/Contents\/(MacOS\/[^/]+$)?/;
 /** How long the driver's app has to start answering before its grant runs anyway. */
 const APP_MS = 10_000;
+/**
+ * How long after an app's request its grant's pane opens: the app is started through the system,
+ * makes the request, and macOS writes its row in the pane some 40 ms later.
+ */
+const PANE_MS = 1_000;
+/** Darwin's release from which Screen Recording's request draws nothing: macOS 26. */
+const SILENT_FROM = 25;
 
 /** One string in an app's Info.plist, where it has it. */
 async function infoValue(app: string, key: string) {
@@ -98,6 +111,46 @@ const PANE: Partial<Record<NeedName, string>> = {
   accessibility: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
 };
 
+/**
+ * The macOS requests made through an app hosting the driver, for each grant whose request may draw
+ * an alert, by the app's bundle identifier, kept in the service's folder beside the switches. macOS
+ * draws that alert until the person has answered it once; a new identity is a new key.
+ */
+class Made {
+  readonly #file: string;
+  readonly #made: Record<string, string[]>;
+
+  constructor(folder: string) {
+    this.#file = join(folder, "requests.json");
+    this.#made = {};
+    try {
+      const read: unknown = existsSync(this.#file)
+        ? JSON.parse(readFileSync(this.#file, "utf8"))
+        : {};
+      if (read && typeof read === "object" && !Array.isArray(read))
+        for (const [app, needs] of Object.entries(read))
+          if (Array.isArray(needs) && needs.every((need) => typeof need === "string"))
+            this.#made[app] = needs;
+    } catch {
+      // Unreadable, it is empty: a first request again is the request alone.
+    }
+  }
+
+  has(app: string, need: NeedName) {
+    return this.#made[app]?.includes(need) ?? false;
+  }
+
+  add(app: string, need: NeedName) {
+    if (this.has(app, need)) return;
+    this.#made[app] = [...(this.#made[app] ?? []), need];
+    try {
+      writePrivate(this.#file, JSON.stringify(this.#made));
+    } catch {
+      // Kept until the service stops: after a restart, its next request is taken as its first.
+    }
+  }
+}
+
 /** A part: whether it has all it needs, and each thing it needs. */
 type Part = { ready: boolean; needs: Need[] };
 /** The terminal's and the files': nothing. */
@@ -108,6 +161,7 @@ export class Setup {
   readonly #driver: Partial<DriverAt>;
   readonly #browserData: string | undefined;
   readonly #machine: Machine;
+  readonly #made: Made;
 
   /** `driver` and `browserData` are as `serve` names them: Cua Driver, and the browser's folder. */
   constructor(
@@ -120,6 +174,7 @@ export class Setup {
     this.#driver = driver;
     this.#browserData = browserData;
     this.#machine = machine;
+    this.#made = new Made(switches.folder);
   }
 
   /** Each part, its switch, whether it has all it needs, and each thing it needs. */
@@ -173,14 +228,14 @@ export class Setup {
   }
 
   /**
-   * Set a part's switch. Turning it on, or on again, asks for everything it is missing; the switch
-   * stays on whether or not that could be started.
+   * Set a part's switch. Turning it on, or on again, makes only the requests that show nothing; the
+   * switch stays on whether or not they could be started.
    */
   async set(capability: Switch, on: boolean): Promise<Schemas["Setup"]> {
     this.#switches.set(capability, on);
     if (on)
       try {
-        await this.#ask(capability);
+        await this.#quietly(capability);
       } catch (error) {
         throw new ApiError(
           409,
@@ -190,10 +245,13 @@ export class Setup {
     return this.capabilities();
   }
 
-  /** Ask for one thing a part needs, or, with none named, for everything it is missing. */
+  /**
+   * Ask for one thing a part needs, on the person's click; with none named, only what turning the
+   * part on makes.
+   */
   async ask(capability: Switch, need?: NeedName): Promise<Schemas["Setup"]> {
     try {
-      await this.#ask(capability, need);
+      await (need ? this.#ask(capability, need) : this.#quietly(capability));
     } catch (error) {
       throw new ApiError(409, (error as Error).message);
     }
@@ -202,7 +260,7 @@ export class Setup {
 
   /**
    * Open the pane of System Settings for one thing a part needs, whether it is missing or not: for
-   * the person's own choice, as nothing else opens one.
+   * the person's own choice, as only this and asking, each on their click, open one.
    */
   async settings(capability: Switch, need: NeedName): Promise<Schemas["Setup"]> {
     try {
@@ -224,22 +282,42 @@ export class Setup {
     return needs;
   }
 
-  /** Only macOS asks: elsewhere there is nothing to ask the person for. No pane opens. */
-  async #ask(capability: Switch, need?: NeedName) {
+  /**
+   * Whether macOS's request for a grant draws nothing: Screen Recording's, from macOS 26, where it
+   * only lists the app in its pane. Before 26 it is commonly seen to draw an alert, so it is taken
+   * as one; that is untested.
+   */
+  #silent(need: NeedName) {
+    return need === "screen-recording" && Number.parseInt(this.#machine.release, 10) >= SILENT_FROM;
+  }
+
+  /**
+   * What turning a part on asks for: only the requests that show nothing, so that nothing appears
+   * at a switch. For an app hosting the driver, Screen Recording's while it is missing, where its
+   * request draws nothing. Accessibility's alert, Cua Driver's own grant window and a browser's
+   * inspect page each wait for the person's click on that need. Only macOS asks.
+   */
+  async #quietly(capability: Switch) {
+    if (capability !== "screen" || this.#machine.platform !== "darwin") return;
+    const driver = findDriver(this.#driver);
+    if (!driver?.socket || !this.#silent("screen-recording")) return;
+    const needs = await this.#needs(capability);
+    if (needs.some((one) => one.need === "screen-recording" && one.state !== "granted"))
+      await this.#request(driver, "screen-recording");
+  }
+
+  /** Ask for one thing a part needs, on the person's click. Only macOS asks. */
+  async #ask(capability: Switch, need: NeedName) {
     const needs = await this.#needs(capability, need);
     if (this.#machine.platform !== "darwin") return;
     if (capability === "screen") {
       const driver = findDriver(this.#driver);
       if (!driver) throw new Error("Cua Driver isn't installed on this machine.");
-      // What is missing of what was asked for: a grant already given is only shown.
-      const asked = needs
-        .filter((one) => one.state !== "granted" && (!need || one.need === need))
-        .map((one) => one.need);
-      if (asked.length > 0)
-        await (driver.socket ? this.#askHost(driver, asked) : this.#askScreen(driver));
+      // A grant already given is only shown.
+      if (needs.some((one) => one.need === need && one.state === "granted")) return;
+      await (driver.socket ? this.#askHost(driver, need) : this.#askScreen(driver));
     }
-    if (capability === "browser" && (need || !needs.some((one) => one.state === "on")))
-      await this.#askBrowser(need);
+    if (capability === "browser") await this.#askBrowser(need);
   }
 
   /**
@@ -267,39 +345,58 @@ export class Setup {
   }
 
   /**
-   * The grants of the app hosting the driver, which the driver can't ask for: the app asks, opened
-   * through the system so that what it asks is its own, whatever started the service, with
-   * `grant` and each grant to ask for, in turn.
+   * A grant of the app hosting the driver, which the driver can't ask for, on the person's click.
+   * The app makes macOS's request each time, so macOS asks again whenever it would, such as after a
+   * reset of the app's privacy entries. The grant's pane opens as well, once the app's row is
+   * written there, except at the first request of one whose request may draw an alert: macOS draws
+   * it until the person has answered it once, and its own button opens the pane.
    */
-  async #askHost(driver: DriverAt, asked: NeedName[]) {
+  async #askHost(driver: DriverAt, need: NeedName) {
+    const host = await this.#request(driver, need);
+    if (!this.#silent(need)) {
+      const app = (await infoValue(host.app, "CFBundleIdentifier")) ?? host.app;
+      const first = !this.#made.has(app, need);
+      this.#made.add(app, need);
+      if (first) return;
+    }
+    await this.#pane(need);
+  }
+
+  /** A grant's pane, once the request just made has had its row written there. */
+  async #pane(need: NeedName) {
+    const pane = PANE[need];
+    if (!pane) return;
+    await sleep(PANE_MS);
+    try {
+      await this.#machine.run("/usr/bin/open", [pane]);
+    } catch (error) {
+      throw new Error(
+        `macOS's request was made, but its pane didn't open: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * macOS's request for a grant of the app hosting the driver: the app makes it, opened through the
+   * system so that it is the app's own, whatever started the service, with `grant` and the grant.
+   */
+  async #request(driver: DriverAt, need: NeedName) {
     const host = await driverApp(driver.program);
     if (!host)
       throw new Error(
         "The app running Cua Driver can't be told from here: the driver isn't inside it.",
       );
-    await this.#machine.run("/usr/bin/open", [
-      "-n",
-      "-g",
-      "-a",
-      host.app,
-      "--args",
-      "grant",
-      ...asked,
-    ]);
+    await this.#machine.run("/usr/bin/open", ["-n", "-g", "-a", host.app, "--args", "grant", need]);
+    return host;
   }
 
   /**
-   * The browser asked for, or else the first this can open, Chrome before Edge, opened at its
-   * inspect page, where remote debugging is switched on. One the service was given only the folder
-   * of, the person opens themselves.
+   * The browser asked for, opened at its inspect page, where remote debugging is switched on. One
+   * the service was given only the folder of, the person opens themselves.
    */
-  async #askBrowser(need?: NeedName) {
-    const each = browsers(this.#browserData, this.#machine);
-    const one = each.find((kind) => (need ? kind.browser === need : kind.at));
-    if (!one) {
-      if (each.some((kind) => kind.installed)) return;
-      throw new Error("Neither Chrome nor Edge is installed on this machine.");
-    }
+  async #askBrowser(need: NeedName) {
+    const one = browsers(this.#browserData, this.#machine).find((kind) => kind.browser === need);
+    if (!one) return;
     if (!one.installed) throw new Error(`${one.name} isn't installed on this machine.`);
     if (!one.at)
       throw new Error(
