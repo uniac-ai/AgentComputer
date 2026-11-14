@@ -1,6 +1,6 @@
 {
   "name": "@agentorg/computer",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "description": "Computers for agents, as a service: a terminal, files and a browser over MCP",
   "license": "Apache-2.0",
   "repository": {
@@ -21,6 +21,9 @@
     "dist/THIRD_PARTY_LICENSES.txt",
     "NOTICE"
   ],
+  "publishConfig": {
+    "tag": "next"
+  },
   "scripts": {
     "generate": "node scripts/generate.js",
     "build": "tsc -p tsconfig.json && node scripts/bundle.js",
