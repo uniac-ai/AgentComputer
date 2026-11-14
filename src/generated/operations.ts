@@ -1955,7 +1955,7 @@ export const OPENAPI = {
           },
           "thisComputer": {
             "$ref": "#/components/schemas/Offer",
-            "description": "This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready: where the service listens on loopback with no proxy in front. A service that other machines can reach is a server, and doesn't offer the machine it runs on; one attached before is refused at start there."
+            "description": "This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready: only where the service listens on loopback, with no proxy in front and no public address. Elsewhere it isn't offered, and one attached before is refused at start."
           },
           "made": {
             "type": "array",
@@ -2120,7 +2120,7 @@ export const OPERATIONS: Operation[] = [
               }
             }
           ],
-          "description": "This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready: where the service listens on loopback with no proxy in front. A service that other machines can reach is a server, and doesn't offer the machine it runs on; one attached before is refused at start there."
+          "description": "This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready: only where the service listens on loopback, with no proxy in front and no public address. Elsewhere it isn't offered, and one attached before is refused at start."
         },
         "made": {
           "type": "array",

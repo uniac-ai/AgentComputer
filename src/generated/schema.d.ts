@@ -623,7 +623,7 @@ export interface components {
         };
         ServiceInfo: {
             version: string;
-            /** @description This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready: where the service listens on loopback with no proxy in front. A service that other machines can reach is a server, and doesn't offer the machine it runs on; one attached before is refused at start there. */
+            /** @description This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready: only where the service listens on loopback, with no proxy in front and no public address. Elsewhere it isn't offered, and one attached before is refused at start. */
             thisComputer: components["schemas"]["Offer"];
             /** @description Each kind of computer it makes, ready while it can be made now. A container is ready while Docker answers on the service's machine: asked for a second here and for ten when one is made, so one that is slow can be not ready here and still be made. */
             made: components["schemas"]["MadeKind"][];
