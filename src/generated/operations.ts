@@ -824,7 +824,7 @@ export const OPENAPI = {
           "screen": {
             "type": "boolean",
             "default": false,
-            "description": "Whether its agent has the machine's screen: to see it, act on it and bring apps forward, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. It acts as the person, whatever `access` says. Refused with 409 where `info` says the screen isn't ready."
+            "description": "Whether its agent has the machine's screen: to see it and act on it, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. It acts as the person, whatever `access` says. Refused with 409 where `info` says the screen isn't ready."
           },
           "workspace": {
             "type": "string",
@@ -3904,7 +3904,7 @@ export const OPERATIONS: Operation[] = [
         "screen": {
           "type": "boolean",
           "default": false,
-          "description": "Whether its agent has the machine's screen: to see it, act on it and bring apps forward, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. It acts as the person, whatever `access` says. Refused with 409 where `info` says the screen isn't ready."
+          "description": "Whether its agent has the machine's screen: to see it and act on it, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. It acts as the person, whatever `access` says. Refused with 409 where `info` says the screen isn't ready."
         },
         "workspace": {
           "type": "string",
