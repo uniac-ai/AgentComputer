@@ -408,8 +408,8 @@ describe("in a desktop of its own, with the pinned driver", {
     assert.ok(out.window?.kinds.includes("image"));
     assert.match(done(out.apps), /window_id=\d+ pid=\d+ "screen-test"/);
     // Each window's fields, to aim with: the terminal's among them.
-    const { windows } = out.apps?.structured as { windows: Record<string, unknown>[] };
-    const terminal = windows.find((one) => one.title === "screen-test");
+    const listed = out.apps?.structured as { windows?: Record<string, unknown>[] } | undefined;
+    const terminal = listed?.windows?.find((one) => one.title === "screen-test");
     assert.deepEqual(Object.keys(terminal ?? {}).sort(), [
       "app_name",
       "bounds",
