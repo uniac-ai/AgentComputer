@@ -18,9 +18,10 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
   serve [--listen HOST:PORT] [--image IMAGE]
         [--tls-cert FILE --tls-key FILE | --tls-proxy] [--public-url URL] [--allow-origin ORIGIN]...
         [--browser-name NAME] [--browser-path PATH] [--screen-driver PATH]
-        [--own-browser-data DIR]
+        [--own-browser-data DIR] [--lend]
                                     run the service; 127.0.0.1:7878 by default, and
-                                    anywhere else only with TLS
+                                    anywhere else only with TLS; with --lend, it lends
+                                    this machine and makes no computers
   up [the options of serve]         run the service in the background and return once it
                                     answers, printing where; one running is left as it is
   down                              stop the service, and its computers with it
@@ -88,6 +89,7 @@ async function main() {
       listen: { type: "string" },
       isolation: { type: "string" },
       image: { type: "string" },
+      lend: { type: "boolean" },
       "tls-cert": { type: "string" },
       "tls-key": { type: "string" },
       "tls-proxy": { type: "boolean" },
@@ -174,7 +176,10 @@ async function main() {
           values["screen-driver"],
           values["own-browser-data"],
         ),
-        container: new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`),
+        // Lending this machine only, it makes no computers.
+        ...(values.lend
+          ? {}
+          : { container: new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`) }),
       },
     });
   }

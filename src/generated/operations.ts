@@ -44,6 +44,51 @@ export const OPENAPI = {
         }
       }
     },
+    "/v1/connection": {
+      "get": {
+        "operationId": "getConnection",
+        "summary": "Who is connected to the service: each client that holds a WebSocket open at this same path, with the control token in its Authorization header and its name as `?name=`. It carries nothing either way, and one that stops answering the service's pings is dropped.",
+        "responses": {
+          "200": {
+            "description": "Who is connected.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connection"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/acting": {
+      "get": {
+        "operationId": "getActing",
+        "summary": "Who is acting now on the computers attached to this machine, all of them at once: each one, on what, and when they last acted there, the most recent first, as each computer's presence surface has it. A computer in a container isn't included: its own presence surface has it.",
+        "responses": {
+          "200": {
+            "description": "Who is acting now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Acting"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
     "/v1/computers": {
       "get": {
         "operationId": "listComputers",
@@ -196,6 +241,16 @@ export const OPENAPI = {
           },
           "404": {
             "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "description": "It can't be removed here: a container while Docker doesn't answer, or one made before under a service that now only lends this machine.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -1716,6 +1771,45 @@ export const OPENAPI = {
           }
         }
       },
+      "Connection": {
+        "type": "object",
+        "required": [
+          "connected",
+          "clients"
+        ],
+        "properties": {
+          "connected": {
+            "type": "boolean",
+            "description": "Whether any client holds a connection now."
+          },
+          "clients": {
+            "type": "array",
+            "description": "Each client holding one, the earliest first.",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "since",
+                "local"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The name it gave, its first 100 characters, or empty: such as AgentOrg 0.0.15."
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "local": {
+                  "type": "boolean",
+                  "description": "Whether it connects from this machine, by the address it connects from. False behind --tls-proxy, where every client comes from the proxy."
+                }
+              }
+            }
+          }
+        }
+      },
       "Acting": {
         "description": "Someone who acted on a computer in the last 10 seconds. The person acts in a live view at operate: opening a shell, typing into or stopping a terminal, writing a file, any input to the browser but moving the pointer, or any input to the screen that Cua Driver did. Watching is not acting, and the person's own use of the screen, outside a live view, can't be seen. The agent acts by calling its endpoints: starting a command or typing into one (waiting on its output is not acting), any file tool, reads among them, any browser tool that is answered, and any screen tool. Computers attached to the same machine share its files and its screen: each is shown the person and the other computers' agents acting on them, by name.",
         "type": "object",
@@ -2550,6 +2644,123 @@ export const OPERATIONS: Operation[] = [
                 }
               }
             ]
+          }
+        }
+      }
+    },
+    "websocket": false
+  },
+  {
+    "operationId": "getConnection",
+    "method": "GET",
+    "path": "/v1/connection",
+    "summary": "Who is connected to the service: each client that holds a WebSocket open at this same path, with the control token in its Authorization header and its name as `?name=`. It carries nothing either way, and one that stops answering the service's pings is dropped.",
+    "status": 200,
+    "hasBody": false,
+    "pathParameters": [],
+    "queryParameters": [],
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "output": {
+      "type": "object",
+      "required": [
+        "connected",
+        "clients"
+      ],
+      "properties": {
+        "connected": {
+          "type": "boolean",
+          "description": "Whether any client holds a connection now."
+        },
+        "clients": {
+          "type": "array",
+          "description": "Each client holding one, the earliest first.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "since",
+              "local"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "The name it gave, its first 100 characters, or empty: such as AgentOrg 0.0.15."
+              },
+              "since": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "local": {
+                "type": "boolean",
+                "description": "Whether it connects from this machine, by the address it connects from. False behind --tls-proxy, where every client comes from the proxy."
+              }
+            }
+          }
+        }
+      }
+    },
+    "websocket": false
+  },
+  {
+    "operationId": "getActing",
+    "method": "GET",
+    "path": "/v1/acting",
+    "summary": "Who is acting now on the computers attached to this machine, all of them at once: each one, on what, and when they last acted there, the most recent first, as each computer's presence surface has it. A computer in a container isn't included: its own presence surface has it.",
+    "status": 200,
+    "hasBody": false,
+    "pathParameters": [],
+    "queryParameters": [],
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "output": {
+      "type": "array",
+      "items": {
+        "description": "Someone who acted on a computer in the last 10 seconds. The person acts in a live view at operate: opening a shell, typing into or stopping a terminal, writing a file, any input to the browser but moving the pointer, or any input to the screen that Cua Driver did. Watching is not acting, and the person's own use of the screen, outside a live view, can't be seen. The agent acts by calling its endpoints: starting a command or typing into one (waiting on its output is not acting), any file tool, reads among them, any browser tool that is answered, and any screen tool. Computers attached to the same machine share its files and its screen: each is shown the person and the other computers' agents acting on them, by name.",
+        "type": "object",
+        "required": [
+          "who",
+          "capability",
+          "at"
+        ],
+        "properties": {
+          "who": {
+            "type": "string",
+            "enum": [
+              "person",
+              "agent"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "The agent's name",
+            "which is its computer's.": null
+          },
+          "capability": {
+            "type": "string",
+            "enum": [
+              "terminal",
+              "files",
+              "browser",
+              "screen"
+            ]
+          },
+          "terminal": {
+            "type": "string",
+            "description": "Which terminal, by its id; only for a terminal."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it last acted there, as of this message: one who goes on acting is sent again only when someone starts or stops."
           }
         }
       }

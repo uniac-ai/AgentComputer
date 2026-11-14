@@ -1,6 +1,7 @@
 // The operations openapi.yaml defines, one function each. A new operation doesn't compile until it
 // has one here, and both the HTTP API and the MCP control tools call these.
 import type { Computers } from "./computers.ts";
+import type { Connections } from "./connection.ts";
 import type { operations } from "./generated/schema.js";
 import { ApiError } from "./runtime.ts";
 
@@ -20,9 +21,11 @@ type Handlers = {
 
 export const VERSION = "0.0.19";
 
-export function createHandlers(computers: Computers): Handlers {
+export function createHandlers(computers: Computers, connections: Connections): Handlers {
   return {
     getInfo: async () => ({ version: VERSION, ...(await computers.offers()) }),
+    getConnection: async () => connections.state(),
+    getActing: async () => computers.acting(),
     listComputers: async ({ state }) => computers.list(state),
     createComputer: (input) => computers.create(input),
     attachComputer: (input) => computers.attach(input),
