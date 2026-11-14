@@ -58,6 +58,10 @@ This computer:
   - Once a grant changes, the app restarts its driver, which reads grants once. That ends the connections of computers using the screen, which then say Cua Driver has stopped.
 - **What the service starts of Cua Driver sends no telemetry and checks for no updates,** so no update notice reaches a computer's log. The person's own Cua Driver app follows its own settings: `cua-driver telemetry disable` turns its telemetry off.
 
+**Upgrading from 0.0.20:**
+
+- **Commands on this computer no longer get the service's own `AGENTCOMPUTER_` variables,** such as `AGENTCOMPUTER_API_KEY` where the shell that started the service held it. A command that read one should be given what it needs another way.
+
 **Upgrading from 0.0.19:**
 
 - **A computer's `browser` can be `"own"`,** for this computer attached with the person's own browser, where it was only `true` or `false`. At run time this breaks only for such a computer, in a client that reads `browser` as a boolean: `browser === true` takes it for a computer with no browser, and a strict schema that expects a boolean refuses it. At build time it breaks TypeScript code that puts `browser` into a `boolean`, whatever the computer, as the SDK's type is now `boolean | "own"`. Test it as truthy to know whether a computer has a browser.

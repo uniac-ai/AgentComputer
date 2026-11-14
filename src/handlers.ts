@@ -20,7 +20,7 @@ type Handlers = {
   [K in keyof operations]: (input: Input<K>) => Promise<Success<operations[K]["responses"]>>;
 };
 
-export const VERSION = "0.0.20";
+export const VERSION = "0.0.21";
 
 export function createHandlers(
   computers: Computers,
