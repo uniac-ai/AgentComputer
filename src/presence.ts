@@ -1,7 +1,7 @@
 // Who has acted on what of a computer lately: the person, through a live view at operate, and its
 // agent, through its endpoints. It is kept only to be shown, to each of them: nothing is refused
-// by it, and nothing rests on who did a thing. This computer's files are the machine's, so every
-// computer attached to it shares one board for them, and each sees the person and the others'
+// by it, and nothing rests on who did a thing. Computers attached to the same machine share its
+// files, so they share one board for them, and each is shown the person and the other computers'
 // agents acting there.
 import type { components } from "./generated/schema.js";
 
@@ -18,20 +18,6 @@ export type Where =
 /** Who acted: the person, or an agent, by its computer's id and name. */
 type Actor = { who: "person" } | { who: "agent"; id: string; name: string };
 
-/** What every computer attached to the machine shares. The screen joins it once it is reached. */
-const MACHINE: ReadonlySet<Where["capability"]> = new Set(["files"]);
-
-/** How a person and an agent read where it was. */
-const named = (where: Where) =>
-  where.capability === "terminal" ? `terminal ${where.terminal}` : `the ${where.capability}`;
-const actorKey = (actor: Actor) => (actor.who === "person" ? "person" : `agent ${actor.id}`);
-const PERSON_DID: Record<Where["capability"], string> = {
-  terminal: "used this terminal",
-  files: "wrote a file here",
-  browser: "used the browser",
-};
-const ofActor = (actor: Actor) => (actor.who === "person" ? "The person" : actor.name);
-
 interface Entry {
   actor: Actor;
   where: Where;
@@ -39,32 +25,53 @@ interface Entry {
   timer: NodeJS.Timeout;
 }
 
+/** How a person and an agent read where it was. */
+const named = (where: Where) =>
+  where.capability === "terminal" ? `terminal ${where.terminal}` : `the ${where.capability}`;
+const actorKey = (actor: Actor) => (actor.who === "person" ? "person" : `agent ${actor.id}`);
+const label = (actor: Actor) => (actor.who === "person" ? "The person" : actor.name);
+const DID: Record<Where["capability"], string> = {
+  terminal: "used this terminal",
+  files: "wrote a file here",
+  browser: "used the browser",
+};
+/** What one did there, as the agent is told it. */
+const did = (actor: Actor, where: Where) =>
+  `${label(actor)} ${actor.who === "person" ? DID[where.capability] : `used ${named(where)} here`}`;
+
 /** Who last acted on what, until 10 s after, and the way to hear each start and stop. */
 export class Board {
-  readonly entries = new Map<string, Entry>();
+  readonly #entries = new Map<string, Entry>();
   readonly #listeners = new Set<() => void>();
 
   acted(actor: Actor, where: Where) {
     const key = `${actorKey(actor)} ${named(where)}`;
-    const before = this.entries.get(key);
+    const before = this.#entries.get(key);
     clearTimeout(before?.timer);
     const timer = setTimeout(() => {
-      this.entries.delete(key);
+      this.#entries.delete(key);
       this.#changed();
     }, ACTING_MS);
     timer.unref();
-    this.entries.set(key, { actor, where, at: Date.now(), timer });
+    this.#entries.set(key, { actor, where, at: Date.now(), timer });
     if (!before) this.#changed();
   }
 
+  list() {
+    return [...this.#entries.values()];
+  }
+
+  /** Hear each change. Returns the way to stop. */
   onChange(listener: () => void) {
     this.#listeners.add(listener);
-    return () => this.#listeners.delete(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
   }
 
   close() {
-    for (const { timer } of this.entries.values()) clearTimeout(timer);
-    this.entries.clear();
+    for (const { timer } of this.#entries.values()) clearTimeout(timer);
+    this.#entries.clear();
     this.#listeners.clear();
   }
 
@@ -78,38 +85,22 @@ export class Board {
   }
 }
 
-/** One computer's presence: its own board, and the machine's where it is attached to it. */
+/** One computer's presence: its own board, and the machine's for the files where it shares them. */
 export class Presence {
   readonly #agent: Actor;
   readonly #own = new Board();
   readonly #machine: Board | undefined;
   /** When the agent last called on each thing, while that can still matter. */
   readonly #called = new Map<string, number>();
-  readonly #listeners = new Set<() => void>();
-  readonly #unhear: () => void;
 
   /** `id` and `name` are its computer's; `machine` is the board of the machine it is attached to. */
   constructor(id: string, name: string, machine?: Board) {
     this.#agent = { who: "agent", id, name };
     this.#machine = machine;
-    const changed = () => {
-      for (const listener of this.#listeners)
-        try {
-          listener();
-        } catch {
-          // A listener that fails doesn't stop the others.
-        }
-    };
-    const unhearOwn = this.#own.onChange(changed);
-    const unhearMachine = machine?.onChange(changed);
-    this.#unhear = () => {
-      unhearOwn();
-      unhearMachine?.();
-    };
   }
 
   #board(where: Where) {
-    return this.#machine && MACHINE.has(where.capability) ? this.#machine : this.#own;
+    return this.#machine && where.capability === "files" ? this.#machine : this.#own;
   }
 
   /** Someone acted: the person, or this computer's agent. */
@@ -130,63 +121,59 @@ export class Presence {
     for (const [one, when] of this.#called) if (at - when > ACTING_MS) this.#called.delete(one);
     this.#called.set(key, at);
     if (acts) this.acted("agent", where);
-    // Each of them, the most recent first: the board keeps one entry for each one and thing.
-    const others = [...this.#board(where).entries.values()]
-      .filter(
-        (one) =>
-          named(one.where) === key &&
-          actorKey(one.actor) !== actorKey(this.#agent) &&
-          (since === undefined || one.at > since),
-      )
-      .sort((a, b) => b.at - a.at)
-      .map(({ actor, at: when }) => {
-        const did = actor.who === "person" ? PERSON_DID[where.capability] : `used ${key} here`;
-        return `${ofActor(actor)} ${did} ${Math.max(1, Math.round((at - when) / 1000))} s ago.`;
-      });
-    return others.length > 0 ? others.join(" ") : undefined;
+    const told = this.#others()
+      .filter((one) => named(one.where) === key && (since === undefined || one.at > since))
+      .map(
+        (one) => `${did(one.actor, where)} ${Math.max(1, Math.round((at - one.at) / 1000))} s ago.`,
+      );
+    return told.length > 0 ? told.join(" ") : undefined;
   }
 
   /** Who is acting now, on what, the most recent first. */
   acting(): Acting[] {
-    return this.#entries()
-      .sort((a, b) => b.at - a.at)
-      .map(({ actor, where, at }) => ({
-        who: actor.who,
-        ...(actor.who === "agent" ? { name: actor.name } : {}),
-        ...where,
-        at: new Date(at).toISOString(),
-      }));
+    return this.#all().map(({ actor, where, at }) => ({
+      who: actor.who,
+      ...(actor.who === "agent" ? { name: actor.name } : {}),
+      ...where,
+      at: new Date(at).toISOString(),
+    }));
   }
 
-  /** Who else is acting now, as `about` tells the agent: each one, and on what. */
+  /** Who else is acting now, as `about` tells the agent: each one, and on what, the most recent first. */
   othersForAbout() {
     const others = new Map<string, { actor: Actor; on: string[] }>();
-    for (const { actor, where } of this.#entries()) {
-      if (actorKey(actor) === actorKey(this.#agent)) continue;
+    for (const { actor, where } of this.#others()) {
       const one = others.get(actorKey(actor)) ?? { actor, on: [] };
       one.on.push(named(where));
       others.set(actorKey(actor), one);
     }
     if (others.size === 0) return "Nobody else";
     return [...others.values()]
-      .map(({ actor, on }) => `${ofActor(actor)}: ${on.join(", ")}`)
+      .map(({ actor, on }) => `${label(actor)}: ${on.join(", ")}`)
       .join("; ");
   }
 
-  /** Hear each change in who is acting, on this computer or on what it shares. */
+  /** Hear each change in who is acting, on this computer or on what it shares. Returns the way to stop. */
   onChange(listener: () => void) {
-    this.#listeners.add(listener);
-    return () => this.#listeners.delete(listener);
+    const own = this.#own.onChange(listener);
+    const machine = this.#machine?.onChange(listener);
+    return () => {
+      own();
+      machine?.();
+    };
   }
 
-  /** It stops: what it shares stays with the machine, to end in its own time. */
+  /** It stops: what it did on what it shares stays, to end in its own time. */
   close() {
-    this.#unhear();
     this.#own.close();
-    this.#listeners.clear();
   }
 
-  #entries() {
-    return [...this.#own.entries.values(), ...(this.#machine?.entries.values() ?? [])];
+  /** Everyone, on both boards, the most recent first. */
+  #all() {
+    return [...this.#own.list(), ...(this.#machine?.list() ?? [])].sort((a, b) => b.at - a.at);
+  }
+
+  #others() {
+    return this.#all().filter((one) => actorKey(one.actor) !== actorKey(this.#agent));
   }
 }

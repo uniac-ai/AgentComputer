@@ -1487,7 +1487,7 @@ export const OPENAPI = {
         }
       },
       "Acting": {
-        "description": "Someone who acted on a computer in the last 10 seconds. The person acts in a live view at operate: opening a shell, typing into or stopping a terminal, writing a file, or any input to the browser but moving the pointer. Watching is not acting. The agent acts by calling its endpoints: starting a command or typing into one (waiting on its output is not acting), any file tool, reads among them, and any browser tool that is answered. On this computer the files are the machine's, so each computer attached to it is shown the person and the other computers' agents acting on them too.",
+        "description": "Someone who acted on a computer in the last 10 seconds. The person acts in a live view at operate: opening a shell, typing into or stopping a terminal, writing a file, or any input to the browser but moving the pointer. Watching is not acting. The agent acts by calling its endpoints: starting a command or typing into one (waiting on its output is not acting), any file tool, reads among them, and any browser tool that is answered. Computers attached to the same machine share its files: each is shown the person and the other computers' agents acting on them, by name.",
         "type": "object",
         "required": [
           "who",
@@ -1504,7 +1504,8 @@ export const OPENAPI = {
           },
           "name": {
             "type": "string",
-            "description": "The agent's name, which is its computer's."
+            "description": "The agent's name",
+            "which is its computer's.": null
           },
           "capability": {
             "type": "string",

@@ -150,7 +150,7 @@ const FILE_TOOLS = new Set(["read", "list", "search", "edit"]);
 export class ProcessRuntime implements Runtime {
   readonly #config: BrowserConfig;
   readonly #contained: boolean;
-  /** This computer's own: who acts on what of it that every computer attached to it shares. */
+  /** Who acts on this machine's files: shared by the computers attached to it. */
   readonly #machine: Board | undefined;
 
   /**
@@ -185,7 +185,12 @@ export class ProcessRuntime implements Runtime {
 
   async start(spec: ComputerSpec, folder: string, events: RuntimeEvents): Promise<Running> {
     const load = new LoadLive(spec.workspace ?? folder, this.#contained);
-    const presence = new Presence(spec.id, spec.name, this.#machine);
+    // One with no files of its own has no part in the machine's.
+    const presence = new Presence(
+      spec.id,
+      spec.name,
+      spec.access === "none" ? undefined : this.#machine,
+    );
     let exec: AgentExec | undefined;
     if (spec.access !== "none") {
       const workspace = spec.workspace as string;
