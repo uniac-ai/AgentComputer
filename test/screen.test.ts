@@ -188,13 +188,14 @@ async function overStandIn(t: test.TestContext, onlyBackground: boolean) {
       content: { text?: string }[];
       structuredContent?: Record<string, unknown>;
     };
-  const act = (await client.listTools()).tools.find((one) => one.name === "act");
-  return { call, act };
+  const { tools } = await client.listTools();
+  const [act, apps] = ["act", "apps"].map((name) => tools.find((one) => one.name === name));
+  return { call, act, apps };
 }
 const window = { pid: 19249, window_id: 12895 };
 
 test("on a lent machine the agent acts only in the background, and is told so in plain words", async (t) => {
-  const { call, act } = await overStandIn(t, true);
+  const { call, act, apps } = await overStandIn(t, true);
   assert.equal("delivery_mode" in (act?.inputSchema.properties ?? {}), false);
   assert.match(act?.description ?? "", /always done in the background/);
   assert.doesNotMatch(act?.description ?? "", /foreground/);
@@ -235,11 +236,16 @@ test("on a lent machine the agent acts only in the background, and is told so in
     'Window "Prefs" (snapshot s1).\n- [3] AXCheckBox "Foreground colour"\n  - [4] AXStaticText "Use the foreground. Then save."',
   );
   assert.match((await call("apps", {})).content[1]?.text ?? "", /"foreground.txt"/);
+  // apps takes no window to bring forward: it would take the person's front app, and their typing.
+  assert.equal("pid" in (apps?.inputSchema.properties ?? {}), false);
+  assert.match(apps?.description ?? "", /brings no window forward/);
+  assert.equal((await call("apps", window)).isError, true);
 });
 
 test("an element that can't take a click says to aim at its point, and apps gives each window's fields", async (t) => {
-  const { call, act } = await overStandIn(t, false);
+  const { call, act, apps: appsTool } = await overStandIn(t, false);
   assert.equal("delivery_mode" in (act?.inputSchema.properties ?? {}), true);
+  assert.equal("pid" in (appsTool?.inputSchema.properties ?? {}), true);
   const refused = await call("act", { action: "click", element_token: "s1:7" });
   assert.equal(refused.isError, true);
   assert.deepEqual(

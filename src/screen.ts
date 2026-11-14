@@ -471,11 +471,15 @@ export class Screen extends Driver {
     server.registerTool(
       "apps",
       {
-        description:
-          "Lists the running apps and their windows, each window with its pid and window_id, and, as fields, each window's app_name, title, pid, window_id, z_index (higher in front) and bounds, in the screen's points rather than the pixels act aims in: to aim at a window, see it and use its picture. With a pid and window_id, it first brings that window forward, in front of what the person sees.",
-        inputSchema: Seen,
+        description: `Lists the running apps and their windows, each window with its pid and window_id, and, as fields, each window's app_name, title, pid, window_id, z_index (higher in front) and bounds, in the screen's points rather than the pixels act aims in: to aim at a window, see it and use its picture. ${
+          this.#onlyBackground
+            ? "It brings no window forward: see and act work on a window in the background, where it is."
+            : "With a pid and window_id, it first brings that window forward, in front of what the person sees."
+        }`,
+        // On a lent machine bringing a window forward would take the person's front app, and their typing with it.
+        inputSchema: this.#onlyBackground ? z.object({}).strict() : Seen,
       },
-      ({ pid, window_id }) =>
+      ({ pid, window_id }: z.infer<typeof Seen>) =>
         answered(async () => {
           if ((pid === undefined) !== (window_id === undefined))
             throw new ApiError(400, "A window is its pid and its window_id, from apps: give both.");
