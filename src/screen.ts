@@ -39,8 +39,11 @@ const DRIVER_TOOLS = [
 ];
 const INSTALL = "Install the signed app from cua.ai/download";
 
-/** The driver's environment: what this starts of it sends no telemetry. */
-export const quiet = (): NodeJS.ProcessEnv => ({ ...process.env, DO_NOT_TRACK: "1" });
+/** What every Cua Driver this starts is told: to send no telemetry, and to check for no updates. */
+export const QUIET = { DO_NOT_TRACK: "1", CUA_DRIVER_RS_UPDATE_CHECK: "false" };
+
+/** The driver's environment. */
+export const quiet = (): NodeJS.ProcessEnv => ({ ...process.env, ...QUIET });
 
 const program = (path: string) => {
   try {

@@ -56,7 +56,7 @@ This computer:
   - The grants are read from that driver, and listed under the outermost app the driver is inside.
   - Asked for, they are asked for by the app: the service opens it through the system with `--args grant` and each grant to ask for, `screen-recording` or `accessibility`, which it asks for in turn.
   - Once a grant changes, the app restarts its driver, which reads grants once. That ends the connections of computers using the screen, which then say Cua Driver has stopped.
-- **What the service starts of Cua Driver sends no telemetry.** The person's own Cua Driver app follows its own setting, which `cua-driver telemetry disable` turns off.
+- **What the service starts of Cua Driver sends no telemetry and checks for no updates,** so no update notice reaches a computer's log. The person's own Cua Driver app follows its own settings: `cua-driver telemetry disable` turns its telemetry off.
 
 **Upgrading from 0.0.19:**
 
