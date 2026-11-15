@@ -69,6 +69,7 @@ This computer:
 - **The person's click, drag or scroll in the screen's live view puts the machine's pointer back where it was.** Until now it was left at the point.
   - Where the pointer isn't put back, the computer's log says why, and a failed input's `refused` says so after Cua Driver's words. screen@1 itself is unchanged.
   - These inputs wait for an agent's input that moves the real pointer to finish, and such an input waits for them: an agent's click, drag or scroll at a point of the whole screen or in the foreground, on any machine.
+- **Where the screen's reason quotes Cua Driver, the socket an app runs it on is said in words,** "the app's socket", in place of its path. Where the driver on that socket isn't the app's own, the reason ends "the driver on the app's socket doesn't run inside that app". The computer's log keeps the driver's lines as they are.
 
 **Upgrading from 0.0.24:**
 
