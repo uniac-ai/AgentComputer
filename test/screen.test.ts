@@ -217,13 +217,11 @@ async function overStandIn(t: test.TestContext, onlyBackground: boolean) {
   const standIn = join(root, "test", "fixtures", "driver-stand-in.mjs");
   writeFileSync(program, `#!/bin/sh\nexec "${process.execPath}" "${standIn}" "$@"\n`);
   chmodSync(program, 0o755);
-  const none = () => undefined;
   const screen = new Screen(
-    { program },
+    () => ({ program }),
     () => {},
-    () => {},
-    none,
-    none,
+    () => undefined,
+    async () => undefined,
     onlyBackground,
   );
   t.after(() => screen.stop());

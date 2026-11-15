@@ -762,7 +762,7 @@ export const OPENAPI = {
           "stopped",
           "failed"
         ],
-        "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+        "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again. The screen fails none: a computer with the screen, brought back or started again while the screen can't be used, is running. Its screen's tools say why, in the switch's words or the screen's, and while the screen isn't ready its `screen` surface is `unavailable` with the same words; the next call after the screen can be used works, with no restart. Cua Driver stopping, as when an app hosting it starts it again for a grant, ends only the connection, which the next call makes again."
       },
       "Progress": {
         "type": "object",
@@ -884,7 +884,7 @@ export const OPENAPI = {
           "screen": {
             "type": "boolean",
             "default": false,
-            "description": "Whether its agent has the machine's screen: to see it and act on it, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. It acts as the person, whatever `access` says. Refused with 409 where `info` says the screen isn't ready."
+            "description": "Whether its agent has the machine's screen: to see it and act on it, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. It acts as the person, whatever `access` says. Refused with 409 where `info` says the screen isn't ready. Once attached, the computer doesn't rest on it: brought back or started again while the screen can't be used, it runs, and its screen's tools say why."
           },
           "workspace": {
             "type": "string",
@@ -3569,7 +3569,7 @@ export const OPERATIONS: Operation[] = [
             "stopped",
             "failed"
           ],
-          "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+          "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again. The screen fails none: a computer with the screen, brought back or started again while the screen can't be used, is running. Its screen's tools say why, in the switch's words or the screen's, and while the screen isn't ready its `screen` surface is `unavailable` with the same words; the next call after the screen can be used works, with no restart. Cua Driver stopping, as when an app hosting it starts it again for a grant, ends only the connection, which the next call makes again."
         }
       },
       "required": []
@@ -3611,7 +3611,7 @@ export const OPERATIONS: Operation[] = [
               "stopped",
               "failed"
             ],
-            "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+            "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again. The screen fails none: a computer with the screen, brought back or started again while the screen can't be used, is running. Its screen's tools say why, in the switch's words or the screen's, and while the screen isn't ready its `screen` surface is `unavailable` with the same words; the next call after the screen can be used works, with no restart. Cua Driver stopping, as when an app hosting it starts it again for a grant, ends only the connection, which the next call makes again."
           },
           "reason": {
             "type": [
@@ -3878,7 +3878,7 @@ export const OPERATIONS: Operation[] = [
                 "stopped",
                 "failed"
               ],
-              "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+              "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again. The screen fails none: a computer with the screen, brought back or started again while the screen can't be used, is running. Its screen's tools say why, in the switch's words or the screen's, and while the screen isn't ready its `screen` surface is `unavailable` with the same words; the next call after the screen can be used works, with no restart. Cua Driver stopping, as when an app hosting it starts it again for a grant, ends only the connection, which the next call makes again."
             },
             "reason": {
               "type": [
@@ -4095,7 +4095,7 @@ export const OPERATIONS: Operation[] = [
         "screen": {
           "type": "boolean",
           "default": false,
-          "description": "Whether its agent has the machine's screen: to see it and act on it, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. It acts as the person, whatever `access` says. Refused with 409 where `info` says the screen isn't ready."
+          "description": "Whether its agent has the machine's screen: to see it and act on it, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. It acts as the person, whatever `access` says. Refused with 409 where `info` says the screen isn't ready. Once attached, the computer doesn't rest on it: brought back or started again while the screen can't be used, it runs, and its screen's tools say why."
         },
         "workspace": {
           "type": "string",
@@ -4159,7 +4159,7 @@ export const OPERATIONS: Operation[] = [
                 "stopped",
                 "failed"
               ],
-              "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+              "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again. The screen fails none: a computer with the screen, brought back or started again while the screen can't be used, is running. Its screen's tools say why, in the switch's words or the screen's, and while the screen isn't ready its `screen` surface is `unavailable` with the same words; the next call after the screen can be used works, with no restart. Cua Driver stopping, as when an app hosting it starts it again for a grant, ends only the connection, which the next call makes again."
             },
             "reason": {
               "type": [
@@ -4394,7 +4394,7 @@ export const OPERATIONS: Operation[] = [
                 "stopped",
                 "failed"
               ],
-              "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+              "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again. The screen fails none: a computer with the screen, brought back or started again while the screen can't be used, is running. Its screen's tools say why, in the switch's words or the screen's, and while the screen isn't ready its `screen` surface is `unavailable` with the same words; the next call after the screen can be used works, with no restart. Cua Driver stopping, as when an app hosting it starts it again for a grant, ends only the connection, which the next call makes again."
             },
             "reason": {
               "type": [
@@ -4729,7 +4729,7 @@ export const OPERATIONS: Operation[] = [
             "stopped",
             "failed"
           ],
-          "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+          "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again. The screen fails none: a computer with the screen, brought back or started again while the screen can't be used, is running. Its screen's tools say why, in the switch's words or the screen's, and while the screen isn't ready its `screen` surface is `unavailable` with the same words; the next call after the screen can be used works, with no restart. Cua Driver stopping, as when an app hosting it starts it again for a grant, ends only the connection, which the next call makes again."
         },
         "reason": {
           "type": [
@@ -4948,7 +4948,7 @@ export const OPERATIONS: Operation[] = [
             "stopped",
             "failed"
           ],
-          "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+          "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again. The screen fails none: a computer with the screen, brought back or started again while the screen can't be used, is running. Its screen's tools say why, in the switch's words or the screen's, and while the screen isn't ready its `screen` surface is `unavailable` with the same words; the next call after the screen can be used works, with no restart. Cua Driver stopping, as when an app hosting it starts it again for a grant, ends only the connection, which the next call makes again."
         },
         "reason": {
           "type": [
@@ -5172,7 +5172,7 @@ export const OPERATIONS: Operation[] = [
             "stopped",
             "failed"
           ],
-          "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again."
+          "description": "starting: it is being made, started, or brought back as the service starts. Its `reason` says what it waits on, and its `progress` how far that has come, where it counts. Its endpoints and live sessions are refused with 409 and that `reason` until it is running. `create` and `start` answer once it is running, and it is listed meanwhile; `start` on one already starting answers at once. failed: it was to be running and isn't, because its browser or container ended by itself, or because it couldn't be brought back when the service started. Its `reason` says why, and its logs say more. Stop it and start it again. The screen fails none: a computer with the screen, brought back or started again while the screen can't be used, is running. Its screen's tools say why, in the switch's words or the screen's, and while the screen isn't ready its `screen` surface is `unavailable` with the same words; the next call after the screen can be used works, with no restart. Cua Driver stopping, as when an app hosting it starts it again for a grant, ends only the connection, which the next call makes again."
         },
         "reason": {
           "type": [

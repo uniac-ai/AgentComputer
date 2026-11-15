@@ -95,7 +95,8 @@ const said = (answer: Answer) =>
 
 export class ScreenLive {
   /** Where Cua Driver is. */
-  readonly #at: DriverAt;
+  /** Cua Driver as it is found at each connection. */
+  readonly #at: () => DriverAt;
   readonly #log: (line: string) => void;
   /** Heard each time a person acts on the screen. */
   readonly #acted: () => void;
@@ -108,7 +109,7 @@ export class ScreenLive {
   /** The last frame, kept until the picture changes. */
   #frame: Frame | undefined;
 
-  constructor(driver: DriverAt, log: (line: string) => void, acted: () => void) {
+  constructor(driver: () => DriverAt, log: (line: string) => void, acted: () => void) {
     this.#at = driver;
     this.#log = log;
     this.#acted = acted;
@@ -153,7 +154,7 @@ export class ScreenLive {
   /** The driver, connected once for everyone watching, and the frames it is taken for. */
   #begin() {
     if (this.#started) return this.#started;
-    const driver = new Driver(this.#at, this.#log, () => {
+    const driver = new Driver(this.#at(), this.#log, () => {
       if (this.#driver === driver) this.#leave(1011, "Cua Driver stopped.");
     });
     this.#driver = driver;

@@ -18,7 +18,7 @@ import { LoadLive } from "./load-live.ts";
 import { ownBrowser } from "./own-browser.ts";
 import { channelProgram, DEFAULT_CHANNEL, playwright } from "./playwright.ts";
 import { Board, Presence } from "./presence.ts";
-import { type DriverAt, Screen, screenCheck } from "./screen.ts";
+import { type DriverAt, findDriver, Screen, screenCheck } from "./screen.ts";
 import { ScreenLive } from "./screen-live.ts";
 import { privateFolder } from "./store.ts";
 import type { Switch, Switches } from "./switches.ts";
@@ -54,6 +54,12 @@ export interface ComputerSpec {
   browser: boolean | "own";
   /** Whether its agent has the machine's screen, which only this computer can. */
   screen?: boolean | undefined;
+  /**
+   * Whether it is started again, as when the service starts or it is started after a stop, rather
+   * than made or attached: one started again keeps its terminal, files and browser where its screen
+   * can't be used now.
+   */
+  again?: boolean | undefined;
   workspace?: string | undefined;
   /** Its workspace and its machine as they are outside, where this is inside a container. */
   outside?: { workspace?: string | undefined; machine?: string | undefined } | undefined;
@@ -257,6 +263,40 @@ export class ProcessRuntime implements Runtime {
     return ready;
   }
 
+  /**
+   * Why an agent's screen call is refused now: the person switched it off, or the screen wasn't
+   * ready at the last check. While it isn't, each call checks it afresh, so that a grant given is
+   * used at the next call; while it is, calls aren't held up by checks.
+   */
+  async #screenRefused(): Promise<string | undefined> {
+    const off = this.#switches?.refused("screen");
+    if (off) return off;
+    if (this.#screen.ready) return undefined;
+    const { readiness: now } = await this.#checkScreen();
+    return now.ready ? undefined : (now.reason ?? "The screen isn't ready.");
+  }
+
+  /**
+   * Why the screen can't be opened live now: it isn't ready, as the last check says, which is
+   * checked again meanwhile, for the next to read. The person's switch is for agents, and leaves
+   * the person's own live view alone.
+   */
+  #screenUnavailable(): string | undefined {
+    if (this.#screen.ready) return undefined;
+    void this.#checkScreen();
+    return this.#screen.reason ?? "The screen isn't ready.";
+  }
+
+  /** Cua Driver as it is found now: where it was named or found, or where it was to be. */
+  #driverNow(): DriverAt {
+    return (
+      findDriver(this.#screenDriver) ?? {
+        ...this.#screenDriver,
+        program: this.#screenDriver.program ?? "cua-driver",
+      }
+    );
+  }
+
   /** Why the agent can't call this tool now: the person switched off what it reaches. */
   #toolRefused(tool: string) {
     const which = TOOL_SWITCH[tool];
@@ -398,36 +438,42 @@ export class ProcessRuntime implements Runtime {
     // The screen is the machine's, through Cua Driver, which the person installed and granted.
     let screen: Screen | undefined;
     let screenLive: ScreenLive | undefined;
-    let screenDown = false;
     if (spec.screen) {
-      // Asked afresh, not as last seen: it is what this start rests on.
+      // Asked afresh, not as last seen: a new one rests on it.
       const { readiness: ready, driver } = await this.#checkScreen();
-      const refused = this.#switches?.refused("screen");
-      screen =
-        ready.ready && driver && !refused
-          ? new Screen(
-              driver,
-              events.log,
-              () => {
-                screenDown = true;
-                events.failed("Cua Driver stopped.");
-              },
-              () => presence.agentCalled({ capability: "screen" }),
-              () => this.#switches?.refused("screen"),
-              // On a lent machine the agent acts only in the background.
-              this.#switches?.lends ?? false,
-            )
-          : undefined;
-      try {
-        if (!screen) throw new ApiError(409, refused ?? ready.reason ?? "The screen isn't ready.");
-        await screen.ready();
-      } catch (error) {
-        await Promise.all([exec?.close(), browser?.stop(), screen?.stop()]);
-        throw error;
+      const why =
+        this.#switches?.refused("screen") ??
+        (ready.ready && driver ? undefined : (ready.reason ?? "The screen isn't ready."));
+      // One started again keeps its terminal, files and browser: its screen's tools say why
+      // they can't be used, and work once the screen can be, with no restart.
+      if (why && !spec.again) {
+        await Promise.all([exec?.close(), browser?.stop()]);
+        throw new ApiError(409, why);
       }
+      // Found again at each connection: one installed or moved meanwhile is reached.
+      const at = () => this.#driverNow();
+      screen = new Screen(
+        at,
+        events.log,
+        () => presence.agentCalled({ capability: "screen" }),
+        () => this.#screenRefused(),
+        // On a lent machine the agent acts only in the background.
+        this.#switches?.lends ?? false,
+      );
+      if (why) events.log(`It started without its screen, which its tools say: ${why}`);
+      else
+        try {
+          await screen.ready();
+        } catch (error) {
+          if (!spec.again) {
+            await Promise.all([exec?.close(), browser?.stop(), screen.stop()]);
+            throw error;
+          }
+          events.log(`Its screen connects at its next call: ${(error as Error).message}`);
+        }
       // The person's live view of it reaches the driver through a connection of its own.
       screenLive = new ScreenLive(
-        driver as DriverAt,
+        at,
         (line) => events.log(`Live view: ${line}`),
         () => presence.acted("person", { capability: "screen" }),
       );
@@ -456,22 +502,24 @@ export class ProcessRuntime implements Runtime {
         () => presence.acted("person", { capability: "files" }),
       );
     const live = new Live(exec, spec.access, load, presence, files, browserLive, screenLive);
+    const unavailableNow = () => this.#screenUnavailable();
     const surfaces = live.surfaces();
     return {
       browserTools: browser?.tools ?? [],
-      /** As they are now: a browser or a driver that has stopped can't be opened, and says so. */
+      /**
+       * As they are now: a browser that has stopped can't be opened, and says so; nor can the
+       * screen while it can't be used, as its tools say.
+       */
       get surfaces() {
+        const screenWhy = screen && unavailableNow();
         return surfaces.map((one) =>
           one.surface === "browser" && browserDown
             ? {
                 ...one,
                 unavailable: "Its browser has stopped. Stop the computer and start it again.",
               }
-            : one.surface === "screen" && screenDown
-              ? {
-                  ...one,
-                  unavailable: "Cua Driver has stopped. Stop the computer and start it again.",
-                }
+            : one.surface === "screen" && screenWhy
+              ? { ...one, unavailable: screenWhy }
               : one,
         );
       },
@@ -494,10 +542,7 @@ export class ProcessRuntime implements Runtime {
           if (refusal) return refuseCall(response, message.id, refusal);
           return agentExec.handle(request, response, message);
         }
-        if (endpoint === "screen") {
-          if (screenDown) throw new ApiError(502, "Cua Driver has stopped.");
-          return (screen as Screen).handle(request, response);
-        }
+        if (endpoint === "screen") return (screen as Screen).handle(request, response);
         if (browserDown) throw new ApiError(502, "Its browser has stopped.");
         return (browser as Browser).handle(request, response);
       },

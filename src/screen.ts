@@ -372,38 +372,107 @@ export class Driver {
   }
 }
 
-/** The agent's screen: a connection of its own to the driver, and its three tools. */
-export class Screen extends Driver {
+/**
+ * The agent's screen: its three tools, and a connection of its own to the driver, made at the first
+ * call that needs it and made again after the driver stopped, as when it is started again to read
+ * a grant the person gave. While the screen can't be used, its tools say why, and nothing more.
+ */
+export class Screen {
+  /** Cua Driver as it is found at each connection. */
+  readonly #at: () => DriverAt;
+  readonly #log: (line: string) => void;
   readonly #noted: () => string | undefined;
-  readonly #refused: () => string | undefined;
+  readonly #refused: () => Promise<string | undefined>;
+  /** The driver's connection, while there is one. */
+  #driver: Driver | undefined;
+  #stopped = false;
+  /** How many connections it has made, and whether the screen was seen on the one there is. */
+  #connections = 0;
+  #seen = false;
 
   /** On a lent machine: the agent acts only in the background, leaving the person's pointer. */
   readonly #onlyBackground: boolean;
 
   /**
    * `noted` gives the line to add to each answer: who else acted on the screen. `refused` says why
-   * no call is answered now, while the person has it switched off. `onlyBackground`: whether the
-   * agent acts only in the background, as on a lent machine.
+   * no call is answered now: the person has it switched off, or it isn't ready. `onlyBackground`:
+   * whether the agent acts only in the background, as on a lent machine.
    */
   constructor(
-    driver: DriverAt,
+    driver: () => DriverAt,
     log: (line: string) => void,
-    exited: () => void,
     noted: () => string | undefined,
-    refused: () => string | undefined,
+    refused: () => Promise<string | undefined>,
     onlyBackground: boolean,
   ) {
-    super(driver, log, exited);
+    this.#at = driver;
+    this.#log = log;
     this.#noted = noted;
     this.#refused = refused;
     this.#onlyBackground = onlyBackground;
+  }
+
+  /** The driver's connection: the one there is, or a new one, once it answers. */
+  async #connected() {
+    if (this.#stopped) throw new ApiError(409, "It has stopped.");
+    if (!this.#driver) {
+      const made: Driver = new Driver(this.#at(), this.#log, () => {
+        // Stopped by itself: the next call connects again.
+        if (this.#driver === made) this.#driver = undefined;
+      });
+      this.#driver = made;
+      this.#connections += 1;
+      this.#seen = false;
+    }
+    const driver = this.#driver;
+    try {
+      await driver.ready();
+    } catch (error) {
+      if (this.#driver === driver) this.#driver = undefined;
+      void driver.stop();
+      throw error;
+    }
+    return driver;
+  }
+
+  /** Connect now, and wait until the driver answers, or say why it didn't. */
+  async ready() {
+    await this.#connected();
+  }
+
+  async call(tool: string, args: Args): Promise<Answer> {
+    return (await this.#connected()).call(tool, args);
+  }
+
+  /**
+   * Why a call aimed at a point is refused now: the driver reads a point against the last picture
+   * its connection took, and a connection made again, as when the driver is started again for a
+   * grant, has taken none. Seen again, it aims as it should.
+   */
+  async #unseen(input: Act): Promise<Answer | undefined> {
+    if (input.element_token !== undefined || input.x === undefined) return undefined;
+    await this.#connected();
+    if (this.#connections === 1 || this.#seen) return undefined;
+    return {
+      content: [
+        text(
+          "Cua Driver was started again since the screen was last seen, as when a grant changes: see it again, then aim at its point.",
+        ),
+      ],
+      isError: true,
+    };
+  }
+
+  async stop() {
+    this.#stopped = true;
+    await this.#driver?.stop();
   }
 
   /** The agent's three tools, each answered with what the driver answers, and the line after it. */
   #server() {
     const server = new McpServer({ name: "agentcomputer-screen", version: "1" });
     const answered = async (work: () => Promise<Answer>) => {
-      const refusal = this.#refused();
+      const refusal = await this.#refused();
       if (refusal) return { content: [text(refusal)], isError: true };
       const line = this.#noted();
       const answer = forAgent(await work().catch(failed));
@@ -423,11 +492,13 @@ export class Screen extends Driver {
       },
       ({ pid, window_id }) =>
         answered(async () => {
-          if (pid === undefined && window_id === undefined)
-            return this.call("get_desktop_state", {});
-          if (pid === undefined || window_id === undefined)
+          if ((pid === undefined) !== (window_id === undefined))
             throw new ApiError(400, "A window is its pid and its window_id, from apps: give both.");
-          return this.call("get_window_state", { pid, window_id });
+          const seen = await (pid === undefined
+            ? this.call("get_desktop_state", {})
+            : this.call("get_window_state", { pid, window_id }));
+          if (!seen.isError) this.#seen = true;
+          return seen;
         }),
     );
     server.registerTool(
@@ -443,6 +514,8 @@ export class Screen extends Driver {
       (input: Act) =>
         answered(async () => {
           const [tool, args] = driverCall(input);
+          const unseen = await this.#unseen(input);
+          if (unseen) return unseen;
           const answer = await this.call(tool, args).catch(failed);
           const said = (answer.content ?? [])
             .map((part) => (part as { text?: string }).text ?? "")
@@ -518,9 +591,8 @@ export class Screen extends Driver {
     return server;
   }
 
-  /** Answer one MCP request, as the stateless transport does. */
+  /** Answer one MCP request, as the stateless transport does. Its tools are listed with no driver. */
   async handle(request: IncomingMessage, response: ServerResponse) {
-    await this.ready();
     const server = this.#server();
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     response.once("close", () => {
