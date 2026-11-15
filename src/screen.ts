@@ -170,6 +170,14 @@ export interface Grants {
 }
 
 /**
+ * A line of the driver's, as a person or an agent is told it: the socket an app runs it on is said
+ * in words, as a path in the app's folder is of no use to them.
+ */
+export function unpathed(line: string, socket: string | undefined): string {
+  return socket ? line.split(socket).join("the app's socket") : line;
+}
+
+/**
  * Whether Cua Driver has its two grants on macOS, as it says for the app whose grants it uses: its
  * own, or, embedded, its host's, which only the driver its host runs can say, and says are the
  * host's. A grant it can't read, as when its app isn't running, is left out, with why where it
@@ -185,11 +193,11 @@ export async function driverGrants({ program, socket }: DriverAt): Promise<Grant
     said = JSON.parse(stdout);
   } catch (error) {
     const why = String((error as { stderr?: string }).stderr ?? "").trim();
-    return why ? { reason: why.split("\n")[0] } : {};
+    return why ? { reason: unpathed(why.split("\n")[0] ?? "", socket) } : {};
   }
   if (!said || typeof said !== "object") return {};
   if (socket && said.source?.attribution !== "host")
-    return { reason: `the driver at ${socket} doesn't run embedded in its app` };
+    return { reason: "the driver on the app's socket doesn't run inside that app" };
   return said;
 }
 
@@ -436,7 +444,8 @@ export class Driver {
     this.#transport.stderr?.on("data", (data: Buffer) => {
       for (const line of data.toString().split("\n"))
         if (line.trim()) {
-          this.#said = line.trim();
+          // Its own words go to the log as they are, and to whoever it refuses without the path.
+          this.#said = unpathed(line.trim(), socket);
           log(line);
         }
     });
