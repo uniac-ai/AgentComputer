@@ -24,7 +24,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { ProcessRuntime } from "../src/runtime.ts";
-import { clickedAt, foregroundWouldDo, putBackAt, Screen, screenCheck } from "../src/screen.ts";
+import {
+  clickedAt,
+  foregroundWouldDo,
+  putBackAt,
+  Screen,
+  screenCheck,
+  unpathed,
+} from "../src/screen.ts";
 import { personCall } from "../src/screen-live.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
@@ -183,6 +190,42 @@ esac
   });
 });
 
+test("where the screen can't tell an app's grants, its reason says the app's socket in words, never its path", async (t) => {
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), "ac-")));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  const socket = join(folder, "host.sock");
+  /** A stand-in for the driver an app hosts, whose grants are read as `call` answers. */
+  const hosted = (call: string) => {
+    const program = join(folder, `cua-driver-${Math.random().toString(36).slice(2)}`);
+    writeFileSync(
+      program,
+      `#!/bin/sh\ncase "$1" in\n  --version) echo "cua-driver 0.49.7" ;;\n  call) ${call} ;;\nesac\n`,
+    );
+    chmodSync(program, 0o755);
+    return program;
+  };
+  const unknown =
+    "Can't tell whether the app running Cua Driver is granted Screen Recording and Accessibility";
+  // No driver answering on the app's socket.
+  const silent = hosted(`echo "no Cua Driver daemon listening on ${socket}" >&2; exit 1`);
+  const notListening = await screenCheck({ program: silent, socket }, "darwin");
+  assert.deepEqual(notListening.readiness, {
+    ready: false,
+    reason: `${unknown}: no Cua Driver daemon listening on the app's socket`,
+  });
+  // A driver there, but not the one inside the app.
+  const other = hosted(
+    `echo '{"accessibility":true,"screen_recording":true,"source":{"attribution":"self"}}'`,
+  );
+  assert.deepEqual((await screenCheck({ program: other, socket }, "darwin")).readiness, {
+    ready: false,
+    reason: `${unknown}: the driver on the app's socket doesn't run inside that app`,
+  });
+  // Words without the socket are as the driver said them.
+  assert.equal(unpathed("no grants could be read", socket), "no grants could be read");
+  assert.equal(unpathed(`listening on ${socket}`, undefined), `listening on ${socket}`);
+});
+
 test("a driver an app hosts is reached, and its grants read, only through that app's socket", async (t) => {
   const folder = realpathSync(mkdtempSync(join(tmpdir(), "ac-")));
   t.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -253,8 +296,11 @@ esac
   assert.deepEqual(await screen(), { capability: "screen", ready: true });
   await assert.rejects(
     Computer.attach({ ...to, access: "read", workspace: folder, screen: true }),
+    // The driver's words, with the app's socket said in words, not as its path.
     (error: Error & { code: number }) =>
-      error.code === 409 && error.message.includes(`no Cua Driver daemon listening on ${socket}`),
+      error.code === 409 &&
+      error.message.includes("no Cua Driver daemon listening on the app's socket") &&
+      !error.message.includes(socket),
   );
   const ran = readFileSync(record, "utf8");
   assert.match(ran, new RegExp(`^mcp --embedded --socket ${socket}$`, "m"));
