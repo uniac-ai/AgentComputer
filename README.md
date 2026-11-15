@@ -64,6 +64,12 @@ This computer:
   - Once a grant changes, the app restarts its driver, which reads grants once. A computer's connection to the driver ends with it, and its screen connects again at its next call: the computer runs on. The driver reads a point against the last picture its connection took, so after such a connection is made again, `act` aimed at a point is refused, saying so, until the screen is seen again.
 - **What the service starts of Cua Driver sends no telemetry and checks for no updates,** so no update notice reaches a computer's log. The person's own Cua Driver app follows its own settings: `cua-driver telemetry disable` turns its telemetry off.
 
+**Upgrading from 0.0.25:**
+
+- **The person's click, drag or scroll in the screen's live view puts the machine's pointer back where it was.** Until now it was left at the point.
+  - Where the pointer isn't put back, the computer's log says why, and a failed input's `refused` says so after Cua Driver's words. screen@1 itself is unchanged.
+  - These inputs wait for an agent's input that moves the real pointer to finish, and such an input waits for them: an agent's click, drag or scroll at a point of the whole screen or in the foreground, on any machine.
+
 **Upgrading from 0.0.24:**
 
 - **On a lent machine, `act` at a point of the whole screen's picture is refused.**
@@ -346,6 +352,12 @@ A computer with `--browser` has another:
 A computer attached with `--screen` has another:
 
 - **`screen`** (protocol `screen@1`): the machine's screen, the one the agent sees and acts on. Binary messages are PNG frames of the whole screen, at most 1,280 pixels on their longest side. Text messages are JSON: the service sends `size` and `refused`, and an `operate` socket sends `mouse` (`click`, `double_click`, `right_click`, `drag` or `scroll`), `key` (`keys`: one, or several pressed together, by Cua Driver's names, such as `["enter"]` or `["ctrl", "c"]`) and `text`. `openapi.yaml` has each one's fields.
+  - **A click, double or right click, drag or scroll is made in the foreground at its point,** as the person's own would be, and the machine's pointer is then put back where it was. This is so on every machine whose screen the live view shows, lent or not: whoever clicks there is not at that machine's mouse.
+    - The service reads where the pointer is, Cua Driver moves it to the point and makes the input there as a mouse would, and once the driver answers, the service moves the pointer back once: to where it was, as far as anyone at the machine moved it meanwhile. These inputs, and every input of an agent's that moves the real pointer (at a point of the whole screen, or in the foreground), are made one at a time, so that no put-back takes another's move for someone's at the machine. A point outside the frames is not kept to them: the screen's edge stops the pointer short of it, and the pointer then goes back that much off.
+    - What the person at the Mac should see, as Cua Driver makes these inputs, not yet seen on a Mac: the pointer jumps to the point, the input lands there as their own would, so a click brings the window under it forward and leaves its app the active one, and the pointer returns. A drag holds the pointer for the drag's length. None of the timing has been measured on a Mac: how long the pointer is away, nor whether macOS holds the mouse after it is moved back.
+    - Where the pointer can't be read first, the input is made all the same, as the person asked, and the pointer is left where it puts it. Where the pointer isn't put back, for that reason, because it couldn't be moved back, or because it was moved somewhere else, the computer's log says why.
+    - An input is never sent twice. One the driver refuses before sending anything moves nothing. One that fails otherwise may have moved the pointer, so the pointer is moved back to exactly where it was, since where the input left it isn't known. That input is answered with `refused`, in the driver's words, and where the pointer isn't back, the same words on it follow.
+    - The live view's connection to Cua Driver, which ends when its last socket closes, waits for an input already being made to be put back.
   - **A frame is sent only when the picture changed.** The screen is taken twice a second while a socket is open, and not at all while nobody watches. A socket is sent the last frame when it opens, after a `size`, and another `size` comes before a frame of a different size. One more than 4 MiB behind is sent nothing until it catches up.
   - **Your input is done as you,** through Cua Driver, in the order you sent it. A point is in pixels of the frames, scaled to the screen; keys and text go to the window in front, which the agent may just have changed. What isn't done is answered with `refused`, and why, only to the socket that sent it.
   - No message is over 65,536 bytes: a larger one closes the socket. Binary messages, and whatever a `watch` socket sends, are dropped.

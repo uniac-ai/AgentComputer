@@ -245,7 +245,8 @@ try {
     out.watchTyped = existsSync("/tmp/watched");
     // The picture changed, so the watch socket was sent another frame.
     await until(() => watch.got.frames.length > before, "a frame of the change");
-    // A point in the frames is scaled to the screen, here half as large again as the frames.
+    // The person's click goes in the foreground, as their own would, and the real pointer is then
+    // put back where it was. Read on a connection of the test's own.
     const driver = new Client({ name: "pointer", version: "1" });
     await driver.connect(
       new StdioClientTransport({
@@ -255,31 +256,69 @@ try {
         stderr: "ignore",
       }),
     );
-    const pointer = async () =>
-      (await driver.callTool({ name: "get_cursor_position", arguments: {} })).structuredContent;
-    operate.send({ type: "mouse", action: "click", x: 100, y: 100 });
-    // Where it is, if it never gets there, is what the test is shown.
+    const tool = async (name, args = {}) =>
+      (await driver.callTool({ name, arguments: args })).structuredContent;
+    const pointer = async () => {
+      const { x, y } = await tool("get_cursor_position");
+      return { x, y };
+    };
+    // A small window comes in front of the terminal's corner and takes the focus. It runs cat, so
+    // that what is typed there runs nothing.
+    start("xterm", ["-T", "beside", "-geometry", "8x1+70+70", "-e", "cat"]);
+    let windows;
     await until(async () => {
-      const { x, y } = await pointer();
-      return x === 150 && y === 150;
-    }, "the pointer where the person clicked").catch(() => {});
-    out.pointer = await pointer();
-    await driver.close();
+      windows = (await tool("list_windows", { on_screen_only: true })).windows;
+      const [beside, terminal] = ["beside", "screen-test"].map((title) =>
+        windows.find((one) => one.title === title),
+      );
+      return beside && terminal && beside.z_index > terminal.z_index;
+    }, "the small window in front of the terminal");
+    // A point of the frames on that window, which the screen, half as large again, has on the
+    // terminal behind it, clear of the window: a click there brings the terminal forward only
+    // where its point is scaled to the screen.
+    const [beside, terminal] = ["beside", "screen-test"].map(
+      (title) => windows.find((one) => one.title === title).bounds,
+    );
+    const inside = (b, x, y) => x >= b.x && x < b.x + b.width && y >= b.y && y < b.y + b.height;
+    const aim = {
+      x: Math.round(beside.x + beside.width / 2),
+      y: Math.round(beside.y + beside.height / 2),
+    };
+    if (!inside(terminal, aim.x * 1.5, aim.y * 1.5) || inside(beside, aim.x * 1.5, aim.y * 1.5))
+      throw new Error(`No point to aim at: ${JSON.stringify({ beside, terminal })}`);
+    // The pointer, away from both windows.
+    await tool("move_cursor", { scope: "desktop", x: 1200, y: 300 });
+    const left = await pointer();
+    // The small window has the focus: what is typed now goes to cat, and runs nothing.
+    operate.send({ type: "text", text: "echo beside-ran > /tmp/beside-ran" });
+    operate.send({ type: "key", keys: ["enter"] });
+    operate.send({ type: "mouse", action: "click", ...aim });
+    operate.send({ type: "text", text: "echo front-ok > /tmp/front-ok" });
+    operate.send({ type: "key", keys: ["enter"] });
+    await until(() => existsSync("/tmp/front-ok"), "the command typed after the click");
+    out.frontRan = readFileSync("/tmp/front-ok", "utf8");
+    out.besideRan = existsSync("/tmp/beside-ran");
+    out.pointer = { before: left, clicked: await pointer() };
+    // The rest, each at the terminal, now in front, and the pointer put back after each.
     for (const message of [
-      { type: "mouse", action: "double_click", x: 100, y: 100 },
-      { type: "mouse", action: "right_click", x: 100, y: 100 },
+      { type: "mouse", action: "double_click", x: 200, y: 100 },
+      { type: "mouse", action: "right_click", x: 200, y: 100 },
       { type: "key", keys: ["escape"] },
-      { type: "mouse", action: "scroll", x: 100, y: 100, direction: "down" },
-      { type: "mouse", action: "drag", x: 100, y: 100, to_x: 140, to_y: 120 },
+      { type: "mouse", action: "scroll", x: 200, y: 100, direction: "down" },
+      { type: "mouse", action: "drag", x: 200, y: 100, to_x: 240, to_y: 120 },
       { type: "key", keys: ["ctrl", "l"] },
+      { type: "mouse", action: "click", x: 1000, y: 700 },
       { type: "mouse", action: "click" },
     ])
       operate.send(message);
+    // A socket's steps are done in order, so once this is refused, all before it are done.
     operate.ws.send("not JSON");
     await until(
       () => operate.got.texts.filter((one) => one.type === "refused").length >= 2,
       "refusals",
     );
+    out.pointer.afterAll = await pointer();
+    await driver.close();
     out.operated = operate.got.texts;
     // The agent is told the person used the screen, in its next answer and in about.
     out.personLine = await call("apps");

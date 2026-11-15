@@ -271,7 +271,10 @@ const BACKGROUND = {
     "On this machine the agent acts in a window, not at a point of the whole screen, which would move the person's pointer there and leave it: find the window that holds it in apps, see that window, and find it again in that window's picture to aim at.",
 };
 
-/** What can be aimed at a point of the whole screen, which the driver does by moving the pointer. */
+/**
+ * What can be aimed at a point of the whole screen, which the driver does by moving the pointer, as
+ * it does in the foreground.
+ */
 const POINTED = new Set(["click", "double_click", "right_click", "drag", "scroll"]);
 
 /**
@@ -318,8 +321,19 @@ export function desktopScale(answer: Answer): Point {
       };
 }
 
-/** The foreground clicks made for every agent on this machine's screen, one after another. */
+/** The inputs that move the real pointer on this machine's screen, one after another. */
 let foregroundTurn: Promise<unknown> = Promise.resolve();
+
+/**
+ * `work`, once every input before it that moves the real pointer on this machine's screen is done,
+ * the agents' and the person's in the live view alike, so that no put-back reads a pointer another
+ * input moved.
+ */
+export function inForegroundTurn<T>(work: () => Promise<T>): Promise<T> {
+  const turn = foregroundTurn.then(work);
+  foregroundTurn = turn.catch(() => undefined);
+  return turn;
+}
 
 /** The screen point a foreground click says it was made at, in the screen's points. */
 export function clickedAt(said: string): Point | undefined {
@@ -362,6 +376,139 @@ const failed = (error: unknown): Answer => ({
   content: [text(error instanceof Error ? error.message : String(error))],
   isError: true,
 });
+
+type Call = (tool: string, args: Args) => Promise<Answer>;
+
+/**
+ * What became of the real pointer around one input made in the foreground. unmoved: the driver
+ * refused it outright, as it says when nothing was sent, so it moved nothing. unread: where the
+ * pointer was couldn't be read first, so it wasn't put back. stayed: it is where it was, never
+ * moved or already back. back: moved back where it was, as far as the person moved it meanwhile;
+ * backMoved: and the person has moved it again since. notBack: it couldn't be moved back, and is
+ * where the input left it. elsewhere: it was moved, but not back to where it was.
+ */
+export type PointerOutcome =
+  | "unmoved"
+  | "unread"
+  | "stayed"
+  | "back"
+  | "backMoved"
+  | "notBack"
+  | "elsewhere";
+
+/**
+ * Where an input made in the foreground left the pointer: a point of the screen, in its points, as
+ * a click in a window says, or of the whole screen's last picture on that connection, in its pixels,
+ * as the live view aims.
+ */
+export type Ended = { screen: Point } | { picture: Point };
+
+const near = (a: Point, b: Point) => Math.abs(a.x - b.x) <= 1 && Math.abs(a.y - b.y) <= 1;
+
+/**
+ * The real pointer, read and put back on one connection to Cua Driver. `desktop` is how much
+ * smaller than the screen that connection's last picture of the whole screen was: the driver reads
+ * a point in the whole screen, as the put-back's is, against that picture. A Mac's driver moves the
+ * pointer only when told to.
+ */
+export class RealPointer {
+  readonly #call: Call;
+  readonly #platform: NodeJS.Platform;
+  readonly #desktop: () => Point;
+
+  constructor(call: Call, platform: NodeJS.Platform, desktop: () => Point) {
+    this.#call = call;
+    this.#platform = platform;
+    this.#desktop = desktop;
+  }
+
+  /** Where it is, in the screen's points; none where the driver can't say. */
+  async read(): Promise<Point | undefined> {
+    const answer = await this.#call("get_cursor_position", {}).catch(failed);
+    const { x, y, source } = (answer.structuredContent ?? {}) as {
+      x?: unknown;
+      y?: unknown;
+      source?: unknown;
+    };
+    // Where the driver can only say where it last moved the pointer itself, it isn't read.
+    return !answer.isError &&
+      source !== "synthetic" &&
+      typeof x === "number" &&
+      typeof y === "number"
+      ? { x, y }
+      : undefined;
+  }
+
+  /**
+   * One input made in the foreground, once, with the pointer put back: read where it is, let the
+   * driver make it, which moves the pointer to its point, then move it back once, as far as the
+   * person moved it meanwhile. Where the pointer can't be read first, `unread` says whether the
+   * input is made all the same: if not, nothing is sent and there is no answer. `ended` says where
+   * an input the driver answered without an error left the pointer.
+   */
+  async foreground(
+    tool: string,
+    args: Args,
+    ended: (done: Answer) => Ended | undefined,
+    unread: "skip" | "make",
+  ): Promise<{ done?: Answer; pointer: PointerOutcome }> {
+    const before = await this.read();
+    if (!before && unread === "skip") return { pointer: "unread" };
+    const done = await this.#call(tool, { ...args, delivery_mode: "foreground" }).catch(failed);
+    // Refused outright, as the driver says when nothing was sent, it moved nothing: whatever moved
+    // the pointer meanwhile was the person, and it is left as it is. Any other error may have
+    // come after the pointer moved or the input was made.
+    if (
+      done.isError &&
+      (done.structuredContent as { effect?: unknown } | undefined)?.effect === "refused"
+    )
+      return { done, pointer: "unmoved" };
+    if (!before) return { done, pointer: "unread" };
+    return { done, pointer: await this.#putBack(before, done.isError ? undefined : ended(done)) };
+  }
+
+  /**
+   * The pointer, put back once after an input that left it at `ended`: where it was, as far as the
+   * person moved it since. Where that point isn't known, or the pointer can't be read after the
+   * input, back where it was. Whether it came back is what the move answers.
+   */
+  async #putBack(before: Point, ended: Ended | undefined): Promise<PointerOutcome> {
+    const after = await this.read();
+    if (after && near(after, before)) return "stayed";
+    // The driver moves it in pixels of the whole screen's picture at full size, which on a Mac is
+    // its points times the screen's scale, read from the last picture this connection took.
+    let k = 1;
+    if (this.#platform === "darwin") {
+      const size = await this.#call("get_screen_size", {}).catch(failed);
+      const scale = (size.structuredContent as { scale_factor?: unknown } | undefined)
+        ?.scale_factor;
+      if (size.isError || typeof scale !== "number" || scale <= 0) return "notBack";
+      k = scale;
+    }
+    const desktop = this.#desktop();
+    const end =
+      ended && "picture" in ended
+        ? { x: (ended.picture.x * desktop.x) / k, y: (ended.picture.y * desktop.y) / k }
+        : ended?.screen;
+    const at = after ? putBackAt(before, after, end) : before;
+    const moved = await this.#call("move_cursor", {
+      scope: "desktop",
+      x: (at.x * k) / desktop.x,
+      y: (at.y * k) / desktop.y,
+      // A Mac's driver moves the person's pointer over another app's window only when told to.
+      ...(this.#platform === "darwin" ? { delivery_mode: "foreground" } : {}),
+    }).catch(failed);
+    // Moved once: never tried again.
+    if (moved.isError) return "notBack";
+    // Where the driver says it moved it, in the screen's points.
+    const to = /moved the real desktop pointer to \((-?[\d.]+),\s*(-?[\d.]+)\)/i.exec(
+      saidIn(moved),
+    );
+    if (to && !near({ x: Number(to[1]), y: Number(to[2]) }, at)) return "elsewhere";
+    const now = await this.read();
+    return !now || near(now, at) ? "back" : "backMoved";
+  }
+}
 
 /** The driver's answer without its hints and suggested next calls, which can name its own tools. */
 function forAgent(answer: Answer): Answer {
@@ -502,13 +649,13 @@ export class Screen {
 
   /** On a lent machine: the agent acts only in the background, leaving the person's pointer. */
   readonly #onlyBackground: boolean;
-  /** The machine's, where the driver runs: a Mac's moves the pointer only when told to. */
-  readonly #platform: NodeJS.Platform;
   /**
    * How much smaller than the screen the whole screen's last picture on this connection was: the
    * driver reads a point in the whole screen, as the put-back's is, against that picture.
    */
   #desktop: Point = { x: 1, y: 1 };
+  /** The real pointer, read and put back on this screen's connection. */
+  readonly #pointer: RealPointer;
 
   /**
    * `noted` gives the line to add to each answer: who else acted on the screen. `refused` says why
@@ -528,113 +675,54 @@ export class Screen {
     this.#noted = noted;
     this.#refused = refused;
     this.#onlyBackground = onlyBackground;
-    this.#platform = platform;
-  }
-
-  /** Where the real pointer is, in the screen's points; none where the driver can't say. */
-  async #pointer(): Promise<Point | undefined> {
-    const answer = await this.call("get_cursor_position", {}).catch(failed);
-    const { x, y, source } = (answer.structuredContent ?? {}) as {
-      x?: unknown;
-      y?: unknown;
-      source?: unknown;
-    };
-    // Where the driver can only say where it last moved the pointer itself, it isn't read.
-    return !answer.isError &&
-      source !== "synthetic" &&
-      typeof x === "number" &&
-      typeof y === "number"
-      ? { x, y }
-      : undefined;
+    this.#pointer = new RealPointer(
+      (tool, args) => this.call(tool, args),
+      platform,
+      () => this.#desktop,
+    );
   }
 
   /**
    * A click the background can't make, made in the foreground once, with the person's pointer put
-   * back: read where it is, let the driver click, which brings the window forward and moves the
-   * pointer to the point, then move it back once, as far as the person moved it meanwhile.
+   * back, after every foreground input before it on this machine's screen.
    */
-  async #inForeground(tool: string, args: Args): Promise<Answer> {
-    // One at a time on this machine's screen, so that one's put-back never reads the pointer
-    // another's click moved.
-    const turn = foregroundTurn.then(() => this.#foregroundOnce(tool, args));
-    foregroundTurn = turn.catch(() => undefined);
-    return turn;
+  #inForeground(tool: string, args: Args): Promise<Answer> {
+    return inForegroundTurn(() => this.#foregroundOnce(tool, args));
   }
 
   async #foregroundOnce(tool: string, args: Args): Promise<Answer> {
     // Waited for, it may since have been switched off or stopped being ready.
     if (await this.#refused()) return { content: [text(FOREGROUND.off)], isError: true };
-    const before = await this.#pointer();
-    // Where the pointer can't be read, it couldn't be put back: the click isn't made.
-    if (!before) return { content: [text(FOREGROUND.unread)], isError: true };
-    const done = await this.call(tool, { ...args, delivery_mode: "foreground" }).catch(failed);
-    // Refused outright, as the driver says when nothing was sent, it moved nothing: whatever moved
-    // the pointer meanwhile was the person, and it is left as it is. Any other error may have
-    // come after the pointer moved or the click was made.
-    if (
-      done.isError &&
-      (done.structuredContent as { effect?: unknown } | undefined)?.effect === "refused"
-    ) {
+    const { done, pointer } = await this.#pointer.foreground(
+      tool,
+      args,
+      (answer) => {
+        const at = clickedAt(saidIn(answer));
+        return at && { screen: at };
+      },
+      // Where the pointer can't be read, it couldn't be put back: the click isn't made.
+      "skip",
+    );
+    if (!done || pointer === "unread") return { content: [text(FOREGROUND.unread)], isError: true };
+    if (pointer === "unmoved") {
       this.#log("The agent's click couldn't be made in the background, nor in the foreground.");
       return { content: [text(FOREGROUND.refused)], isError: true };
     }
-    const pointer = await this.#putBack(before, done.isError ? undefined : clickedAt(saidIn(done)));
+    const words = FOREGROUND[pointer];
     this.#log(
-      `The agent's click couldn't be made in the background, so it was made in the foreground; ${pointer.words}.`,
+      `The agent's click couldn't be made in the background, so it was made in the foreground; ${words}.`,
     );
     return done.isError
-      ? { content: [text(`${FOREGROUND.unknown}; ${pointer.words}.`)], isError: true }
+      ? { content: [text(`${FOREGROUND.unknown}; ${words}.`)], isError: true }
       : {
           content: [
-            text(
-              `${FOREGROUND.done}; ${pointer.words}. See the window to check that it took effect.`,
-            ),
+            text(`${FOREGROUND.done}; ${words}. See the window to check that it took effect.`),
           ],
-          structuredContent: { delivery: "foreground", pointer_back: pointer.back },
+          structuredContent: {
+            delivery: "foreground",
+            pointer_back: pointer === "stayed" || pointer === "back" || pointer === "backMoved",
+          },
         };
-  }
-
-  /**
-   * The person's pointer, put back once after a foreground click that put it at `clicked`, where
-   * the driver says: where it was, as far as the person moved it since. Where it can't be read after
-   * the click, back where it was. Whether it came back is what the move answers.
-   */
-  async #putBack(before: Point, clicked: Point | undefined) {
-    const said = (words: string, back: boolean) => ({ words, back });
-    const after = await this.#pointer();
-    if (after && Math.abs(after.x - before.x) <= 1 && Math.abs(after.y - before.y) <= 1)
-      return said(FOREGROUND.stayed, true);
-    const at = after ? putBackAt(before, after, clicked) : before;
-    // The driver moves it in pixels of the whole screen's picture at full size, which on a Mac is
-    // its points times the screen's scale, read from the last picture this connection took.
-    let k = 1;
-    if (this.#platform === "darwin") {
-      const size = await this.call("get_screen_size", {}).catch(failed);
-      const scale = (size.structuredContent as { scale_factor?: unknown } | undefined)
-        ?.scale_factor;
-      if (size.isError || typeof scale !== "number" || scale <= 0)
-        return said(FOREGROUND.notBack, false);
-      k = scale;
-    }
-    const moved = await this.call("move_cursor", {
-      scope: "desktop",
-      x: (at.x * k) / this.#desktop.x,
-      y: (at.y * k) / this.#desktop.y,
-      // A Mac's driver moves the person's pointer over another app's window only when told to.
-      ...(this.#platform === "darwin" ? { delivery_mode: "foreground" } : {}),
-    }).catch(failed);
-    // Moved once: never tried again.
-    if (moved.isError) return said(FOREGROUND.notBack, false);
-    // Where the driver says it moved it, in the screen's points.
-    const to = /moved the real desktop pointer to \((-?[\d.]+),\s*(-?[\d.]+)\)/i.exec(
-      saidIn(moved),
-    );
-    if (to && (Math.abs(Number(to[1]) - at.x) > 1 || Math.abs(Number(to[2]) - at.y) > 1))
-      return said(FOREGROUND.elsewhere, false);
-    const now = await this.#pointer();
-    return !now || (Math.abs(now.x - at.x) <= 1 && Math.abs(now.y - at.y) <= 1)
-      ? said(FOREGROUND.back, true)
-      : said(FOREGROUND.backMoved, true);
   }
 
   /** The driver's connection: the one there is, or a new one, once it answers. */
@@ -760,7 +848,16 @@ export class Screen {
             return { content: [text(BACKGROUND.desktop)], isError: true };
           const unseen = await this.#unseen(input);
           if (unseen) return unseen;
-          const answer = await this.call(tool, args).catch(failed);
+          // What moves the real pointer, at a point of the whole screen or in the foreground, waits
+          // its turn on this machine's screen, so that no put-back reads it as someone's motion.
+          const moves =
+            POINTED.has(input.action) &&
+            (input.delivery_mode === "foreground" ||
+              (input.pid === undefined && input.element_token === undefined));
+          const answer = await (moves
+            ? inForegroundTurn(() => this.call(tool, args))
+            : this.call(tool, args)
+          ).catch(failed);
           // On a lent machine a click the background can't make, and that was sent nowhere, is
           // made in the foreground, with the person's pointer put back.
           if (

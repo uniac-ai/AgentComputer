@@ -16,8 +16,18 @@
 // picture of the whole screen then failing; 788 like 781, refused in the foreground as nothing
 // sent; 789 clicked in the background, the next pointer read only where the driver last put it.
 // Its whole screen's picture is smaller than the screen, and a point in the whole screen it is
-// then sent is read against it. With STANDIN_CALLS, each call is written to that file as a line of
-// JSON.
+// then sent is read against it.
+//
+// The person's click, drag or scroll in the live view, at a point of the whole screen in the
+// foreground, is made as a Mac's driver makes it: the pointer goes to the point (a drag's end),
+// and the person moves it a further (3, 4) meanwhile. One starting at x 601 then leaves the pointer
+// where it can't be moved back; 602 is refused before anything is sent; 603 fails after the
+// pointer moved; 604 is moved back somewhere else, as the driver says; 605 is answered 400 ms after
+// the pointer moved, as a drag takes its time; 606 fails after the pointer moved, where it can't be
+// moved back. With STANDIN_POINTER=unread, the pointer is never read.
+//
+// With STANDIN_CALLS, each call is written to that file as a line of JSON, with STANDIN_WHO's name
+// where that is set.
 import { appendFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
@@ -43,6 +53,7 @@ let sizeless = false;
 let unread = 0;
 let pictureFails = false;
 let synthetic = false;
+let astray = false;
 /** How much smaller than the screen the last picture of the whole of it was. */
 let desktop = { x: 1, y: 1 };
 const DESKTOP = { screenshot_width: 1366, screenshot_height: 887 };
@@ -121,6 +132,44 @@ const foreground = ({ x }) => {
     { path: "cgevent_hid", verified: false, effect: "unverifiable" },
   );
 };
+/** The person's input at a point of the whole screen, in the foreground. */
+const atDesktop = (name, args) => {
+  const from = { x: args.x ?? args.from_x, y: args.y ?? args.from_y };
+  if (from.x === 602)
+    return said(
+      "Foreground input refused (screen_locked): the screen is locked.",
+      { code: "screen_locked", effect: "refused" },
+      true,
+    );
+  const [px, py] = name === "drag" ? [args.to_x, args.to_y] : [from.x, from.y];
+  const end = { x: (px * desktop.x) / 2, y: (py * desktop.y) / 2 };
+  pointer = { x: end.x + 3, y: end.y + 4 };
+  if (from.x === 601 || from.x === 606) stuck = true;
+  if (from.x === 604) astray = true;
+  if (from.x === 603 || from.x === 606)
+    return said("Task error: the connection closed", undefined, true);
+  if (from.x === 605)
+    return new Promise((done) =>
+      setTimeout(() => done(said("✅ Sent screen-absolute click (desktop scope)")), 400),
+    );
+  const at = (point) => `(${point.x.toFixed(1)}, ${point.y.toFixed(1)})`;
+  const sent = { scope: "desktop", path: "hid", effect: "unverifiable" };
+  if (name === "drag")
+    return said(
+      `Dragged desktop from ${at({ x: (from.x * desktop.x) / 2, y: (from.y * desktop.y) / 2 })} to ${at(end)}.`,
+      sent,
+    );
+  if (name === "scroll")
+    return said(
+      `Scrolled desktop ${args.direction} by line × ${args.amount ?? 3} at ${at(end)}.`,
+      sent,
+    );
+  return said(
+    `✅ Sent screen-absolute ${args.button === "right" ? "right-click" : "click"} at desktop-pixel (${px},${py}) → screen-point (${end.x.toFixed(0)},${end.y.toFixed(0)}) (desktop scope; not driver-verified).`,
+    { path: "cgevent_hid", verified: false, effect: "unverifiable" },
+  );
+};
+const inDesktop = (args) => args.target?.kind === "desktop" && args.delivery_mode === "foreground";
 /** A click by an element, or by any other point, in the background. */
 const standing = ({ element_token }) =>
   element_token === "s0:1"
@@ -148,6 +197,8 @@ const standing = ({ element_token }) =>
         });
 const answers = {
   get_cursor_position: () => {
+    if (process.env.STANDIN_POINTER === "unread")
+      return said("the pointer couldn't be read", undefined, true);
     if (pointer.x === 503 && unread > 0 && unread--)
       return said("the pointer couldn't be read", undefined, true);
     if (synthetic) {
@@ -178,14 +229,21 @@ const answers = {
   move_cursor: ({ x, y }) => {
     if (stuck) return said("desktop pointer move failed: refused", undefined, true);
     // A point in the whole screen, read against its last picture, then turned into points.
-    const to = { x: (x * desktop.x) / 2, y: (y * desktop.y) / 2 };
+    const to = { x: (x * desktop.x) / 2 + (astray ? 40 : 0), y: (y * desktop.y) / 2 };
+    astray = false;
     pointer = { x: to.x + (drifting ? 5 : 0), y: to.y };
     return said(`Moved the real desktop pointer to (${to.x.toFixed(1)}, ${to.y.toFixed(1)}).`, {
       scope: "desktop",
     });
   },
   click: (args) =>
-    args.delivery_mode === "foreground" ? foreground(args) : (background[args.x] ?? standing)(args),
+    inDesktop(args)
+      ? atDesktop("click", args)
+      : args.delivery_mode === "foreground"
+        ? foreground(args)
+        : (background[args.x] ?? standing)(args),
+  drag: (args) => (inDesktop(args) ? atDesktop("drag", args) : said("✅ drag")),
+  scroll: (args) => (inDesktop(args) ? atDesktop("scroll", args) : said("✅ scroll")),
   type_text: () =>
     said(
       'Typing into this window can\'t be delivered in the background; retry with delivery_mode:"foreground".',
@@ -240,7 +298,10 @@ for (const name of [
     { description: name, inputSchema: z.object({}).passthrough() },
     async (args) => {
       if (process.env.STANDIN_CALLS)
-        appendFileSync(process.env.STANDIN_CALLS, `${JSON.stringify({ name, args })}\n`);
+        appendFileSync(
+          process.env.STANDIN_CALLS,
+          `${JSON.stringify({ name, args, ...(process.env.STANDIN_WHO ? { who: process.env.STANDIN_WHO } : {}) })}\n`,
+        );
       return (answers[name] ?? (() => said(`✅ ${name}`)))(args);
     },
   );

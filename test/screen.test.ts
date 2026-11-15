@@ -3,7 +3,7 @@
 // its own with the pinned driver: never on the machine running the tests, nor on its screen.
 import assert from "node:assert/strict";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
-import { once } from "node:events";
+import { EventEmitter, once } from "node:events";
 import {
   chmodSync,
   existsSync,
@@ -23,6 +23,7 @@ import test, { before, describe } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import type { WebSocket } from "ws";
 import { ProcessRuntime } from "../src/runtime.ts";
 import {
   clickedAt,
@@ -32,7 +33,7 @@ import {
   screenCheck,
   unpathed,
 } from "../src/screen.ts";
-import { personCall } from "../src/screen-live.ts";
+import { personCall, ScreenLive } from "../src/screen-live.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -314,18 +315,36 @@ esac
 });
 
 /** The agent's screen tools over a stand-in for the driver, on a lent machine or not. */
-async function overStandIn(t: test.TestContext, onlyBackground: boolean) {
+/**
+ * The stand-in driver as a program, with `env` set for it, writing each call it is asked to
+ * `record`, a file in a folder of the test's own unless given: and the calls since the last time.
+ */
+function standInProgram(t: test.TestContext, env: Record<string, string> = {}, record?: string) {
   const folder = realpathSync(mkdtempSync(join(tmpdir(), "ac-")));
   t.after(() => rmSync(folder, { recursive: true, force: true }));
   const program = join(folder, "cua-driver");
   const standIn = join(root, "test", "fixtures", "driver-stand-in.mjs");
-  // Each call the driver is asked, written down there.
-  const record = join(folder, "calls");
-  writeFileSync(
-    program,
-    `#!/bin/sh\nSTANDIN_CALLS="${record}" exec "${process.execPath}" "${standIn}" "$@"\n`,
-  );
+  const written = record ?? join(folder, "calls");
+  const vars = Object.entries({ STANDIN_CALLS: written, ...env })
+    .map(([name, value]) => `${name}="${value}"`)
+    .join(" ");
+  writeFileSync(program, `#!/bin/sh\n${vars} exec "${process.execPath}" "${standIn}" "$@"\n`);
   chmodSync(program, 0o755);
+  /** The calls the driver was asked since the last time, each its tool and arguments. */
+  let read = 0;
+  const calls = () => {
+    const lines = existsSync(written) ? readFileSync(written, "utf8").trim().split("\n") : [];
+    const since = lines.slice(read).filter(Boolean);
+    read = lines.length;
+    return since.map(
+      (line) => JSON.parse(line) as { name: string; args: Record<string, unknown>; who?: string },
+    );
+  };
+  return { program, record: written, calls };
+}
+
+async function overStandIn(t: test.TestContext, onlyBackground: boolean, record?: string) {
+  const { program, calls } = standInProgram(t, {}, record);
   const logged: string[] = [];
   const screen = new Screen(
     () => ({ program }),
@@ -354,14 +373,6 @@ async function overStandIn(t: test.TestContext, onlyBackground: boolean) {
   const [act, apps, see] = ["act", "apps", "see"].map((name) =>
     tools.find((one) => one.name === name),
   );
-  /** The calls the driver was asked since the last time, each its tool and arguments. */
-  let read = 0;
-  const calls = () => {
-    const lines = existsSync(record) ? readFileSync(record, "utf8").trim().split("\n") : [];
-    const since = lines.slice(read).filter(Boolean);
-    read = lines.length;
-    return since.map((line) => JSON.parse(line) as { name: string; args: Record<string, unknown> });
-  };
   return { call, act, apps, see, calls, logged };
 }
 const window = { pid: 19249, window_id: 12895 };
@@ -869,6 +880,269 @@ test("the person's input in the live view is the driver's call, at the whole scr
     assert.throws(() => personCall(wrong), { message }, JSON.stringify(wrong));
 });
 
+/** Until `check` holds, for at most 10 s; `what` names it. */
+async function waitFor(check: () => boolean, what: string) {
+  for (const deadline = Date.now() + 10_000; Date.now() < deadline; ) {
+    if (check()) return;
+    await new Promise((done) => setTimeout(done, 20));
+  }
+  assert.fail(`Waited too long for ${what}.`);
+}
+
+/**
+ * The person's live view over the stand-in driver, on a Retina Mac: one socket at operate, what it
+ * is sent, what the live view's log is told, how often the person acted, and the driver's calls.
+ */
+async function liveOverStandIn(
+  t: test.TestContext,
+  env: Record<string, string> = {},
+  record?: string,
+) {
+  const { program, calls } = standInProgram(t, env, record);
+  const logged: string[] = [];
+  let acted = 0;
+  const live = new ScreenLive(
+    () => ({ program }),
+    (line) => logged.push(line),
+    () => {
+      acted += 1;
+    },
+    "darwin",
+  );
+  t.after(() => live.close());
+  const sent: { type: string; message?: string }[] = [];
+  const ws = Object.assign(new EventEmitter(), {
+    bufferedAmount: 0,
+    send: (data: unknown) => {
+      if (typeof data === "string") sent.push(JSON.parse(data));
+    },
+    close() {
+      ws.emit("close");
+    },
+  });
+  live.open(ws as unknown as WebSocket, "operate");
+  const send = (message: unknown) =>
+    ws.emit("message", Buffer.from(JSON.stringify(message)), false);
+  // Its frames are taken twice a second, on the same connection, and left out.
+  const inputs = () => calls().filter((one) => one.name !== "get_desktop_state");
+  return { send, sent, logged, acted: () => acted, calls: inputs, close: () => ws.close() };
+}
+
+/** The stand-in's screen: its picture of the whole of it is this much smaller, and its points half its pixels. */
+const STANDIN_DESKTOP = { x: 3024 / 1366, y: 1964 / 887 };
+/** A point of the screen, in pixels of the stand-in's whole screen's picture, as the put-back moves to it. */
+const inPicture = ({ x, y }: { x: number; y: number }) =>
+  rounded({ x: (x * 2) / STANDIN_DESKTOP.x, y: (y * 2) / STANDIN_DESKTOP.y });
+/** A point, to a millionth of a pixel. */
+const rounded = ({ x, y }: { x: number; y: number }) => ({
+  x: Math.round(x * 1e6) / 1e6,
+  y: Math.round(y * 1e6) / 1e6,
+});
+const DESKTOP_TARGET = { kind: "desktop", display_id: "primary" };
+
+test("the person's click, double and right click, drag and scroll in the live view are each made once at their point, and the pointer put back", async (t) => {
+  const { send, sent, logged, acted, calls } = await liveOverStandIn(t);
+  const at = { type: "mouse", x: 200, y: 100 };
+  const fore = { target: DESKTOP_TARGET, delivery_mode: "foreground", x: 200, y: 100 };
+  const inputs: [unknown, [string, Record<string, unknown>]][] = [
+    [{ ...at, action: "click" }, ["click", fore]],
+    [{ ...at, action: "double_click" }, ["click", { ...fore, count: 2 }]],
+    [{ ...at, action: "right_click" }, ["click", { ...fore, button: "right" }]],
+    [
+      { ...at, action: "drag", to_x: 300, to_y: 150 },
+      [
+        "drag",
+        {
+          target: DESKTOP_TARGET,
+          delivery_mode: "foreground",
+          from_x: 200,
+          from_y: 100,
+          to_x: 300,
+          to_y: 150,
+        },
+      ],
+    ],
+    [{ ...at, action: "scroll", direction: "down" }, ["scroll", { ...fore, direction: "down" }]],
+  ];
+  for (const [message] of inputs) send(message);
+  await waitFor(() => acted() === inputs.length, "every input made");
+  // Each: the pointer read, the input made once, then read again and moved back once, to where it
+  // was as far as the person moved it meanwhile, a further (3, 4) each time.
+  const made = calls().map(({ name, args }) =>
+    name === "move_cursor"
+      ? { name, args: { ...args, ...rounded(args as never) } }
+      : { name, args },
+  );
+  assert.deepEqual(
+    made,
+    inputs.flatMap(([, [name, args]], i) => [
+      { name: "get_cursor_position", args: {} },
+      { name, args },
+      { name: "get_cursor_position", args: {} },
+      { name: "get_screen_size", args: {} },
+      {
+        name: "move_cursor",
+        args: {
+          scope: "desktop",
+          ...inPicture({ x: 100 + 3 * (i + 1), y: 100 + 4 * (i + 1) }),
+          delivery_mode: "foreground",
+        },
+      },
+      { name: "get_cursor_position", args: {} },
+    ]),
+  );
+  // Put back each time, so the person is told nothing, and the log nothing.
+  assert.deepEqual([sent, logged], [[], []]);
+});
+
+test("where the pointer can't be read first, the person's click is made all the same, and the log says it wasn't put back", async (t) => {
+  const { send, sent, logged, acted, calls } = await liveOverStandIn(t, {
+    STANDIN_POINTER: "unread",
+  });
+  send({ type: "mouse", action: "click", x: 200, y: 100 });
+  await waitFor(() => logged.length > 0, "what the log is told");
+  const words = "where the pointer was before it couldn't be read, so it wasn't put back";
+  assert.deepEqual(logged, [`The person's click was made; ${words}.`]);
+  assert.deepEqual(sent, []);
+  assert.equal(acted(), 1);
+  assert.deepEqual(
+    calls().map((one) => one.name),
+    ["get_cursor_position", "click"],
+  );
+});
+
+test("the person's input is never sent twice, and where the pointer isn't put back the log says so", async (t) => {
+  const { send, sent, logged, acted, calls } = await liveOverStandIn(t);
+  const clicks = () => calls().filter((one) => ["click", "drag"].includes(one.name)).length;
+  // Refused before anything was sent: nothing moved, and the driver's words.
+  send({ type: "mouse", action: "click", x: 602, y: 100 });
+  await waitFor(() => sent.length === 1, "the first refusal");
+  assert.deepEqual(sent.at(-1), {
+    type: "refused",
+    message: "Foreground input refused (screen_locked): the screen is locked.",
+  });
+  assert.deepEqual(
+    calls().map((one) => one.name),
+    ["get_cursor_position", "click"],
+  );
+  // Failed after it moved the pointer: put back where it was, and not sent again.
+  send({ type: "mouse", action: "click", x: 603, y: 100 });
+  await waitFor(() => sent.length === 2, "the second refusal");
+  assert.deepEqual(sent.at(-1), { type: "refused", message: "Task error: the connection closed" });
+  const failed = calls();
+  assert.equal(failed.filter((one) => one.name === "click").length, 1);
+  const back = failed.find((one) => one.name === "move_cursor")?.args;
+  assert.deepEqual(
+    { ...back, ...rounded(back as never) },
+    {
+      scope: "desktop",
+      ...inPicture({ x: 100, y: 100 }),
+      delivery_mode: "foreground",
+    },
+  );
+  assert.equal(acted(), 0);
+  // Moved back somewhere else, as the driver says, and then not moved back at all.
+  send({ type: "mouse", action: "drag", x: 604, y: 100, to_x: 650, to_y: 120 });
+  send({ type: "mouse", action: "click", x: 601, y: 100 });
+  await waitFor(() => logged.length === 2, "both logged");
+  assert.equal(sent.length, 2);
+  assert.deepEqual(logged, [
+    "The person's drag was made; the pointer was moved back, but not to where it was.",
+    "The person's click was made; the pointer couldn't be put back where it was.",
+  ]);
+  assert.equal(acted(), 2);
+  assert.equal(clicks(), 2);
+  // Failed after it moved the pointer, which then can't be moved back: refused, saying both.
+  send({ type: "mouse", action: "click", x: 606, y: 100 });
+  await waitFor(() => sent.length === 3, "the third refusal");
+  assert.deepEqual(sent.at(-1), {
+    type: "refused",
+    message: "Task error: the connection closed. The pointer couldn't be put back where it was.",
+  });
+  assert.equal(
+    logged.at(-1),
+    "The person's click failed; the pointer couldn't be put back where it was.",
+  );
+  assert.equal(clicks(), 1);
+});
+
+for (const lent of [true, false])
+  test(`the person's input in the live view and an agent's input that moves the pointer are made one after the other, ${lent ? "on a lent machine" : "off one"}`, async (t) => {
+    const { record } = standInProgram(t);
+    const agent = await overStandIn(t, lent, record);
+    const live = await liveOverStandIn(t, { STANDIN_WHO: "live" }, record);
+    const written = () =>
+      (existsSync(record) ? readFileSync(record, "utf8") : "")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { name: string; who?: string });
+    const fromLive = (name: string) => () =>
+      written().some((one) => one.who === "live" && one.name === name);
+    await waitFor(fromLive("get_desktop_state"), "the live view's first frame");
+    agent.calls();
+    // The person's click, on its way for 400 ms, and meanwhile the agent's click: in the foreground
+    // on a lent machine once the background refuses it, or as the agent asks off one.
+    live.send({ type: "mouse", action: "click", x: 605, y: 100 });
+    await waitFor(fromLive("click"), "the person's click on its way");
+    const answer = await agent.call("act", {
+      action: "click",
+      ...window,
+      x: 777,
+      y: 5,
+      ...(lent ? {} : { delivery_mode: "foreground" }),
+    });
+    assert.equal(answer.isError, undefined);
+    await waitFor(() => live.acted() === 1, "the person's click made");
+    // The person's is read around and put back before the agent's is sent.
+    const whose = agent
+      .calls()
+      .filter(
+        (one) =>
+          one.name !== "get_desktop_state" &&
+          !(one.name === "click" && one.args.delivery_mode === "background"),
+      )
+      .map((one) => `${one.who ?? "agent"} ${one.name}`);
+    assert.deepEqual(whose, [
+      "live get_cursor_position",
+      "live click",
+      "live get_cursor_position",
+      "live get_screen_size",
+      "live move_cursor",
+      "live get_cursor_position",
+      ...(lent
+        ? [
+            "agent get_cursor_position",
+            "agent click",
+            "agent get_cursor_position",
+            "agent get_screen_size",
+            "agent move_cursor",
+            "agent get_cursor_position",
+          ]
+        : ["agent click"]),
+    ]);
+  });
+
+test("an input on its way when the person closes the live view is still put back before its connection ends", async (t) => {
+  const { send, close, acted, calls } = await liveOverStandIn(t);
+  send({ type: "mouse", action: "click", x: 605, y: 100 });
+  const seen: string[] = [];
+  await waitFor(() => {
+    seen.push(...calls().map((one) => one.name));
+    return seen.includes("click");
+  }, "the click on its way");
+  close();
+  await waitFor(() => acted() === 1, "the click made");
+  seen.push(...calls().map((one) => one.name));
+  assert.deepEqual(seen, [
+    "get_cursor_position",
+    "click",
+    "get_cursor_position",
+    "get_screen_size",
+    "move_cursor",
+    "get_cursor_position",
+  ]);
+});
+
 type Answer = { isError: boolean; kinds: string[]; text: string; structured?: unknown };
 type Ran = Record<string, Answer> & {
   error?: string;
@@ -877,7 +1151,9 @@ type Ran = Record<string, Answer> & {
   attached: { tools: string[]; screen: boolean; surface: unknown };
   liveError?: string;
   watched: { texts: unknown[]; frames: string[]; settled: boolean };
-  pointer: { x: number; y: number };
+  pointer: Record<"before" | "clicked" | "afterAll", { x: number; y: number }>;
+  frontRan: string;
+  besideRan: boolean;
   liveRan: string;
   watchTyped: boolean;
   operated: unknown[];
@@ -1025,8 +1301,14 @@ describe("in a desktop of its own, with the pinned driver", {
     assert.equal(out.liveRan, "live-ok\n");
   });
 
-  test("a point in the frames is scaled to the screen", () => {
-    assert.deepEqual([out.pointer.x, out.pointer.y], [150, 150]);
+  test("the person's click brings the window under its point forward, a point in the frames scaled to the screen, and the real pointer ends where it was", () => {
+    // Typed before the click, it went to the small window in front, not the terminal.
+    assert.equal(out.besideRan, false);
+    assert.equal(out.frontRan, "front-ok\n");
+    assert.deepEqual(
+      [out.pointer.clicked, out.pointer.afterAll],
+      [out.pointer.before, out.pointer.before],
+    );
   });
 
   test("a watch socket's input is dropped", () => {
@@ -1164,6 +1446,12 @@ describe("with the pinned driver run embedded, as an app hosting it runs it", {
     assert.equal(out.ran, "screen-ok\n");
     assert.deepEqual(out.watched.frames, ["PNG"]);
     assert.equal(out.liveRan, "live-ok\n");
+    assert.equal(out.besideRan, false);
+    assert.equal(out.frontRan, "front-ok\n");
+    assert.deepEqual(
+      [out.pointer.clicked, out.pointer.afterAll],
+      [out.pointer.before, out.pointer.before],
+    );
     assert.ok(!out.logs.some((line) => /is available \(you have/.test(line)), out.logs.join("\n"));
   });
 });
