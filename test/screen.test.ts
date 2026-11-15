@@ -4,7 +4,15 @@
 import assert from "node:assert/strict";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -15,7 +23,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { ProcessRuntime } from "../src/runtime.ts";
-import { Screen } from "../src/screen.ts";
+import { Screen, screenCheck } from "../src/screen.ts";
 import { personCall } from "../src/screen-live.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
@@ -123,6 +131,55 @@ test("where Cua Driver isn't installed, the screen isn't ready and attaching wit
   const info = await plain.getInfo();
   assert.deepEqual([info.screen, info.endpoints.screen, info.tools.screen], [false, null, []]);
   await plain.kill();
+});
+
+test("a missing grant sends the person to the app that hosts the driver, by its name, and otherwise to System Settings", async (t) => {
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), "ac-")));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  /** A stand-in for the driver at `program`, granted Screen Recording and not Accessibility. */
+  const driver = (program: string) => {
+    mkdirSync(dirname(program), { recursive: true });
+    writeFileSync(
+      program,
+      `#!/bin/sh
+case "$1" in
+  --version) echo "cua-driver 0.49.7" ;;
+  call) echo '{"accessibility":false,"screen_recording":true,"source":{"attribution":"host"}}' ;;
+  permissions) echo '{"accessibility":false,"screen_recording":true}' ;;
+esac
+`,
+    );
+    chmodSync(program, 0o755);
+    return program;
+  };
+  // Inside an app whose name, as its Info.plist gives it, isn't its folder's: a Mac reads the
+  // name there, and elsewhere, with no plutil, the folder's is used.
+  const app = join(folder, "Host.app");
+  mkdirSync(join(app, "Contents"), { recursive: true });
+  writeFileSync(
+    join(app, "Contents", "Info.plist"),
+    '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>CFBundleDisplayName</key><string>AgentOrg</string></dict></plist>\n',
+  );
+  const inApp = driver(join(app, "Contents", "Resources", "cua-driver"));
+  const name = process.platform === "darwin" ? "AgentOrg" : "Host";
+  const socket = join(folder, "host.sock");
+  assert.deepEqual((await screenCheck({ program: inApp, socket }, "darwin")).readiness, {
+    ready: false,
+    reason: `Screen Recording and Accessibility are needed, and ${name} is missing Accessibility. Set it up in ${name}.`,
+  });
+  // Hosted by an app it isn't inside: that app, unnamed.
+  const loose = driver(join(folder, "loose", "cua-driver"));
+  assert.deepEqual((await screenCheck({ program: loose, socket }, "darwin")).readiness, {
+    ready: false,
+    reason:
+      "Screen Recording and Accessibility are needed, and the app running Cua Driver is missing Accessibility. Set it up in that app.",
+  });
+  // The person's own Cua Driver: its grants are in System Settings, where it asked for them.
+  assert.deepEqual((await screenCheck({ program: inApp }, "darwin")).readiness, {
+    ready: false,
+    reason:
+      "Screen Recording and Accessibility are needed, and Cua Driver is missing Accessibility. Grant it in System Settings, under Privacy & Security.",
+  });
 });
 
 test("a driver an app hosts is reached, and its grants read, only through that app's socket", async (t) => {
