@@ -258,8 +258,13 @@ type Listed = {
 const BACKGROUND = {
   done: "It was sent in the background, with the person's pointer left where it is: see the window to check that it took effect.",
   refused:
-    "It can't be done in the background in that window, and on this machine the agent acts only in the background: try an element_token from see, or leave it to the person.",
+    "It can't be done in the background in that window, and on this machine it isn't done in the foreground either: try an element_token from see, or leave it to the person.",
+  desktop:
+    "On this machine the agent acts in a window, not at a point of the whole screen, which would move the person's pointer there and leave it: find the window that holds it in apps, see that window, and find it again in that window's picture to aim at.",
 };
+
+/** What can be aimed at a point of the whole screen, which the driver does by moving the pointer. */
+const POINTED = new Set(["click", "double_click", "right_click", "drag", "scroll"]);
 
 /**
  * Whether the driver refused a click in the background before sending anything, saying the
@@ -698,8 +703,11 @@ export class Screen {
     server.registerTool(
       "see",
       {
-        description:
-          "Returns the whole screen as a picture; apps lists its windows. With pid and window_id from apps, returns that window's elements, each with an element_token, and a picture of it.",
+        description: `Returns the whole screen as a picture; apps lists its windows. With pid and window_id from apps, returns that window's elements, each with an element_token, and a picture of it.${
+          this.#onlyBackground
+            ? " On this machine the whole screen's picture is for finding a window: act aims in a window's picture."
+            : ""
+        }`,
         inputSchema: Seen,
       },
       ({ pid, window_id }) =>
@@ -718,9 +726,13 @@ export class Screen {
     server.registerTool(
       "act",
       {
-        description: `Does one thing on the screen. click, double_click, right_click: an element_token, or x and y. drag: x and y, where it starts, and to_x and to_y. scroll: direction, and amount if not 3, at an element_token or x and y. type: text. key: key, such as enter. hotkey: keys pressed together. Aim at an element_token from see, or at x and y in pixels of the picture see gave last: a window's, with its pid and window_id, or the whole screen's, with neither. Click an element that can't be pressed, such as a text area, by its point. type, key and hotkey need a window or an element. See again after anything changes. ${
+        description: `Does one thing on the screen. click, double_click, right_click: an element_token, or x and y. drag: x and y, where it starts, and to_x and to_y. scroll: direction, and amount if not 3, at an element_token or x and y. type: text. key: key, such as enter. hotkey: keys pressed together. Aim at an element_token from see, or at x and y in pixels of the picture see gave last: ${
           this.#onlyBackground
-            ? "It is done in the background, with the person's pointer left where it is; a click that can't be is made in the foreground, which brings the window forward, and the person's pointer is put back."
+            ? "a window's, with its pid and window_id"
+            : "a window's, with its pid and window_id, or the whole screen's, with neither"
+        }. Click an element that can't be pressed, such as a text area, by its point. type, key and hotkey need a window or an element. See again after anything changes. ${
+          this.#onlyBackground
+            ? "It is done in the background, with the person's pointer left where it is; a click that can't be is made in the foreground, which brings the window forward, and the person's pointer is put back. A point of the whole screen's picture is refused here: find the window in apps, see it, and aim in its picture."
             : "If a call is refused because it can't be done in the background, repeat it with delivery_mode foreground, which takes the person's focus."
         }`,
         inputSchema: this.#onlyBackground ? BackgroundAct : Act,
@@ -728,6 +740,15 @@ export class Screen {
       (input: Act) =>
         answered(async () => {
           const [tool, args] = driverCall(input);
+          // On a lent machine a point of the whole screen is refused before anything is sent: the
+          // driver does it by moving the person's pointer there, and leaves it, and the front app.
+          if (
+            this.#onlyBackground &&
+            POINTED.has(input.action) &&
+            input.pid === undefined &&
+            input.element_token === undefined
+          )
+            return { content: [text(BACKGROUND.desktop)], isError: true };
           const unseen = await this.#unseen(input);
           if (unseen) return unseen;
           const answer = await this.call(tool, args).catch(failed);
@@ -772,7 +793,7 @@ export class Screen {
       {
         description: `Lists the running apps and their windows, each window with its pid and window_id, and, as fields, each window's app_name, title, pid, window_id, z_index (higher in front) and bounds, in the screen's points rather than the pixels act aims in: to aim at a window, see it and use its picture. ${
           this.#onlyBackground
-            ? "It brings no window forward: see and act work on a window in the background, where it is."
+            ? "It brings no window forward itself: see and act work on a window where it is."
             : "With a pid and window_id, it first brings that window forward, in front of what the person sees."
         }`,
         // On a lent machine bringing a window forward would take the person's front app, and their typing with it.

@@ -305,7 +305,9 @@ async function overStandIn(t: test.TestContext, onlyBackground: boolean) {
       structuredContent?: Record<string, unknown>;
     };
   const { tools } = await client.listTools();
-  const [act, apps] = ["act", "apps"].map((name) => tools.find((one) => one.name === name));
+  const [act, apps, see] = ["act", "apps", "see"].map((name) =>
+    tools.find((one) => one.name === name),
+  );
   /** The calls the driver was asked since the last time, each its tool and arguments. */
   let read = 0;
   const calls = () => {
@@ -314,16 +316,21 @@ async function overStandIn(t: test.TestContext, onlyBackground: boolean) {
     read = lines.length;
     return since.map((line) => JSON.parse(line) as { name: string; args: Record<string, unknown> });
   };
-  return { call, act, apps, calls, logged };
+  return { call, act, apps, see, calls, logged };
 }
 const window = { pid: 19249, window_id: 12895 };
 
 test("on a lent machine the agent acts only in the background, and is told so in plain words", async (t) => {
-  const { call, act, apps } = await overStandIn(t, true);
+  const { call, act, apps, see } = await overStandIn(t, true);
   assert.equal("delivery_mode" in (act?.inputSchema.properties ?? {}), false);
   assert.match(
     act?.description ?? "",
-    /It is done in the background, with the person's pointer left where it is; a click that can't be is made in the foreground, which brings the window forward, and the person's pointer is put back\./,
+    /It is done in the background, with the person's pointer left where it is; a click that can't be is made in the foreground, which brings the window forward, and the person's pointer is put back\. A point of the whole screen's picture is refused here: find the window in apps, see it, and aim in its picture\./,
+  );
+  assert.doesNotMatch(act?.description ?? "", /the whole screen's, with neither/);
+  assert.match(
+    see?.description ?? "",
+    /On this machine the whole screen's picture is for finding a window: act aims in a window's picture\./,
   );
   // The driver's advice to retry in the foreground, and its hints naming its own tools, don't reach it.
   const clicked = await call("act", { action: "click", ...window, x: 100, y: 200 });
@@ -352,7 +359,7 @@ test("on a lent machine the agent acts only in the background, and is told so in
     [
       true,
       [
-        "It can't be done in the background in that window, and on this machine the agent acts only in the background: try an element_token from see, or leave it to the person.",
+        "It can't be done in the background in that window, and on this machine it isn't done in the foreground either: try an element_token from see, or leave it to the person.",
       ],
     ],
   );
@@ -608,23 +615,69 @@ test("on a lent machine the put-back keeps the driver's picture of the whole scr
       ],
     ],
   );
-  // A click at a point of the whole screen isn't one in a window: it is never made for it here.
-  const desktop = await call("act", { action: "click", x: 777, y: 5 });
-  assert.equal(desktop.isError, true);
   assert.deepEqual(
     calls()
       .filter((one) => one.name === "click")
-      .map((one) => [
-        one.args.delivery_mode,
-        one.args.x,
-        "pid" in ((one.args.target as object) ?? {}),
-      ]),
+      .map((one) => [one.args.delivery_mode, one.args.x]),
     [
-      ["background", 777, true],
-      ["foreground", 777, true],
-      ["background", 789, true],
-      ["background", 777, false],
+      ["background", 777],
+      ["foreground", 777],
+      ["background", 789],
     ],
+  );
+});
+
+test("on a lent machine a point of the whole screen is refused before anything is sent, and aimed in a window instead", async (t) => {
+  const { call, calls } = await overStandIn(t, true);
+  calls();
+  const point = { x: 777, y: 5 };
+  const pointed = [
+    { action: "click", ...point },
+    { action: "double_click", ...point },
+    { action: "right_click", ...point },
+    { action: "drag", ...point, to_x: 790, to_y: 9 },
+    { action: "scroll", ...point, direction: "down" },
+  ];
+  for (const input of pointed) {
+    const refused = await call("act", input);
+    assert.deepEqual(
+      [refused.isError, refused.content.map((one) => one.text)],
+      [
+        true,
+        [
+          "On this machine the agent acts in a window, not at a point of the whole screen, which would move the person's pointer there and leave it: find the window that holds it in apps, see that window, and find it again in that window's picture to aim at.",
+        ],
+      ],
+      input.action,
+    );
+  }
+  assert.deepEqual(calls(), []);
+  // The whole screen is still seen, to find the window; an element, and a window's point, are acted on.
+  assert.equal((await call("see", {})).isError, undefined);
+  assert.equal((await call("act", { action: "click", element_token: "s1:5" })).isError, true);
+  assert.equal(
+    (await call("act", { action: "scroll", ...window, ...point, direction: "up" })).isError,
+    undefined,
+  );
+  assert.deepEqual(
+    calls().map((one) => [one.name, (one.args.target as { kind?: string } | undefined)?.kind]),
+    [
+      ["get_desktop_state", undefined],
+      ["click", undefined],
+      ["scroll", "window"],
+    ],
+  );
+});
+
+test("off a lent machine a point of the whole screen goes to the driver as before", async (t) => {
+  const { call, calls, act, see } = await overStandIn(t, false);
+  assert.match(act?.description ?? "", /or the whole screen's, with neither/);
+  assert.doesNotMatch(see?.description ?? "", /On this machine/);
+  calls();
+  await call("act", { action: "click", x: 10, y: 20 });
+  assert.deepEqual(
+    calls().map((one) => [one.name, one.args.target]),
+    [["click", { kind: "desktop", display_id: "primary" }]],
   );
 });
 
