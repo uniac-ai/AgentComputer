@@ -196,7 +196,7 @@ export class Computers {
         return;
       }
       const live: Live = {};
-      await this.#start(stored, live).catch((error: unknown) => {
+      await this.#start(stored, live, true).catch((error: unknown) => {
         const why = `It didn't start again: ${messageOf(error)}`;
         this.#log(stored.id, why);
         // Stopped, or started again, meanwhile: that is what it is now.
@@ -400,7 +400,7 @@ export class Computers {
     stored.state = "running";
     const live: Live = {};
     try {
-      await this.#start(stored, live);
+      await this.#start(stored, live, true);
     } catch (error) {
       // Unless it was stopped, or started again, meanwhile.
       if (this.#live.get(id) === live) {
@@ -592,7 +592,7 @@ export class Computers {
    * Start it, as `live`. Stopped, killed or started again while it waits, it is refused, and what
    * came up meanwhile is stopped: nothing is left that no call reaches.
    */
-  async #start(stored: Stored, live: Live) {
+  async #start(stored: Stored, live: Live, again = false) {
     this.#live.set(stored.id, live);
     const stopped = () => this.#live.get(stored.id) !== live;
     const STOPPED = "It was stopped while it was starting.";
@@ -613,6 +613,7 @@ export class Computers {
           access: stored.access,
           browser: stored.browser,
           screen: stored.screen === true,
+          again,
           workspace: stored.workspace,
         },
         this.#folder(stored.id),
