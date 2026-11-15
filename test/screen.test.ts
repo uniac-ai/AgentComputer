@@ -976,10 +976,15 @@ test("the person's click, double and right click, drag and scroll in the live vi
   assert.deepEqual(
     made,
     inputs.flatMap(([, [name, args]], i) => [
+      // The screen's scale, then the drawn pointer glided alone to where the input starts.
+      { name: "get_screen_size", args: {} },
+      {
+        name: "move_cursor",
+        args: rounded({ x: (200 * STANDIN_DESKTOP.x) / 2, y: (100 * STANDIN_DESKTOP.y) / 2 }),
+      },
       { name: "get_cursor_position", args: {} },
       { name, args },
       { name: "get_cursor_position", args: {} },
-      { name: "get_screen_size", args: {} },
       {
         name: "move_cursor",
         args: {
@@ -1007,7 +1012,7 @@ test("where the pointer can't be read first, the person's click is made all the 
   assert.equal(acted(), 1);
   assert.deepEqual(
     calls().map((one) => one.name),
-    ["get_cursor_position", "click"],
+    ["get_screen_size", "move_cursor", "get_cursor_position", "click"],
   );
 });
 
@@ -1023,7 +1028,7 @@ test("the person's input is never sent twice, and where the pointer isn't put ba
   });
   assert.deepEqual(
     calls().map((one) => one.name),
-    ["get_cursor_position", "click"],
+    ["get_screen_size", "move_cursor", "get_cursor_position", "click"],
   );
   // Failed after it moved the pointer: put back where it was, and not sent again.
   send({ type: "mouse", action: "click", x: 603, y: 100 });
@@ -1031,7 +1036,7 @@ test("the person's input is never sent twice, and where the pointer isn't put ba
   assert.deepEqual(sent.at(-1), { type: "refused", message: "Task error: the connection closed" });
   const failed = calls();
   assert.equal(failed.filter((one) => one.name === "click").length, 1);
-  const back = failed.find((one) => one.name === "move_cursor")?.args;
+  const back = failed.find((one) => one.name === "move_cursor" && one.args.scope)?.args;
   assert.deepEqual(
     { ...back, ...rounded(back as never) },
     {
@@ -1103,10 +1108,11 @@ for (const lent of [true, false])
       )
       .map((one) => `${one.who ?? "agent"} ${one.name}`);
     assert.deepEqual(whose, [
+      "live get_screen_size",
+      "live move_cursor",
       "live get_cursor_position",
       "live click",
       "live get_cursor_position",
-      "live get_screen_size",
       "live move_cursor",
       "live get_cursor_position",
       ...(lent
@@ -1134,13 +1140,29 @@ test("an input on its way when the person closes the live view is still put back
   await waitFor(() => acted() === 1, "the click made");
   seen.push(...calls().map((one) => one.name));
   assert.deepEqual(seen, [
-    "get_cursor_position",
-    "click",
-    "get_cursor_position",
     "get_screen_size",
     "move_cursor",
     "get_cursor_position",
+    "click",
+    "get_cursor_position",
+    "move_cursor",
+    "get_cursor_position",
   ]);
+});
+
+test("the live view glides the drawn pointer to an input's point first, so a hand moving meanwhile is kept", async (t) => {
+  const { send, acted, calls } = await liveOverStandIn(t, { STANDIN_HAND: "moving" });
+  send({ type: "mouse", action: "click", x: 200, y: 100 });
+  await waitFor(() => acted() === 1, "the click made");
+  const made = calls();
+  // Glided alone, with no scope, before the real pointer is read.
+  const glided = made.findIndex((one) => one.name === "move_cursor" && !one.args.scope);
+  const read = made.findIndex((one) => one.name === "get_cursor_position");
+  assert.ok(glided >= 0 && glided < read, JSON.stringify(made));
+  // The hand took the pointer a further (50, 30) during the glide, from (100, 100): it is put back
+  // there, as far as the hand moved it since, a further (3, 4).
+  const back = made.find((one) => one.name === "move_cursor" && one.args.scope)?.args;
+  assert.deepEqual(rounded(back as never), inPicture({ x: 153, y: 134 }));
 });
 
 type Answer = { isError: boolean; kinds: string[]; text: string; structured?: unknown };

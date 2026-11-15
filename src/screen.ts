@@ -444,14 +444,21 @@ export class RealPointer {
    * driver make it, which moves the pointer to its point, then move it back once, as far as the
    * person moved it meanwhile. Where the pointer can't be read first, `unread` says whether the
    * input is made all the same: if not, nothing is sent and there is no answer. `ended` says where
-   * an input the driver answered without an error left the pointer.
+   * an input the driver answered without an error left the pointer. `glide`, a point of the whole
+   * screen's picture, is where the driver's drawn pointer is glided first, alone.
    */
   async foreground(
     tool: string,
     args: Args,
     ended: (done: Answer) => Ended | undefined,
     unread: "skip" | "make",
+    glide?: Point,
   ): Promise<{ done?: Answer; pointer: PointerOutcome }> {
+    // The driver glides its drawn pointer to an input's point before it moves the real one, and a
+    // hand moving the pointer meanwhile would be lost when it does: glided there first, alone, the
+    // pointer is read after the glide, just before the input moves it.
+    const k = glide ? await this.#scale() : undefined;
+    if (glide && k !== undefined) await this.#glideTo(glide, k);
     const before = await this.read();
     if (!before && unread === "skip") return { pointer: "unread" };
     const done = await this.#call(tool, { ...args, delivery_mode: "foreground" }).catch(failed);
@@ -464,7 +471,34 @@ export class RealPointer {
     )
       return { done, pointer: "unmoved" };
     if (!before) return { done, pointer: "unread" };
-    return { done, pointer: await this.#putBack(before, done.isError ? undefined : ended(done)) };
+    return {
+      done,
+      pointer: await this.#putBack(before, done.isError ? undefined : ended(done), k),
+    };
+  }
+
+  /**
+   * How the driver moves a point of the whole screen: a Mac's scale, which turns its points into
+   * pixels at full size; none where it can't be read.
+   */
+  async #scale(): Promise<number | undefined> {
+    if (this.#platform !== "darwin") return 1;
+    const size = await this.#call("get_screen_size", {}).catch(failed);
+    const scale = (size.structuredContent as { scale_factor?: unknown } | undefined)?.scale_factor;
+    return size.isError || typeof scale !== "number" || scale <= 0 ? undefined : scale;
+  }
+
+  /**
+   * The driver's drawn pointer, glided to a point of the whole screen's picture, in the screen's
+   * points: it alone moves, as a move with no target does, and the real pointer is left. Where the
+   * driver draws none, nothing.
+   */
+  async #glideTo(picture: Point, k: number) {
+    const desktop = this.#desktop();
+    await this.#call("move_cursor", {
+      x: (picture.x * desktop.x) / k,
+      y: (picture.y * desktop.y) / k,
+    }).catch(failed);
   }
 
   /**
@@ -472,19 +506,17 @@ export class RealPointer {
    * person moved it since. Where that point isn't known, or the pointer can't be read after the
    * input, back where it was. Whether it came back is what the move answers.
    */
-  async #putBack(before: Point, ended: Ended | undefined): Promise<PointerOutcome> {
+  async #putBack(
+    before: Point,
+    ended: Ended | undefined,
+    known: number | undefined,
+  ): Promise<PointerOutcome> {
     const after = await this.read();
     if (after && near(after, before)) return "stayed";
     // The driver moves it in pixels of the whole screen's picture at full size, which on a Mac is
     // its points times the screen's scale, read from the last picture this connection took.
-    let k = 1;
-    if (this.#platform === "darwin") {
-      const size = await this.#call("get_screen_size", {}).catch(failed);
-      const scale = (size.structuredContent as { scale_factor?: unknown } | undefined)
-        ?.scale_factor;
-      if (size.isError || typeof scale !== "number" || scale <= 0) return "notBack";
-      k = scale;
-    }
+    const k = known ?? (await this.#scale());
+    if (k === undefined) return "notBack";
     const desktop = this.#desktop();
     const end =
       ended && "picture" in ended
