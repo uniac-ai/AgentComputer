@@ -995,15 +995,15 @@ test("the person's click, double and right click, drag and scroll in the live vi
   assert.deepEqual([sent, logged], [[], []]);
 });
 
-test("where the pointer can't be read first, the person's click is made all the same, and they are told it wasn't put back", async (t) => {
+test("where the pointer can't be read first, the person's click is made all the same, and the log says it wasn't put back", async (t) => {
   const { send, sent, logged, acted, calls } = await liveOverStandIn(t, {
     STANDIN_POINTER: "unread",
   });
   send({ type: "mouse", action: "click", x: 200, y: 100 });
-  await waitFor(() => sent.length > 0, "what the person is told");
+  await waitFor(() => logged.length > 0, "what the log is told");
   const words = "where the pointer was before it couldn't be read, so it wasn't put back";
-  assert.deepEqual(sent, [{ type: "pointer_left", message: `The click was made; ${words}.` }]);
   assert.deepEqual(logged, [`The person's click was made; ${words}.`]);
+  assert.deepEqual(sent, []);
   assert.equal(acted(), 1);
   assert.deepEqual(
     calls().map((one) => one.name),
@@ -1011,7 +1011,7 @@ test("where the pointer can't be read first, the person's click is made all the 
   );
 });
 
-test("the person's input is never sent twice, and where the pointer isn't put back they are told, and the log says so", async (t) => {
+test("the person's input is never sent twice, and where the pointer isn't put back the log says so", async (t) => {
   const { send, sent, logged, acted, calls } = await liveOverStandIn(t);
   const clicks = () => calls().filter((one) => ["click", "drag"].includes(one.name)).length;
   // Refused before anything was sent: nothing moved, and the driver's words.
@@ -1044,17 +1044,8 @@ test("the person's input is never sent twice, and where the pointer isn't put ba
   // Moved back somewhere else, as the driver says, and then not moved back at all.
   send({ type: "mouse", action: "drag", x: 604, y: 100, to_x: 650, to_y: 120 });
   send({ type: "mouse", action: "click", x: 601, y: 100 });
-  await waitFor(() => sent.length === 4, "both told");
-  assert.deepEqual(sent.slice(2), [
-    {
-      type: "pointer_left",
-      message: "The drag was made; the pointer was moved back, but not to where it was.",
-    },
-    {
-      type: "pointer_left",
-      message: "The click was made; the pointer couldn't be put back where it was.",
-    },
-  ]);
+  await waitFor(() => logged.length === 2, "both logged");
+  assert.equal(sent.length, 2);
   assert.deepEqual(logged, [
     "The person's drag was made; the pointer was moved back, but not to where it was.",
     "The person's click was made; the pointer couldn't be put back where it was.",
@@ -1063,7 +1054,7 @@ test("the person's input is never sent twice, and where the pointer isn't put ba
   assert.equal(clicks(), 2);
   // Failed after it moved the pointer, which then can't be moved back: refused, saying both.
   send({ type: "mouse", action: "click", x: 606, y: 100 });
-  await waitFor(() => sent.length === 5, "the third refusal");
+  await waitFor(() => sent.length === 3, "the third refusal");
   assert.deepEqual(sent.at(-1), {
     type: "refused",
     message: "Task error: the connection closed. The pointer couldn't be put back where it was.",

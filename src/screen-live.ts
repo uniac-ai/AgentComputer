@@ -100,8 +100,8 @@ function frameOf(answer: Answer): Frame | undefined {
 }
 
 /**
- * What the person is told, where their click, drag or scroll left the machine's pointer elsewhere
- * than where it was: as the input's words go on.
+ * What the log says, and a failed input's refusal, where the person's click, drag or scroll left
+ * the machine's pointer elsewhere than where it was: as the input's words go on.
  */
 const LEFT: Partial<Record<PointerOutcome, string>> = {
   unread: "where the pointer was before it couldn't be read, so it wasn't put back",
@@ -265,11 +265,6 @@ export class ScreenLive {
     ws.send(JSON.stringify({ type: "refused", message } satisfies ScreenEvent));
   }
 
-  /** What was done, but left the machine's pointer elsewhere than where it was, and why. */
-  #pointerLeft(ws: WebSocket, message: string) {
-    ws.send(JSON.stringify({ type: "pointer_left", message } satisfies ScreenEvent));
-  }
-
   /**
    * A person's step, done by the driver; what isn't done is answered to the socket that sent it.
    * Input from a socket that has gone, or once the driver has, is left undone: it never starts one.
@@ -296,8 +291,8 @@ export class ScreenLive {
    * would be, after every foreground input before it on this machine's screen: the pointer goes
    * there, and is then put back where it was, as far as anyone at the machine moved it meanwhile.
    * Where it can't be read first, the input is made all the same, as the person asked, and the
-   * pointer left where it puts it. Where the pointer isn't put back, the person is told, and the
-   * log says so.
+   * pointer left where it puts it. Where the pointer isn't put back, the log says why, and so does
+   * a failed input's refusal.
    */
   async #pointed(ws: WebSocket, driver: Driver, action: string, tool: string, args: Args) {
     // As this connection's frames are taken, kept for the put-back should the connection end.
@@ -331,6 +326,5 @@ export class ScreenLive {
       return;
     }
     this.#acted();
-    if (left) this.#pointerLeft(ws, `The ${what} was made; ${left}.`);
   }
 }
