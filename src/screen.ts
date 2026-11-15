@@ -271,7 +271,10 @@ const BACKGROUND = {
     "On this machine the agent acts in a window, not at a point of the whole screen, which would move the person's pointer there and leave it: find the window that holds it in apps, see that window, and find it again in that window's picture to aim at.",
 };
 
-/** What can be aimed at a point of the whole screen, which the driver does by moving the pointer. */
+/**
+ * What can be aimed at a point of the whole screen, which the driver does by moving the pointer, as
+ * it does in the foreground.
+ */
 const POINTED = new Set(["click", "double_click", "right_click", "drag", "scroll"]);
 
 /**
@@ -318,13 +321,13 @@ export function desktopScale(answer: Answer): Point {
       };
 }
 
-/** The foreground inputs made on this machine's screen, one after another. */
+/** The inputs that move the real pointer on this machine's screen, one after another. */
 let foregroundTurn: Promise<unknown> = Promise.resolve();
 
 /**
- * `work`, once every foreground input before it on this machine's screen is done, the agents'
- * clicks and the person's in the live view alike, so that no put-back reads a pointer another input
- * moved.
+ * `work`, once every input before it that moves the real pointer on this machine's screen is done,
+ * the agents' and the person's in the live view alike, so that no put-back reads a pointer another
+ * input moved.
  */
 export function inForegroundTurn<T>(work: () => Promise<T>): Promise<T> {
   const turn = foregroundTurn.then(work);
@@ -845,7 +848,16 @@ export class Screen {
             return { content: [text(BACKGROUND.desktop)], isError: true };
           const unseen = await this.#unseen(input);
           if (unseen) return unseen;
-          const answer = await this.call(tool, args).catch(failed);
+          // What moves the real pointer, at a point of the whole screen or in the foreground, waits
+          // its turn on this machine's screen, so that no put-back reads it as someone's motion.
+          const moves =
+            POINTED.has(input.action) &&
+            (input.delivery_mode === "foreground" ||
+              (input.pid === undefined && input.element_token === undefined));
+          const answer = await (moves
+            ? inForegroundTurn(() => this.call(tool, args))
+            : this.call(tool, args)
+          ).catch(failed);
           // On a lent machine a click the background can't make, and that was sent nowhere, is
           // made in the foreground, with the person's pointer put back.
           if (

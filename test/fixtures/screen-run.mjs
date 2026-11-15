@@ -289,11 +289,15 @@ try {
     // The pointer, away from both windows.
     await tool("move_cursor", { scope: "desktop", x: 1200, y: 300 });
     const left = await pointer();
+    // The small window has the focus: what is typed now goes to cat, and runs nothing.
+    operate.send({ type: "text", text: "echo beside-ran > /tmp/beside-ran" });
+    operate.send({ type: "key", keys: ["enter"] });
     operate.send({ type: "mouse", action: "click", ...aim });
     operate.send({ type: "text", text: "echo front-ok > /tmp/front-ok" });
     operate.send({ type: "key", keys: ["enter"] });
     await until(() => existsSync("/tmp/front-ok"), "the command typed after the click");
     out.frontRan = readFileSync("/tmp/front-ok", "utf8");
+    out.besideRan = existsSync("/tmp/beside-ran");
     out.pointer = { before: left, clicked: await pointer() };
     // The rest, each at the terminal, now in front, and the pointer put back after each.
     for (const message of [

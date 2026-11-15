@@ -141,6 +141,8 @@ export class ScreenLive {
   #desktop = { x: 1, y: 1 };
   /** The machine's, where the driver runs: a Mac's moves the pointer only when told to. */
   readonly #platform: NodeJS.Platform;
+  /** The person's inputs on their way, each of which keeps its connection until it is put back. */
+  readonly #making = new Set<Promise<unknown>>();
 
   constructor(
     driver: () => DriverAt,
@@ -218,6 +220,8 @@ export class ScreenLive {
     clearInterval(this.#timer);
     this.#driver = this.#started = this.#timer = this.#frame = undefined;
     this.#desktop = { x: 1, y: 1 };
+    // An input already being made keeps the connection until its pointer is put back.
+    await Promise.allSettled([...this.#making]);
     await driver?.stop();
   }
 
@@ -296,29 +300,34 @@ export class ScreenLive {
    * log says so.
    */
   async #pointed(ws: WebSocket, driver: Driver, action: string, tool: string, args: Args) {
+    // As this connection's frames are taken, kept for the put-back should the connection end.
+    const desktop = this.#desktop;
     const pointer = new RealPointer(
       (name, given) => driver.call(name, given),
       this.#platform,
-      () => this.#desktop,
+      () => desktop,
     );
     // Where it leaves the pointer, in pixels of the frames: a drag where it ends.
     const end =
       tool === "drag"
         ? { x: Number(args.to_x), y: Number(args.to_y) }
         : { x: Number(args.x), y: Number(args.y) };
-    const made = await inForegroundTurn(async () =>
+    const making = inForegroundTurn(async () =>
       // Waited for, its socket or the driver may have gone: it is left undone.
       this.#viewers.has(ws) && this.#driver === driver
         ? pointer.foreground(tool, args, () => ({ picture: end }), "make")
         : undefined,
     );
+    this.#making.add(making);
+    const made = await making.finally(() => this.#making.delete(making));
     if (!made?.done) return;
     const what = action.replace("_", " ");
     const left = LEFT[made.pointer];
     if (left)
       this.#log(`The person's ${what} ${made.done.isError ? "failed" : "was made"}; ${left}.`);
     if (made.done.isError) {
-      this.#refuse(ws, left ? `${said(made.done)} ${sentence(left)}` : said(made.done));
+      const why = said(made.done);
+      this.#refuse(ws, left ? `${/[.!?]$/.test(why) ? why : `${why}.`} ${sentence(left)}` : why);
       return;
     }
     this.#acted();

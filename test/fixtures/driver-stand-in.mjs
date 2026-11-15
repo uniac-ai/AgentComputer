@@ -22,8 +22,9 @@
 // foreground, is made as a Mac's driver makes it: the pointer goes to the point (a drag's end),
 // and the person moves it a further (3, 4) meanwhile. One starting at x 601 then leaves the pointer
 // where it can't be moved back; 602 is refused before anything is sent; 603 fails after the
-// pointer moved; 604 is moved back somewhere else, as the driver says. With STANDIN_POINTER=unread,
-// the pointer is never read.
+// pointer moved; 604 is moved back somewhere else, as the driver says; 605 is answered 400 ms after
+// the pointer moved, as a drag takes its time; 606 fails after the pointer moved, where it can't be
+// moved back. With STANDIN_POINTER=unread, the pointer is never read.
 //
 // With STANDIN_CALLS, each call is written to that file as a line of JSON, with STANDIN_WHO's name
 // where that is set.
@@ -143,9 +144,14 @@ const atDesktop = (name, args) => {
   const [px, py] = name === "drag" ? [args.to_x, args.to_y] : [from.x, from.y];
   const end = { x: (px * desktop.x) / 2, y: (py * desktop.y) / 2 };
   pointer = { x: end.x + 3, y: end.y + 4 };
-  if (from.x === 601) stuck = true;
+  if (from.x === 601 || from.x === 606) stuck = true;
   if (from.x === 604) astray = true;
-  if (from.x === 603) return said("Task error: the connection closed", undefined, true);
+  if (from.x === 603 || from.x === 606)
+    return said("Task error: the connection closed", undefined, true);
+  if (from.x === 605)
+    return new Promise((done) =>
+      setTimeout(() => done(said("✅ Sent screen-absolute click (desktop scope)")), 400),
+    );
   const at = (point) => `(${point.x.toFixed(1)}, ${point.y.toFixed(1)})`;
   const sent = { scope: "desktop", path: "hid", effect: "unverifiable" };
   if (name === "drag")

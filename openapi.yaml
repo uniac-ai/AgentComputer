@@ -908,7 +908,8 @@ components:
             What this socket sent was done, but the machine's pointer, which it moved, isn't back
             where it was, and why, in words for a person: where it was couldn't be read first, it
             couldn't be moved back, or it was moved back somewhere else. Sent only to the operate
-            socket that sent it, and written to the computer's log.
+            socket that sent it, and written to the computer's log. Where what it sent failed, the
+            refused that answers it carries the same words after the driver's.
           required: [type, message]
           properties:
             type: { const: pointer_left }
@@ -921,8 +922,8 @@ components:
         text go to the window in front. A click, drag or scroll is made in the foreground at its
         point, as a person's own would be, which moves the machine's pointer there; the pointer is
         then put back once where it was, as far as anyone at the machine moved it meanwhile, and
-        where it isn't, the socket is sent pointer_left. Such inputs, and the agents' clicks made
-        in the foreground, are made one at a time on the machine's screen. What isn't done is
+        where it isn't, the socket is sent pointer_left. Such inputs, and every agent's input that
+        moves the real pointer, are made one at a time on the machine's screen. What isn't done is
         answered with refused, and why: what Cua Driver refuses, what is none of these, and what
         is sent while 32 are still waiting. Binary messages, and whatever a watch socket sends,
         are dropped.
