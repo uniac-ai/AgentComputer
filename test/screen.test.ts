@@ -6,6 +6,7 @@ import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -23,7 +24,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { ProcessRuntime } from "../src/runtime.ts";
-import { Screen, screenCheck } from "../src/screen.ts";
+import { clickedAt, foregroundWouldDo, putBackAt, Screen, screenCheck } from "../src/screen.ts";
 import { personCall } from "../src/screen-live.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
@@ -272,14 +273,21 @@ async function overStandIn(t: test.TestContext, onlyBackground: boolean) {
   t.after(() => rmSync(folder, { recursive: true, force: true }));
   const program = join(folder, "cua-driver");
   const standIn = join(root, "test", "fixtures", "driver-stand-in.mjs");
-  writeFileSync(program, `#!/bin/sh\nexec "${process.execPath}" "${standIn}" "$@"\n`);
+  // Each call the driver is asked, written down there.
+  const record = join(folder, "calls");
+  writeFileSync(
+    program,
+    `#!/bin/sh\nSTANDIN_CALLS="${record}" exec "${process.execPath}" "${standIn}" "$@"\n`,
+  );
   chmodSync(program, 0o755);
+  const logged: string[] = [];
   const screen = new Screen(
     () => ({ program }),
-    () => {},
+    (line) => logged.push(line),
     () => undefined,
     async () => undefined,
     onlyBackground,
+    "darwin",
   );
   t.after(() => screen.stop());
   await screen.ready();
@@ -298,15 +306,25 @@ async function overStandIn(t: test.TestContext, onlyBackground: boolean) {
     };
   const { tools } = await client.listTools();
   const [act, apps] = ["act", "apps"].map((name) => tools.find((one) => one.name === name));
-  return { call, act, apps };
+  /** The calls the driver was asked since the last time, each its tool and arguments. */
+  let read = 0;
+  const calls = () => {
+    const lines = existsSync(record) ? readFileSync(record, "utf8").trim().split("\n") : [];
+    const since = lines.slice(read).filter(Boolean);
+    read = lines.length;
+    return since.map((line) => JSON.parse(line) as { name: string; args: Record<string, unknown> });
+  };
+  return { call, act, apps, calls, logged };
 }
 const window = { pid: 19249, window_id: 12895 };
 
 test("on a lent machine the agent acts only in the background, and is told so in plain words", async (t) => {
   const { call, act, apps } = await overStandIn(t, true);
   assert.equal("delivery_mode" in (act?.inputSchema.properties ?? {}), false);
-  assert.match(act?.description ?? "", /always done in the background/);
-  assert.doesNotMatch(act?.description ?? "", /foreground/);
+  assert.match(
+    act?.description ?? "",
+    /It is done in the background, with the person's pointer left where it is; a click that can't be is made in the foreground, which brings the window forward, and the person's pointer is put back\./,
+  );
   // The driver's advice to retry in the foreground, and its hints naming its own tools, don't reach it.
   const clicked = await call("act", { action: "click", ...window, x: 100, y: 200 });
   assert.deepEqual(
@@ -348,6 +366,316 @@ test("on a lent machine the agent acts only in the background, and is told so in
   assert.equal("pid" in (apps?.inputSchema.properties ?? {}), false);
   assert.match(apps?.description ?? "", /brings no window forward/);
   assert.equal((await call("apps", window)).isError, true);
+});
+
+test("a click is made in the foreground only on a refusal that sent nothing and says the foreground would do it", () => {
+  const refusal = (structured: Record<string, unknown>) => ({
+    content: [],
+    isError: true,
+    structuredContent: {
+      code: "background_unavailable",
+      escalation: { recommended: "foreground" },
+      ...structured,
+    },
+  });
+  assert.equal(foregroundWouldDo(refusal({ effect: "refused" })), true);
+  // A toolkit that reads the real pointer is refused before anything is sent, with no effect.
+  assert.equal(foregroundWouldDo(refusal({ reason: "pointer_reading_toolkit" })), true);
+  // Anything that may have been sent, or that the foreground can't help, is not.
+  assert.equal(foregroundWouldDo(refusal({ effect: "no_drop" })), false);
+  assert.equal(foregroundWouldDo(refusal({})), false);
+  assert.equal(foregroundWouldDo({ content: [], isError: true }), false);
+  assert.equal(
+    foregroundWouldDo(refusal({ effect: "refused", escalation: { recommended: "accessibility" } })),
+    false,
+  );
+  assert.equal(
+    foregroundWouldDo(refusal({ effect: "refused", code: "minimized_or_hidden_window" })),
+    false,
+  );
+  assert.equal(foregroundWouldDo({ ...refusal({ effect: "refused" }), isError: false }), false);
+});
+
+test("the person's pointer goes back where it was, as far as they moved it since the click", () => {
+  // Where the driver says it clicked, on a Mac and on X11.
+  assert.deepEqual(clickedAt("✅ Posted click at screen-point (500,400) for pid 1 (…)."), {
+    x: 500,
+    y: 400,
+  });
+  assert.deepEqual(
+    clickedAt("Clicked at (20.0, 20.0) × 1 [window_point=(20, 20) screen_point=(61, 80)]"),
+    {
+      x: 61,
+      y: 80,
+    },
+  );
+  assert.equal(clickedAt("Clicked."), undefined);
+  // At 100,100 before; the click at 500,400; the person moved it 3 right and 4 down meanwhile.
+  assert.deepEqual(putBackAt({ x: 100, y: 100 }, { x: 503, y: 404 }, { x: 500, y: 400 }), {
+    x: 103,
+    y: 104,
+  });
+  // Where the click's point isn't known, back where it was.
+  assert.deepEqual(putBackAt({ x: 100, y: 100 }, { x: 503, y: 404 }, undefined), {
+    x: 100,
+    y: 100,
+  });
+  // The point said rounded and the pointer read cut down: a point's difference is no motion.
+  assert.deepEqual(putBackAt({ x: 100, y: 100 }, { x: 499, y: 401 }, { x: 500, y: 400 }), {
+    x: 100,
+    y: 100,
+  });
+  assert.deepEqual(putBackAt({ x: 100, y: 100 }, { x: 498, y: 400 }, { x: 500, y: 400 }), {
+    x: 98,
+    y: 100,
+  });
+});
+
+test("on a lent machine a click the background can't make is made once in the foreground, with the person's pointer put back", async (t) => {
+  const { call, calls, logged } = await overStandIn(t, true);
+  calls();
+  const done = await call("act", { action: "click", ...window, x: 777, y: 5 });
+  assert.deepEqual(
+    [done.isError ?? false, done.content.map((one) => one.text), done.structuredContent],
+    [
+      false,
+      [
+        "It couldn't be done in the background in that window, so it was clicked in the foreground, which brings the window forward; the person's pointer was put back where it was. See the window to check that it took effect.",
+      ],
+      { delivery: "foreground", pointer_back: true },
+    ],
+  );
+  // Read, clicked once in the background and once in the foreground, then moved back once, in the
+  // whole screen's pixels at full size: twice its points on this Retina screen.
+  const target = { kind: "window", ...window };
+  assert.deepEqual(calls(), [
+    { name: "click", args: { target, delivery_mode: "background", x: 777, y: 5 } },
+    { name: "get_cursor_position", args: {} },
+    { name: "click", args: { target, delivery_mode: "foreground", x: 777, y: 5 } },
+    { name: "get_cursor_position", args: {} },
+    { name: "get_screen_size", args: {} },
+    {
+      name: "move_cursor",
+      args: { scope: "desktop", x: 206, y: 208, delivery_mode: "foreground" },
+    },
+    { name: "get_cursor_position", args: {} },
+  ]);
+  assert.match(logged.at(-1) ?? "", /made in the foreground; the person's pointer was put back/);
+  // A toolkit that reads the real pointer, refused with no effect, goes the same way.
+  assert.equal(
+    (await call("act", { action: "double_click", ...window, x: 779, y: 5 })).isError,
+    undefined,
+  );
+  assert.deepEqual(
+    calls()
+      .filter((one) => one.name === "click")
+      .map((one) => [one.args.delivery_mode, one.args.count]),
+    [
+      ["background", 2],
+      ["foreground", 2],
+    ],
+  );
+});
+
+test("on a lent machine a click is never sent twice, and what the foreground can't do is said in words", async (t) => {
+  const { call, calls } = await overStandIn(t, true);
+  calls();
+  const clicks = () =>
+    calls()
+      .filter((one) => one.name === "click")
+      .map((one) => one.args.delivery_mode);
+  // Failed after it may have been sent: refused, and not sent again.
+  const failedAfter = await call("act", { action: "click", ...window, x: 778, y: 5 });
+  assert.equal(failedAfter.isError, true);
+  assert.deepEqual(clicks(), ["background"]);
+  // Refused where the foreground can't help either: in words, and not sent again.
+  const hidden = await call("act", { action: "right_click", ...window, x: 782, y: 5 });
+  assert.equal(hidden.isError, true);
+  assert.deepEqual(clicks(), ["background"]);
+  // An error in the foreground that doesn't say nothing was sent: whether it was clicked isn't
+  // known, and the pointer, which it didn't move, is where it was.
+  const unsure = await call("act", { action: "click", ...window, x: 781, y: 5 });
+  assert.deepEqual(
+    [unsure.isError, unsure.content.map((one) => one.text)],
+    [
+      true,
+      [
+        "It couldn't be done in the background in that window, and Cua Driver's answer to clicking it in the foreground was an error, so whether it was clicked isn't known: see the window before trying again; the person's pointer is where it was.",
+      ],
+    ],
+  );
+  calls();
+  // Refused in the foreground as nothing sent: said so, and the pointer, which only the person
+  // can have moved meanwhile, is left as it is, not even read again.
+  const twice = await call("act", { action: "click", ...window, x: 788, y: 5 });
+  assert.deepEqual(
+    [twice.isError, twice.content.map((one) => one.text)],
+    [
+      true,
+      [
+        "It couldn't be done in the background in that window, and Cua Driver refused to click it in the foreground too, so the person's pointer was left as it is.",
+      ],
+    ],
+  );
+  assert.deepEqual(
+    calls().map((one) => [one.name, one.args.delivery_mode]),
+    [
+      ["click", "background"],
+      ["get_cursor_position", undefined],
+      ["click", "foreground"],
+    ],
+  );
+  // Not put back: said plainly, and the move is tried once.
+  const stuck = await call("act", { action: "click", ...window, x: 780, y: 5 });
+  assert.deepEqual(
+    [stuck.content.map((one) => one.text), stuck.structuredContent],
+    [
+      [
+        "It couldn't be done in the background in that window, so it was clicked in the foreground, which brings the window forward; the person's pointer couldn't be put back where it was, and is where the click left it. See the window to check that it took effect.",
+      ],
+      { delivery: "foreground", pointer_back: false },
+    ],
+  );
+  assert.equal(calls().filter((one) => one.name === "move_cursor").length, 1);
+});
+
+test("on a lent machine the put-back reads the screen as the driver does, and says what it can't tell", async (t) => {
+  const { call, calls } = await overStandIn(t, true);
+  // The agent has seen the whole screen in a picture smaller than it: the driver reads a later
+  // point in the whole screen against that picture, so the put-back's is divided by as much.
+  await call("see", {});
+  calls();
+  const done = await call("act", { action: "click", ...window, x: 777, y: 5 });
+  assert.match(done.content[0]?.text ?? "", /; the person's pointer was put back where it was\. /);
+  const [move] = calls().filter((one) => one.name === "move_cursor");
+  assert.deepEqual(move?.args, {
+    scope: "desktop",
+    x: (103 * 2) / (3024 / 1366),
+    y: (104 * 2) / (1964 / 887),
+    delivery_mode: "foreground",
+  });
+  // Answered with an error that says nothing more, after it moved the pointer: whether it was
+  // clicked isn't known, and the pointer goes back where it was, the person's motion unknown.
+  const unknown = await call("act", { action: "click", ...window, x: 784, y: 5 });
+  assert.deepEqual(
+    [unknown.isError, unknown.content.map((one) => one.text)],
+    [
+      true,
+      [
+        "It couldn't be done in the background in that window, and Cua Driver's answer to clicking it in the foreground was an error, so whether it was clicked isn't known: see the window before trying again; the person's pointer was put back where it was.",
+      ],
+    ],
+  );
+  // The pointer unread after the click: moved back where it was, once.
+  const unread = await call("act", { action: "click", ...window, x: 786, y: 5 });
+  assert.match(
+    unread.content[0]?.text ?? "",
+    /; the person's pointer was put back where it was\. /,
+  );
+  calls();
+  // On a Mac, with the screen's scale unread, it isn't moved at all, and that is said.
+  const sizeless = await call("act", { action: "click", ...window, x: 785, y: 5 });
+  assert.deepEqual(
+    [sizeless.content.map((one) => one.text), sizeless.structuredContent],
+    [
+      [
+        "It couldn't be done in the background in that window, so it was clicked in the foreground, which brings the window forward; the person's pointer couldn't be put back where it was, and is where the click left it. See the window to check that it took effect.",
+      ],
+      { delivery: "foreground", pointer_back: false },
+    ],
+  );
+  assert.equal(calls().filter((one) => one.name === "move_cursor").length, 0);
+});
+
+test("on a lent machine the put-back keeps the driver's picture of the whole screen, and moves nothing it can't read", async (t) => {
+  const { call, calls } = await overStandIn(t, true);
+  // A picture of the whole screen the driver couldn't take leaves it reading points against the
+  // last it took, and so does the put-back.
+  await call("see", {});
+  await call("act", { action: "click", ...window, x: 787, y: 5 });
+  assert.equal((await call("see", {})).isError, true);
+  calls();
+  const done = await call("act", { action: "click", ...window, x: 777, y: 5 });
+  assert.match(done.content[0]?.text ?? "", /; the person's pointer was put back where it was\. /);
+  // The pointer readable only where the driver last put it: not read, so not clicked.
+  const synthetic = await call("act", { action: "click", ...window, x: 789, y: 5 });
+  assert.deepEqual(
+    [synthetic.isError, synthetic.content.map((one) => one.text)],
+    [
+      true,
+      [
+        "It can't be done in the background in that window, and where the person's pointer is couldn't be read, so it wasn't clicked in the foreground either, which would have left the pointer where the click put it: try an element_token from see, or leave it to the person.",
+      ],
+    ],
+  );
+  // A click at a point of the whole screen isn't one in a window: it is never made for it here.
+  const desktop = await call("act", { action: "click", x: 777, y: 5 });
+  assert.equal(desktop.isError, true);
+  assert.deepEqual(
+    calls()
+      .filter((one) => one.name === "click")
+      .map((one) => [
+        one.args.delivery_mode,
+        one.args.x,
+        "pid" in ((one.args.target as object) ?? {}),
+      ]),
+    [
+      ["background", 777, true],
+      ["foreground", 777, true],
+      ["background", 789, true],
+      ["background", 777, false],
+    ],
+  );
+});
+
+test("on a lent machine the put-back says when the person moved the pointer again, and two clicks never interleave", async (t) => {
+  const { call, calls } = await overStandIn(t, true);
+  calls();
+  const both = await Promise.all(
+    [777, 777].map((x) => call("act", { action: "click", ...window, x, y: 5 })),
+  );
+  assert.deepEqual(
+    both.map((one) => one.structuredContent),
+    [
+      { delivery: "foreground", pointer_back: true },
+      { delivery: "foreground", pointer_back: true },
+    ],
+  );
+  // Each foreground click is read around and put back before the next is made.
+  const steps = calls()
+    .filter((one) => !(one.name === "click" && one.args.delivery_mode === "background"))
+    .map((one) => one.name);
+  const each = ["get_cursor_position", "click", "get_cursor_position", "get_screen_size"];
+  assert.deepEqual(steps, [
+    ...each,
+    "move_cursor",
+    "get_cursor_position",
+    ...each,
+    "move_cursor",
+    "get_cursor_position",
+  ]);
+  // Put back, and moved again by the person by the time it is read.
+  const drifted = await call("act", { action: "click", ...window, x: 783, y: 5 });
+  assert.deepEqual(
+    [drifted.content.map((one) => one.text), drifted.structuredContent],
+    [
+      [
+        "It couldn't be done in the background in that window, so it was clicked in the foreground, which brings the window forward; the person's pointer was put back where it was, and has moved since. See the window to check that it took effect.",
+      ],
+      { delivery: "foreground", pointer_back: true },
+    ],
+  );
+});
+
+test("off a lent machine the agent's own choice stands: a refused click isn't made in the foreground for it", async (t) => {
+  const { call, calls } = await overStandIn(t, false);
+  calls();
+  const refused = await call("act", { action: "click", ...window, x: 777, y: 5 });
+  assert.equal(refused.isError, true);
+  assert.deepEqual(
+    calls().map((one) => [one.name, one.args.delivery_mode]),
+    [["click", "background"]],
+  );
 });
 
 test("an element that can't take a click says to aim at its point, and apps gives each window's fields", async (t) => {
@@ -626,6 +954,95 @@ describe("in a desktop of its own, with the pinned driver", {
         value: "The person: the screen",
       },
     ]);
+  });
+});
+
+describe("on a lent machine, with the pinned driver behind a proxy that refuses a click in the background", {
+  skip: !IMAGE && "needs AGENTCOMPUTER_TEST_SCREEN_IMAGE",
+}, () => {
+  type PutBack = {
+    error?: string;
+    before: { x: number; y: number };
+    after: { x: number; y: number };
+    afterFailed: { x: number; y: number };
+    desktop: unknown;
+    refused: { isError: boolean; text: string; structured?: unknown };
+    failedAfter: { isError: boolean; text: string };
+    calls: { name: string; args?: Record<string, unknown>; text?: string }[];
+    logs: string[];
+  };
+  let out: PutBack;
+  before(
+    async () => {
+      const { stdout } = await run(
+        "docker",
+        [
+          "run",
+          "--rm",
+          "-v",
+          `${root}:/repo:ro`,
+          IMAGE as string,
+          "node",
+          "/repo/test/fixtures/screen-put-back.mjs",
+        ],
+        { maxBuffer: 64 * 1024 * 1024 },
+      );
+      out = JSON.parse(stdout.trim().split("\n").at(-1) ?? "{}");
+      assert.equal(out.error, undefined, out.error);
+    },
+    { timeout: 180_000 },
+  );
+
+  test("a click refused before anything was sent is made once in the foreground, and the real pointer ends where it was", () => {
+    assert.deepEqual(
+      [out.refused.isError, out.refused.text, out.refused.structured],
+      [
+        false,
+        "It couldn't be done in the background in that window, so it was clicked in the foreground, which brings the window forward; the person's pointer was put back where it was. See the window to check that it took effect.",
+        { delivery: "foreground", pointer_back: true },
+      ],
+    );
+    const clicks = out.calls.filter((one) => one.name === "click");
+    assert.deepEqual(
+      clicks.map((one) => [one.args?.delivery_mode, one.args?.x]),
+      [
+        ["background", 77],
+        ["foreground", 77],
+        ["background", 78],
+      ],
+    );
+    // The foreground click moved the real pointer to the point, through X11's own input …
+    const [answered] = out.calls.filter((one) => one.name === "answered");
+    assert.match(
+      answered?.text ?? "",
+      /delivery_mode=foreground, path=x11_xtest_fg.*screen_point=\(\d+, \d+\)/,
+    );
+    // … and one move put it back where it was, in the whole screen's last picture, half the screen.
+    assert.deepEqual(out.desktop, {
+      ...(out.desktop as object),
+      screenshot_width: 960,
+      screenshot_original_width: 1920,
+    });
+    assert.deepEqual(
+      out.calls.filter((one) => one.name === "move_cursor").map((one) => one.args),
+      [{ scope: "desktop", x: out.before.x / 2, y: out.before.y / 2 }],
+    );
+    assert.deepEqual(out.after, out.before);
+    assert.ok(
+      out.logs.some((line) =>
+        /made in the foreground; the person's pointer was put back/.test(line),
+      ),
+      out.logs.join("\n"),
+    );
+  });
+
+  test("a click that failed after it may have been sent is refused, and never sent again", () => {
+    assert.deepEqual(
+      [out.failedAfter.isError, out.failedAfter.text],
+      [true, "click failed: the posting task stopped after the press"],
+    );
+    assert.deepEqual(out.afterFailed, out.before);
+    assert.equal(out.calls.filter((one) => one.name === "click" && one.args?.x === 78).length, 1);
   });
 });
 
