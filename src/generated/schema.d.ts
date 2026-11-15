@@ -569,8 +569,12 @@ export interface components {
             /** @constant */
             type: "refused";
             message: string;
+        } | {
+            /** @constant */
+            type: "pointer_left";
+            message: string;
         };
-        /** @description What an operate socket sends on screen@1, as JSON text, no message over 65,536 bytes: a larger one closes the socket. Each is done in order, through Cua Driver, as the person. A point is in pixels of the frames, as the last size says, scaled to the screen; keys and text go to the window in front. What isn't done is answered with refused, and why: what Cua Driver refuses, what is none of these, and what is sent while 32 are still waiting. Binary messages, and whatever a watch socket sends, are dropped. */
+        /** @description What an operate socket sends on screen@1, as JSON text, no message over 65,536 bytes: a larger one closes the socket. Each is done in order, through Cua Driver, as the person. A point is in pixels of the frames, as the last size says, scaled to the screen; keys and text go to the window in front. A click, drag or scroll is made in the foreground at its point, as a person's own would be, which moves the machine's pointer there; the pointer is then put back once where it was, as far as anyone at the machine moved it meanwhile, and where it isn't, the socket is sent pointer_left. Such inputs, and the agents' clicks made in the foreground, are made one at a time on the machine's screen. What isn't done is answered with refused, and why: what Cua Driver refuses, what is none of these, and what is sent while 32 are still waiting. Binary messages, and whatever a watch socket sends, are dropped. */
         ScreenInput: {
             /** @constant */
             type: "mouse";

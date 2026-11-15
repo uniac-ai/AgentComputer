@@ -1,14 +1,27 @@
 // The screen, live: PNG frames of the whole screen to whoever watches it, and at operate a
 // person's input to it. It reaches Cua Driver through a connection of its own, open only while
 // someone watches: the frames are smaller than the screen, and the driver reads points against
-// the last picture each connection took, so the agent's points stay read against its own.
+// the last picture each connection took, so the agent's points stay read against its own. A
+// person's click, drag or scroll is made in the foreground, as a person's own would be, and the
+// machine's pointer is put back where it was, as for the agent's click in the foreground.
 import type { WebSocket } from "ws";
 import { z } from "zod";
 import { reason } from "./files-live.ts";
 import type { components } from "./generated/schema.js";
-import { type Answer, DESKTOP, Driver, type DriverAt, driverCall } from "./screen.ts";
+import {
+  type Answer,
+  DESKTOP,
+  Driver,
+  type DriverAt,
+  desktopScale,
+  driverCall,
+  inForegroundTurn,
+  type PointerOutcome,
+  RealPointer,
+} from "./screen.ts";
 
 type Mode = components["schemas"]["LiveMode"];
+type Args = Record<string, unknown>;
 type ScreenEvent = components["schemas"]["ScreenEvent"];
 
 /** How often the screen is taken while anyone watches. */
@@ -86,6 +99,19 @@ function frameOf(answer: Answer): Frame | undefined {
   return { png, width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 }
 
+/**
+ * What the person is told, where their click, drag or scroll left the machine's pointer elsewhere
+ * than where it was: as the input's words go on.
+ */
+const LEFT: Partial<Record<PointerOutcome, string>> = {
+  unread: "where the pointer was before it couldn't be read, so it wasn't put back",
+  notBack: "the pointer couldn't be put back where it was",
+  elsewhere: "the pointer was moved back, but not to where it was",
+};
+
+/** Words, as a sentence of their own. */
+const sentence = (words: string) => `${words.charAt(0).toUpperCase()}${words.slice(1)}.`;
+
 const said = (answer: Answer) =>
   (answer.content ?? [])
     .flatMap((part) =>
@@ -108,11 +134,24 @@ export class ScreenLive {
   #taking: Driver | undefined;
   /** The last frame, kept until the picture changes. */
   #frame: Frame | undefined;
+  /**
+   * How much smaller than the screen the last frame taken on this connection was: the driver reads
+   * the person's points, and the put-back's, against it.
+   */
+  #desktop = { x: 1, y: 1 };
+  /** The machine's, where the driver runs: a Mac's moves the pointer only when told to. */
+  readonly #platform: NodeJS.Platform;
 
-  constructor(driver: () => DriverAt, log: (line: string) => void, acted: () => void) {
+  constructor(
+    driver: () => DriverAt,
+    log: (line: string) => void,
+    acted: () => void,
+    platform: NodeJS.Platform = process.platform,
+  ) {
     this.#at = driver;
     this.#log = log;
     this.#acted = acted;
+    this.#platform = platform;
   }
 
   /** screen@1: a frame now and at each change, and at operate a person's input. */
@@ -178,6 +217,7 @@ export class ScreenLive {
     const driver = this.#driver;
     clearInterval(this.#timer);
     this.#driver = this.#started = this.#timer = this.#frame = undefined;
+    this.#desktop = { x: 1, y: 1 };
     await driver?.stop();
   }
 
@@ -186,10 +226,12 @@ export class ScreenLive {
     if (this.#taking === driver) return;
     this.#taking = driver;
     try {
-      const frame = frameOf(
-        await driver.call("get_desktop_state", { max_image_dimension: MAX_SIDE }),
-      );
-      if (this.#driver !== driver || !frame) return;
+      const taken = await driver.call("get_desktop_state", { max_image_dimension: MAX_SIDE });
+      if (this.#driver !== driver) return;
+      // As the driver keeps it: from a picture it took, not from one it couldn't.
+      if (!taken.isError) this.#desktop = desktopScale(taken);
+      const frame = frameOf(taken);
+      if (!frame) return;
       // A picture that hasn't changed is the same frame, so nobody is sent it again.
       if (!this.#frame?.png.equals(frame.png)) this.#frame = frame;
       for (const [ws, viewer] of this.#viewers) this.#send(ws, viewer);
@@ -219,6 +261,11 @@ export class ScreenLive {
     ws.send(JSON.stringify({ type: "refused", message } satisfies ScreenEvent));
   }
 
+  /** What was done, but left the machine's pointer elsewhere than where it was, and why. */
+  #pointerLeft(ws: WebSocket, message: string) {
+    ws.send(JSON.stringify({ type: "pointer_left", message } satisfies ScreenEvent));
+  }
+
   /**
    * A person's step, done by the driver; what isn't done is answered to the socket that sent it.
    * Input from a socket that has gone, or once the driver has, is left undone: it never starts one.
@@ -227,12 +274,54 @@ export class ScreenLive {
     const started = this.#started;
     if (!started || !this.#viewers.has(ws)) return;
     try {
-      const [tool, args] = personCall(JSON.parse(data));
-      const answer = await (await started).call(tool, args);
+      const sent = JSON.parse(data);
+      const [tool, args] = personCall(sent);
+      const driver = await started;
+      if (tool === "click" || tool === "drag" || tool === "scroll")
+        return await this.#pointed(ws, driver, (sent as { action: string }).action, tool, args);
+      const answer = await driver.call(tool, args);
       if (answer.isError) this.#refuse(ws, said(answer));
       else this.#acted();
     } catch (error) {
       this.#refuse(ws, error instanceof SyntaxError ? MALFORMED : reason(error));
     }
+  }
+
+  /**
+   * A person's click, drag or scroll, made once in the foreground at its point, as a person's own
+   * would be, after every foreground input before it on this machine's screen: the pointer goes
+   * there, and is then put back where it was, as far as anyone at the machine moved it meanwhile.
+   * Where it can't be read first, the input is made all the same, as the person asked, and the
+   * pointer left where it puts it. Where the pointer isn't put back, the person is told, and the
+   * log says so.
+   */
+  async #pointed(ws: WebSocket, driver: Driver, action: string, tool: string, args: Args) {
+    const pointer = new RealPointer(
+      (name, given) => driver.call(name, given),
+      this.#platform,
+      () => this.#desktop,
+    );
+    // Where it leaves the pointer, in pixels of the frames: a drag where it ends.
+    const end =
+      tool === "drag"
+        ? { x: Number(args.to_x), y: Number(args.to_y) }
+        : { x: Number(args.x), y: Number(args.y) };
+    const made = await inForegroundTurn(async () =>
+      // Waited for, its socket or the driver may have gone: it is left undone.
+      this.#viewers.has(ws) && this.#driver === driver
+        ? pointer.foreground(tool, args, () => ({ picture: end }), "make")
+        : undefined,
+    );
+    if (!made?.done) return;
+    const what = action.replace("_", " ");
+    const left = LEFT[made.pointer];
+    if (left)
+      this.#log(`The person's ${what} ${made.done.isError ? "failed" : "was made"}; ${left}.`);
+    if (made.done.isError) {
+      this.#refuse(ws, left ? `${said(made.done)} ${sentence(left)}` : said(made.done));
+      return;
+    }
+    this.#acted();
+    if (left) this.#pointerLeft(ws, `The ${what} was made; ${left}.`);
   }
 }
