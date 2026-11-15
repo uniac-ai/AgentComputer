@@ -13,6 +13,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { driverApp } from "./driver-app.ts";
 import type { components } from "./generated/schema.js";
 import { ApiError } from "./runtime.ts";
 
@@ -130,23 +131,35 @@ export async function screenCheck(
   // Only macOS asks for grants, and the driver answers for the app whose grants it uses, its own
   // or its host's, not for whoever asks.
   if (platform !== "darwin") return { readiness: { ready: true }, driver };
-  const who = hosted ? "the app running Cua Driver" : "Cua Driver";
-  const unknown = `Can't tell whether ${who} is granted Screen Recording and Accessibility`;
   const grants = await driverGrants(driver);
   const missing = [
     ...(grants.screen_recording ? [] : ["Screen Recording"]),
     ...(grants.accessibility ? [] : ["Accessibility"]),
   ];
-  const readiness =
-    grants.accessibility === undefined || grants.screen_recording === undefined
-      ? { ready: false, reason: grants.reason ? `${unknown}: ${grants.reason}` : `${unknown}.` }
-      : missing.length === 0
-        ? { ready: true }
-        : {
-            ready: false,
-            reason: `Screen Recording and Accessibility are needed, and ${who} is missing ${missing.join(" and ")}. Grant it in System Settings, under Privacy & Security.`,
-          };
-  return { readiness, driver, grants };
+  if (missing.length === 0) return { readiness: { ready: true }, driver, grants };
+  const who = hosted ? "the app running Cua Driver" : "Cua Driver";
+  if (grants.accessibility === undefined || grants.screen_recording === undefined) {
+    const unknown = `Can't tell whether ${who} is granted Screen Recording and Accessibility`;
+    const reason = grants.reason ? `${unknown}: ${grants.reason}` : `${unknown}.`;
+    return { readiness: { ready: false, reason }, driver, grants };
+  }
+  // An app that hosts the driver asks for its grants itself, from its own setup: System Settings
+  // lists nothing for it until then, so the person is sent to the app, by its name.
+  const host = hosted ? await hostName(driver.program) : undefined;
+  const where = !hosted
+    ? "Grant it in System Settings, under Privacy & Security."
+    : host
+      ? `Set it up in ${host}.`
+      : "Set it up in that app.";
+  const reason = `Screen Recording and Accessibility are needed, and ${host ?? who} is missing ${missing.join(" and ")}. ${where}`;
+  return { readiness: { ready: false, reason }, driver, grants };
+}
+
+/** The name of each hosted driver's app, read once: it is wanted each time a grant is missing. */
+const hostNames = new Map<string, string | undefined>();
+async function hostName(program: string) {
+  if (!hostNames.has(program)) hostNames.set(program, (await driverApp(program))?.name);
+  return hostNames.get(program);
 }
 
 /** Cua Driver's two grants, as it reads them for the app whose grants it uses, and why where it can't. */

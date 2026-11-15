@@ -7,10 +7,11 @@
 // remote debugging on. Only macOS asks. Nothing that shows an alert or a window comes from a
 // switch: each comes from asking for that one need, on the person's click.
 import { execFile, spawn } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { release } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { promisify } from "node:util";
+import { driverApp, infoValue } from "./driver-app.ts";
 import type { components } from "./generated/schema.js";
 import { browsers, here, reachedAt, type Where } from "./own-browser.ts";
 import { ApiError } from "./runtime.ts";
@@ -59,11 +60,6 @@ const thisMachine = (): Machine => ({
     }),
 });
 
-/**
- * The outermost app the driver is inside, which the Mac holds its grants under, and, where the
- * driver is that app's own program, as CuaDriver's is, its place there.
- */
-const IN_APP = /^(.*?\/[^/]+\.app)\/Contents\/(MacOS\/[^/]+$)?/;
 /** How long the driver's app has to start answering before its grant runs anyway. */
 const APP_MS = 10_000;
 /**
@@ -73,33 +69,6 @@ const APP_MS = 10_000;
 const PANE_MS = 1_000;
 /** Darwin's release from which Screen Recording's request draws nothing: macOS 26. */
 const SILENT_FROM = 25;
-
-/** One string in an app's Info.plist, where it has it. */
-async function infoValue(app: string, key: string) {
-  const plist = join(app, "Contents", "Info.plist");
-  try {
-    return (
-      await exec("/usr/bin/plutil", ["-extract", key, "raw", "-o", "-", plist])
-    ).stdout.trim();
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * The app the driver is inside, where it is in one: its name as System Settings lists the grants,
- * and whether the driver is its own program.
- */
-async function driverApp(program: string) {
-  const found = IN_APP.exec(realpathSync(program));
-  if (!found) return undefined;
-  const app = found[1] as string;
-  const name =
-    (await infoValue(app, "CFBundleDisplayName")) ??
-    (await infoValue(app, "CFBundleName")) ??
-    basename(app, ".app");
-  return { app, name, own: found[2] !== undefined };
-}
 
 const grant = (value: boolean | undefined): Granted =>
   value === undefined ? "unknown" : value ? "granted" : "not-granted";

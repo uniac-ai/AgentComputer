@@ -2531,7 +2531,7 @@ export const OPENAPI = {
           "files",
           "screen"
         ],
-        "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do. A part the person switched off on that machine isn't ready either."
+        "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do: for a missing grant, where an app hosts the driver, to set it up in that app, by its name, and otherwise to grant it in System Settings. A part the person switched off on that machine isn't ready either."
       },
       "CapabilityState": {
         "allOf": [
@@ -2755,7 +2755,7 @@ export const OPERATIONS: Operation[] = [
                               "files",
                               "screen"
                             ],
-                            "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do. A part the person switched off on that machine isn't ready either."
+                            "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do: for a missing grant, where an app hosts the driver, to set it up in that app, by its name, and otherwise to grant it in System Settings. A part the person switched off on that machine isn't ready either."
                           }
                         }
                       }
@@ -2869,7 +2869,7 @@ export const OPERATIONS: Operation[] = [
                                     "files",
                                     "screen"
                                   ],
-                                  "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do. A part the person switched off on that machine isn't ready either."
+                                  "description": "What a computer offers its agent and the person: what it is, its terminals, its files and its screen. This computer's screen is reached through Cua Driver: it is ready where Cua Driver is installed, at 0.49.7 or later, and granted Screen Recording and Accessibility, and otherwise the reason says what to do: for a missing grant, where an app hosts the driver, to set it up in that app, by its name, and otherwise to grant it in System Settings. A part the person switched off on that machine isn't ready either."
                                 }
                               }
                             }
