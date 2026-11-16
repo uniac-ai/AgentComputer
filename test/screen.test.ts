@@ -28,6 +28,7 @@ import { ProcessRuntime } from "../src/runtime.ts";
 import {
   clickedAt,
   foregroundWouldDo,
+  plain,
   putBackAt,
   Screen,
   screenCheck,
@@ -548,9 +549,15 @@ test("on a lent machine a click is never sent twice, and what the foreground can
     calls()
       .filter((one) => one.name === "click")
       .map((one) => one.args.delivery_mode);
-  // Failed after it may have been sent: refused, and not sent again.
+  // Failed after it may have been sent: refused, and not sent again. A refusal keeps all its words.
   const failedAfter = await call("act", { action: "click", ...window, x: 778, y: 5 });
-  assert.equal(failedAfter.isError, true);
+  assert.deepEqual(
+    [failedAfter.isError, failedAfter.content[0]?.text],
+    [
+      true,
+      "click failed: the posting task stopped after the press (delivery_mode=background; not driver-verified).",
+    ],
+  );
   assert.deepEqual(clicks(), ["background"]);
   // Refused where the foreground can't help either: in words, and not sent again.
   const hidden = await call("act", { action: "right_click", ...window, x: 782, y: 5 });
@@ -777,6 +784,49 @@ test("on a lent machine the put-back says when the person moved the pointer agai
   );
 });
 
+test("the driver's words reach the agent without its pictographs, and an action's without its own notes", () => {
+  // As the pinned driver answered on a Mac and on Linux.
+  for (const [said, action, read] of [
+    ["✅ Found 92 app(s): 16 running.", false, "Found 92 app(s): 16 running."],
+    [
+      '✅ Inserted 33 char(s) into AXTextArea "" A net-zero key edit (space, backspace) was sent so the document registers the change and saves it; an accessibility write alone does not.',
+      true,
+      "Inserted 33 char(s) into AXTextArea.",
+    ],
+    ["Pressed cmd+end on pid 85987.", true, "Pressed cmd+end on pid 85987."],
+    [
+      '✅ Posted click to pid 19249 (background CGEvent routed to the pid; the hardware pointer was not moved, so apps that read the pointer position may not receive it at the target; not driver-verified — confirm via screenshot and retry with delivery_mode:"foreground" if nothing changed).',
+      true,
+      "Posted click to pid 19249.",
+    ],
+    [
+      "Clicked at (182.0, 100.0) × 1 (delivery_mode=background, path=x11_xsendevent); not verified — confirm with a screenshot. [window_point=(182, 100) screen_point=(383, 320)]",
+      true,
+      "Clicked at (182.0, 100.0) × 1.",
+    ],
+    // Anything else stays as it is: words in brackets or asides, titles with their own signs, lines
+    // of a list, a reminder with no full stop on its line, and what was typed.
+    [
+      "Foreground input refused (reason=screen_locked; nothing sent): the screen is locked.",
+      true,
+      "Foreground input refused (reason=screen_locked; nothing sent): the screen is locked.",
+    ],
+    ["Window [window_id: 5] not found.", true, "Window [window_id: 5] not found."],
+    ['Typed "a[0]" into the field.', true, 'Typed "a[0]" into the field.'],
+    [
+      "The element was not verified as clickable\nTry element_token s0:1",
+      true,
+      "The element was not verified as clickable\nTry element_token s0:1",
+    ],
+    [
+      "✅ Found 2 app(s): 2 running.\n- Chat 🔥 (pid 2)\n- Acme™ Notes (pid 3) [com.acme.notes]",
+      false,
+      "Found 2 app(s): 2 running.\n- Chat 🔥 (pid 2)\n- Acme™ Notes (pid 3) [com.acme.notes]",
+    ],
+  ] as const)
+    assert.equal(plain(said, action), read, said);
+});
+
 test("off a lent machine the agent's own choice stands: a refused click isn't made in the foreground for it", async (t) => {
   const { call, calls } = await overStandIn(t, false);
   calls();
@@ -807,15 +857,16 @@ test("an element that can't take a click says to aim at its point, and apps give
     stale.content.map((one) => one.text),
     ["The element_token s0:1 is from an earlier snapshot; see the window again."],
   );
-  // Off a lent machine, the driver's own words reach the agent; its hints still don't.
+  // Off a lent machine, the driver's own words reach the agent, without its pictographs and its own
+  // notes; its hints still don't.
   const clicked = await call("act", { action: "click", ...window, x: 100, y: 200 });
-  assert.match(clicked.content[0]?.text ?? "", /delivery_mode:"foreground"/);
+  assert.equal(clicked.content[0]?.text, "Posted click to pid 19249.");
   assert.equal("next_call" in (clicked.structuredContent ?? {}), false);
   const apps = await call("apps", {});
   assert.deepEqual(
     apps.content.map((one) => one.text),
     [
-      "✅ Found 1 app(s): 1 running.\n- TextEdit (pid 19249) [com.apple.TextEdit]",
+      "Found 1 app(s): 1 running.\n- TextEdit (pid 19249) [com.apple.TextEdit]",
       'Found 2 window(s).\n- TextEdit (pid 19249) "Untitled" [window_id: 12895]\n- TextEdit (pid 19249) "foreground.txt" [window_id: 12896]',
     ],
   );

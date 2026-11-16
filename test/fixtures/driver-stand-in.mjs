@@ -71,7 +71,12 @@ const refused = (fields) =>
 /** A click by a point in the background, at one of the markers. */
 const background = {
   777: () => refused({ effect: "refused", reason: "windowserver_connection_invalid" }),
-  778: () => said("click failed: the posting task stopped after the press", undefined, true),
+  778: () =>
+    said(
+      "click failed: the posting task stopped after the press (delivery_mode=background; not driver-verified).",
+      undefined,
+      true,
+    ),
   779: () =>
     refused({ event_kind: "mouse_click", reason: "pointer_reading_toolkit", toolkit: "Tk" }),
   780: () => {
