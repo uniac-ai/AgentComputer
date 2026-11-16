@@ -288,8 +288,9 @@ export class ScreenLive {
 
   /**
    * A person's click, drag or scroll, made once in the foreground at its point, as a person's own
-   * would be, after every foreground input before it on this machine's screen: the pointer goes
-   * there, and is then put back where it was, as far as anyone at the machine moved it meanwhile.
+   * would be, after every foreground input before it on this machine's screen: the driver's drawn
+   * pointer is glided there first, the real pointer then goes there, and is put back where it was,
+   * as far as anyone at the machine moved it meanwhile.
    * Where it can't be read first, the input is made all the same, as the person asked, and the
    * pointer left where it puts it. Where the pointer isn't put back, the log says why, and so does
    * a failed input's refusal.
@@ -307,10 +308,12 @@ export class ScreenLive {
       tool === "drag"
         ? { x: Number(args.to_x), y: Number(args.to_y) }
         : { x: Number(args.x), y: Number(args.y) };
+    // Where the driver's drawn pointer is glided first: a drag where it starts.
+    const start = tool === "drag" ? { x: Number(args.from_x), y: Number(args.from_y) } : end;
     const making = inForegroundTurn(async () =>
       // Waited for, its socket or the driver may have gone: it is left undone.
       this.#viewers.has(ws) && this.#driver === driver
-        ? pointer.foreground(tool, args, () => ({ picture: end }), "make")
+        ? pointer.foreground(tool, args, () => ({ picture: end }), "make", start)
         : undefined,
     );
     this.#making.add(making);

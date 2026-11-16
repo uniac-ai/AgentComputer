@@ -26,6 +26,11 @@
 // the pointer moved, as a drag takes its time; 606 fails after the pointer moved, where it can't be
 // moved back. With STANDIN_POINTER=unread, the pointer is never read.
 //
+// Its drawn pointer, as the driver draws one for each connection: a move with no scope glides it
+// alone, and an input at a point of the whole screen glides it there first, where it isn't yet,
+// before the real pointer goes. With STANDIN_HAND=moving, the person's hand moves the real pointer
+// a further (50, 30) during each glide.
+//
 // With STANDIN_CALLS, each call is written to that file as a line of JSON, with STANDIN_WHO's name
 // where that is set.
 import { appendFileSync } from "node:fs";
@@ -132,6 +137,14 @@ const foreground = ({ x }) => {
     { path: "cgevent_hid", verified: false, effect: "unverifiable" },
   );
 };
+/** The drawn pointer, in the screen's points, once it has been placed. */
+let drawn;
+/** The drawn pointer glided to a point, while the person's hand may move the real one. */
+const glide = (to) => {
+  if (drawn && Math.abs(drawn.x - to.x) <= 1 && Math.abs(drawn.y - to.y) <= 1) return;
+  if (process.env.STANDIN_HAND === "moving") pointer = { x: pointer.x + 50, y: pointer.y + 30 };
+  drawn = to;
+};
 /** The person's input at a point of the whole screen, in the foreground. */
 const atDesktop = (name, args) => {
   const from = { x: args.x ?? args.from_x, y: args.y ?? args.from_y };
@@ -141,8 +154,10 @@ const atDesktop = (name, args) => {
       { code: "screen_locked", effect: "refused" },
       true,
     );
+  glide({ x: (from.x * desktop.x) / 2, y: (from.y * desktop.y) / 2 });
   const [px, py] = name === "drag" ? [args.to_x, args.to_y] : [from.x, from.y];
   const end = { x: (px * desktop.x) / 2, y: (py * desktop.y) / 2 };
+  drawn = end;
   pointer = { x: end.x + 3, y: end.y + 4 };
   if (from.x === 601 || from.x === 606) stuck = true;
   if (from.x === 604) astray = true;
@@ -226,7 +241,12 @@ const answers = {
     };
     return said("✅ Desktop screenshot 1366x887 (screen 1512x982)", { ...DESKTOP, ...SCREEN });
   },
-  move_cursor: ({ x, y }) => {
+  move_cursor: ({ x, y, scope }) => {
+    // With no scope, the drawn pointer alone, in the screen's points.
+    if (scope !== "desktop") {
+      glide({ x, y });
+      return said(`Agent cursor 'mcp' moved to (${x.toFixed(1)}, ${y.toFixed(1)}).`);
+    }
     if (stuck) return said("desktop pointer move failed: refused", undefined, true);
     // A point in the whole screen, read against its last picture, then turned into points.
     const to = { x: (x * desktop.x) / 2 + (astray ? 40 : 0), y: (y * desktop.y) / 2 };
