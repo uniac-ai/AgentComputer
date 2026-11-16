@@ -130,7 +130,7 @@ If you bundle it into a file of your own, don't start anything off the main thre
 | `search`        | Text under a folder, as `path:line:text`. Exact text unless `regex`. Skips what `.gitignore` ignores, `.git` and `node_modules`.                                                                                                                    |
 | `edit`          | Replaces exact text, which must appear once unless `replace_all`, and answers with a unified diff. An empty `old_text` creates a new file.                                                                                                          |
 
-Relative paths are relative to the workspace, and a path that really lies outside it is refused, unless the file tools reach the whole machine. `search` then names a file outside the workspace by its whole path. A failed tool sets MCP's `isError`; a command that exits non-zero is an answer, not a failure.
+Relative paths are relative to the workspace, and a path that is `~` or begins with `~/` is in the home of the account the tools run as, as the terminal has it; the host's own file window takes paths as they are. A path that really lies outside the workspace is refused, unless the file tools reach the whole machine. `search` then names a file outside the workspace by its whole path. A failed tool sets MCP's `isError`; a command that exits non-zero is an answer, not a failure.
 
 ## The answer from `exec_command` and `write_stdin`
 

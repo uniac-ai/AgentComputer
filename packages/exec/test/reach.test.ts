@@ -107,6 +107,42 @@ test("at machine, paths go anywhere and relative ones start at the workspace", a
   await assert.rejects(files.list(beside), /is outside the workspace/);
 });
 
+test("a path beginning with ~ is in the account's home, as the terminal has it", async (t) => {
+  const home = process.env.HOME;
+  t.after(() => {
+    if (home === undefined) delete process.env.HOME;
+    else process.env.HOME = home;
+  });
+  // At machine, the home beside the workspace.
+  const machine = await mounted(t, "machine");
+  process.env.HOME = machine.beside;
+  assert.match((await machine.call("read", { path: "~/there.txt" })).text, /^1\tthere$/m);
+  assert.match((await machine.call("list", { path: "~" })).text, /there\.txt/);
+  // Within the workspace it stays a check: a home outside it is refused as outside, a home that
+  // is the workspace is read.
+  const inside = await mounted(t);
+  process.env.HOME = inside.beside;
+  assert.deepEqual(await inside.call("read", { path: "~/there.txt" }), {
+    text: "~/there.txt is outside the workspace.",
+    isError: true,
+  });
+  process.env.HOME = inside.workspace;
+  assert.match((await inside.call("read", { path: "~/here.txt" })).text, /^1\there$/m);
+  // A name that only begins with the sign is a name.
+  assert.match((await inside.call("list", { path: "." })).text, /here\.txt/);
+  assert.equal((await inside.call("read", { path: "~here.txt" })).isError, true);
+  // The host's own file window takes paths as they are: a folder named ~ in the workspace is that
+  // folder, which the model reaches as ./~.
+  mkdirSync(join(inside.workspace, "~"));
+  writeFileSync(join(inside.workspace, "~", "kept.txt"), "kept\n");
+  process.env.HOME = inside.beside;
+  assert.deepEqual(
+    (await inside.files.list("~")).entries.map((entry) => entry.name),
+    ["kept.txt"],
+  );
+  assert.match((await inside.call("read", { path: "./~/kept.txt" })).text, /^1\tkept$/m);
+});
+
 test("at machine, an edit through a link changes what it points to", async (t) => {
   const { beside, call } = await mounted(t, "machine");
   const link = join(beside, "link.txt");

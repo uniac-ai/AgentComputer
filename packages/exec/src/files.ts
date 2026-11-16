@@ -13,6 +13,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { createTwoFilesPatch } from "diff";
 import { cut } from "./output.ts";
@@ -78,15 +79,21 @@ export type Reach = "workspace" | "machine";
 /** The real path to use for a path the model gave the file tools. */
 export type Resolve = (path: string) => Promise<string>;
 
+/** A path as a shell reads it: `~` and `~/…` are in the home of the account this runs as. */
+const homed = (path: string) =>
+  path === "~" ? homedir() : path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
+
 /**
  * Paths for the file tools. Relative ones start at `root`, which must itself be a real path, and
- * links are followed. At `workspace` a path must stay inside `root`: a check, not a boundary, as
- * only the host running this can make one. At `machine` it may be anywhere.
+ * links are followed. With `home`, as for the model's tools, `~` and `~/…` are in the account's
+ * home, as the terminal has them; the host's own file window names paths in the workspace as they
+ * are. At `workspace` a path must stay inside `root`: a check, not a boundary, as only the host
+ * running this can make one. At `machine` it may be anywhere.
  */
 export const resolver =
-  (root: string, reach: Reach): Resolve =>
+  (root: string, reach: Reach, home = false): Resolve =>
   async (path) => {
-    const found = await real(resolve(root, path));
+    const found = await real(resolve(root, home ? homed(path) : path));
     if (reach === "machine") {
       if (found === undefined) throw new ExecRefused(`${path} is a link to nothing.`);
       return found;

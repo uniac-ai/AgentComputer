@@ -119,12 +119,13 @@ export function createServer(
         }) as never,
       )) as typeof server.registerTool;
   }
-  const at = resolver(root, reach);
+  // The model writes paths as a shell reads them: `~` is its home.
+  const at = resolver(root, reach, true);
   const files = createFiles(at);
   const where =
     reach === "machine"
-      ? "Relative to the workspace, or absolute, anywhere on the machine."
-      : "Inside the workspace; relative to it, or absolute.";
+      ? "Relative to the workspace, or absolute, anywhere on the machine; ~ is the home folder."
+      : "Inside the workspace; relative to it, or absolute; ~ is the home folder.";
   const orWorkspace = `${where} The workspace by default.`;
   for (const { name, description, readOnly, call } of extraTools)
     server.registerTool(
