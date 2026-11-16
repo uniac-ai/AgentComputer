@@ -542,6 +542,34 @@ export class RealPointer {
   }
 }
 
+/** The driver's marker at the start of an answer, such as its ✅, which an agent reads as noise. */
+const MARKER = /^(?:\p{Extended_Pictographic}|\u{FE0F}|\u{200D})+[ \t]*/u;
+/**
+ * The driver's own notes in an action's answer, each as it writes them: how it delivered the input,
+ * its points in the window and the screen, its reminder that nothing verified it, and the key edit
+ * it adds after typing. Each is matched on one line, and nothing else is cut.
+ */
+const NOTES = [
+  / ?\((?:background CGEvent|delivery_mode[=:])[^()\n]*\)/g,
+  / ?\[window_point=[^\]\n]*\]/g,
+  /[;,]? ?not (?:driver-)?verified[^.\n]*\./g,
+  / ?A net-zero key edit[^\n]*?does not\./g,
+];
+/**
+ * The driver's words as the agent reads them, for an answer it gave, not a refusal: without its
+ * leading marker, and, for an action, without its own notes, what they were cut from ending as a
+ * sentence.
+ */
+export function plain(words: string, action: boolean): string {
+  const said = words.replace(MARKER, "");
+  if (!action) return said;
+  const kept = NOTES.reduce((left, note) => left.replace(note, ""), said);
+  if (kept === said) return said;
+  // Without the empty title the typing note followed.
+  const ended = kept.replace(/ ""$/, "").trimEnd();
+  return /[.!?:]$/.test(ended) ? ended : `${ended}.`;
+}
+
 /** The driver's answer without its hints and suggested next calls, which can name its own tools. */
 function forAgent(answer: Answer): Answer {
   if (!answer.structuredContent) return answer;
@@ -817,13 +845,21 @@ export class Screen {
   /** The agent's three tools, each answered with what the driver answers, and the line after it. */
   #server() {
     const server = new McpServer({ name: "agentcomputer-screen", version: "1" });
-    const answered = async (work: () => Promise<Answer>) => {
+    // Words in the driver's own, as `act` and `apps` give them: see's window tree is left whole.
+    const answered = async (work: () => Promise<Answer>, words?: (said: string) => string) => {
       const refusal = await this.#refused();
       if (refusal) return { content: [text(refusal)], isError: true };
       const line = this.#noted();
       const answer = forAgent(await work().catch(failed));
+      const content = (answer.content ?? []).map((part) => {
+        const said = part as { type?: string; text?: string };
+        // A refusal keeps its words, all of them.
+        return words && !answer.isError && said.type === "text" && typeof said.text === "string"
+          ? { ...said, text: words(said.text) }
+          : part;
+      });
       return {
-        content: [...(answer.content ?? []), ...(line ? [text(line)] : [])],
+        content: [...content, ...(line ? [text(line)] : [])],
         ...(answer.structuredContent ? { structuredContent: answer.structuredContent } : {}),
         ...(answer.isError ? { isError: true } : {}),
       } as { content: { type: "text"; text: string }[]; isError?: boolean };
@@ -867,64 +903,67 @@ export class Screen {
         inputSchema: this.#onlyBackground ? BackgroundAct : Act,
       },
       (input: Act) =>
-        answered(async () => {
-          const [tool, args] = driverCall(input);
-          // On a lent machine a point of the whole screen is refused before anything is sent: the
-          // driver does it by moving the person's pointer there, and leaves it, and the front app.
-          if (
-            this.#onlyBackground &&
-            POINTED.has(input.action) &&
-            input.pid === undefined &&
-            input.element_token === undefined
-          )
-            return { content: [text(BACKGROUND.desktop)], isError: true };
-          const unseen = await this.#unseen(input);
-          if (unseen) return unseen;
-          // What moves the real pointer, at a point of the whole screen or in the foreground, waits
-          // its turn on this machine's screen, so that no put-back reads it as someone's motion.
-          const moves =
-            POINTED.has(input.action) &&
-            (input.delivery_mode === "foreground" ||
-              (input.pid === undefined && input.element_token === undefined));
-          const answer = await (moves
-            ? inForegroundTurn(() => this.call(tool, args))
-            : this.call(tool, args)
-          ).catch(failed);
-          // On a lent machine a click the background can't make, and that was sent nowhere, is
-          // made in the foreground, with the person's pointer put back.
-          if (
-            this.#onlyBackground &&
-            input.action.endsWith("click") &&
-            input.pid !== undefined &&
-            foregroundWouldDo(answer)
-          )
-            return this.#inForeground(tool, args);
-          const said = (answer.content ?? [])
-            .map((part) => (part as { text?: string }).text ?? "")
-            .join("\n");
-          // On a lent machine the driver's advice to use the foreground is said in plain words.
-          if (this.#onlyBackground && /delivery_mode\W*foreground/i.test(said))
-            return {
-              ...answer,
-              content: [text(BACKGROUND[answer.isError ? "refused" : "done"])],
-            };
-          // An element click the driver couldn't press: the agent is told to aim at its point.
-          if (
-            answer.isError &&
-            input.action.endsWith("click") &&
-            /AXUIElementPerformAction/.test(said)
-          )
-            return {
-              ...answer,
-              content: [
-                text(
-                  "That element can't be clicked by its reference. Aim at its point in the window's picture instead: x and y, with the window's pid and window_id. What the driver said:",
-                ),
-                ...(answer.content ?? []),
-              ],
-            };
-          return answer;
-        }),
+        answered(
+          async () => {
+            const [tool, args] = driverCall(input);
+            // On a lent machine a point of the whole screen is refused before anything is sent: the
+            // driver does it by moving the person's pointer there, and leaves it, and the front app.
+            if (
+              this.#onlyBackground &&
+              POINTED.has(input.action) &&
+              input.pid === undefined &&
+              input.element_token === undefined
+            )
+              return { content: [text(BACKGROUND.desktop)], isError: true };
+            const unseen = await this.#unseen(input);
+            if (unseen) return unseen;
+            // What moves the real pointer, at a point of the whole screen or in the foreground, waits
+            // its turn on this machine's screen, so that no put-back reads it as someone's motion.
+            const moves =
+              POINTED.has(input.action) &&
+              (input.delivery_mode === "foreground" ||
+                (input.pid === undefined && input.element_token === undefined));
+            const answer = await (moves
+              ? inForegroundTurn(() => this.call(tool, args))
+              : this.call(tool, args)
+            ).catch(failed);
+            // On a lent machine a click the background can't make, and that was sent nowhere, is
+            // made in the foreground, with the person's pointer put back.
+            if (
+              this.#onlyBackground &&
+              input.action.endsWith("click") &&
+              input.pid !== undefined &&
+              foregroundWouldDo(answer)
+            )
+              return this.#inForeground(tool, args);
+            const said = (answer.content ?? [])
+              .map((part) => (part as { text?: string }).text ?? "")
+              .join("\n");
+            // On a lent machine the driver's advice to use the foreground is said in plain words.
+            if (this.#onlyBackground && /delivery_mode\W*foreground/i.test(said))
+              return {
+                ...answer,
+                content: [text(BACKGROUND[answer.isError ? "refused" : "done"])],
+              };
+            // An element click the driver couldn't press: the agent is told to aim at its point.
+            if (
+              answer.isError &&
+              input.action.endsWith("click") &&
+              /AXUIElementPerformAction/.test(said)
+            )
+              return {
+                ...answer,
+                content: [
+                  text(
+                    "That element can't be clicked by its reference. Aim at its point in the window's picture instead: x and y, with the window's pid and window_id. What the driver said:",
+                  ),
+                  ...(answer.content ?? []),
+                ],
+              };
+            return answer;
+          },
+          (said) => plain(said, true),
+        ),
     );
     server.registerTool(
       "apps",
@@ -938,37 +977,45 @@ export class Screen {
         inputSchema: this.#onlyBackground ? z.object({}).strict() : Seen,
       },
       ({ pid, window_id }: z.infer<typeof Seen>) =>
-        answered(async () => {
-          if ((pid === undefined) !== (window_id === undefined))
-            throw new ApiError(400, "A window is its pid and its window_id, from apps: give both.");
-          if (pid !== undefined) {
-            const brought = await this.call("bring_to_front", { pid, window_id });
-            if (brought.isError) return brought;
-          }
-          const apps = await this.call("list_apps", {});
-          if (apps.isError) return apps;
-          const windows = await this.call("list_windows", { on_screen_only: true });
-          const found = (windows.structuredContent as { windows?: unknown } | undefined)?.windows;
-          const listed = Array.isArray(found) ? (found as Listed[]) : undefined;
-          return {
-            content: [...(apps.content ?? []), ...(windows.content ?? [])],
-            ...(listed
-              ? {
-                  structuredContent: {
-                    windows: listed.map(({ app_name, title, pid, window_id, bounds, z_index }) => ({
-                      app_name,
-                      title,
-                      pid,
-                      window_id,
-                      bounds,
-                      z_index,
-                    })),
-                  },
-                }
-              : {}),
-            ...(windows.isError ? { isError: true } : {}),
-          };
-        }),
+        answered(
+          async () => {
+            if ((pid === undefined) !== (window_id === undefined))
+              throw new ApiError(
+                400,
+                "A window is its pid and its window_id, from apps: give both.",
+              );
+            if (pid !== undefined) {
+              const brought = await this.call("bring_to_front", { pid, window_id });
+              if (brought.isError) return brought;
+            }
+            const apps = await this.call("list_apps", {});
+            if (apps.isError) return apps;
+            const windows = await this.call("list_windows", { on_screen_only: true });
+            const found = (windows.structuredContent as { windows?: unknown } | undefined)?.windows;
+            const listed = Array.isArray(found) ? (found as Listed[]) : undefined;
+            return {
+              content: [...(apps.content ?? []), ...(windows.content ?? [])],
+              ...(listed
+                ? {
+                    structuredContent: {
+                      windows: listed.map(
+                        ({ app_name, title, pid, window_id, bounds, z_index }) => ({
+                          app_name,
+                          title,
+                          pid,
+                          window_id,
+                          bounds,
+                          z_index,
+                        }),
+                      ),
+                    },
+                  }
+                : {}),
+              ...(windows.isError ? { isError: true } : {}),
+            };
+          },
+          (said) => plain(said, false),
+        ),
     );
     return server;
   }
