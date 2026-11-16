@@ -137,7 +137,6 @@ const foreground = ({ x }) => {
     { path: "cgevent_hid", verified: false, effect: "unverifiable" },
   );
 };
-/** The person's input at a point of the whole screen, in the foreground. */
 /** The drawn pointer, in the screen's points, once it has been placed. */
 let drawn;
 /** The drawn pointer glided to a point, while the person's hand may move the real one. */
@@ -146,6 +145,7 @@ const glide = (to) => {
   if (process.env.STANDIN_HAND === "moving") pointer = { x: pointer.x + 50, y: pointer.y + 30 };
   drawn = to;
 };
+/** The person's input at a point of the whole screen, in the foreground. */
 const atDesktop = (name, args) => {
   const from = { x: args.x ?? args.from_x, y: args.y ?? args.from_y };
   if (from.x === 602)
