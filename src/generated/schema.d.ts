@@ -365,7 +365,7 @@ export interface components {
              */
             browser: boolean | "own";
             /**
-             * @description Whether its agent has the machine's screen: to see it and act on it, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. It acts as the person, whatever `access` says. Refused with 409 where `info` says the screen isn't ready. Once attached, the computer doesn't rest on it: brought back or started again while the screen can't be used, it runs, and its screen's tools say why.
+             * @description Whether its agent has the machine's screen: to see it and act on it, through Cua Driver, which the person installs and grants Screen Recording and Accessibility once. It acts as the person, whatever `access` says. Refused with 409 where `info` says the screen isn't ready, except where all it lacks is macOS's grants for the driver: then the computer starts, and its screen's tools say which grants are missing and work once they are given, with no restart. Once attached, the computer doesn't rest on it: brought back or started again while the screen can't be used, it runs, and its screen's tools say why.
              * @default false
              */
             screen: boolean;

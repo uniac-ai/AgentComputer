@@ -29,6 +29,7 @@ import {
   AUTOMATION,
   clickedAt,
   foregroundWouldDo,
+  onlyGrantsMissing,
   plain,
   putBackAt,
   Screen,
@@ -193,6 +194,36 @@ esac
     reason:
       "Screen Recording and Accessibility are needed, and Cua Driver is missing Accessibility. Grant it in System Settings, under Privacy & Security.",
   });
+});
+
+test("a new computer starts with its screen where all the screen lacks is macOS's grants", () => {
+  const driver = { program: "/Applications/AgentOrg.app/Contents/Resources/cua-driver" };
+  const notReady = { ready: false, reason: "why" };
+  for (const [checked, starts] of [
+    // Ready: nothing is missing.
+    [
+      {
+        readiness: { ready: true },
+        driver,
+        grants: { accessibility: true, screen_recording: true },
+      },
+      false,
+    ],
+    // A grant not given, both read: it starts.
+    [
+      { readiness: notReady, driver, grants: { accessibility: false, screen_recording: true } },
+      true,
+    ],
+    [
+      { readiness: notReady, driver, grants: { accessibility: false, screen_recording: false } },
+      true,
+    ],
+    // Grants that couldn't be read, a driver that is older or doesn't run, or none: refused.
+    [{ readiness: notReady, driver, grants: { reason: "no Cua Driver daemon listening" } }, false],
+    [{ readiness: notReady, driver }, false],
+    [{ readiness: notReady }, false],
+  ] as const)
+    assert.equal(onlyGrantsMissing(checked), starts, JSON.stringify(checked));
 });
 
 test("the driver's version is read once while its program is the same file, and again once it isn't", async (t) => {
