@@ -1,6 +1,7 @@
 // `agentcomputer`: run the service, or ask a running one to do something.
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { isMainThread } from "node:worker_threads";
 import { VERSION } from "@agentorg/computer-base/version";
@@ -14,6 +15,9 @@ import { ProcessRuntime } from "./runtime.ts";
 import { serve } from "./service.ts";
 import { Setup } from "./setup.ts";
 import { Switches } from "./switches.ts";
+
+/** How this program is run: Node and its file. The browser runs it as its host and its MCP server. */
+const PROGRAM = [process.execPath, fileURLToPath(import.meta.url)];
 
 const USAGE = `Usage: agentcomputer <command> [--data DIR]
 
@@ -193,7 +197,7 @@ async function main() {
       setup: new Setup(switches, screenDriver, values["own-browser-data"]),
       runtimes: {
         none: new ProcessRuntime(
-          { browser: values["browser-name"], path: values["browser-path"] },
+          { browser: values["browser-name"], path: values["browser-path"], program: PROGRAM },
           false,
           screenDriver,
           values["own-browser-data"],
@@ -229,6 +233,7 @@ async function main() {
       access: values.access as CreateOpts["access"],
       browser: values.browser === true,
       name: values.name,
+      program: PROGRAM,
     });
   }
   const connection = connectionTo(data);

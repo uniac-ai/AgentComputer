@@ -7,7 +7,6 @@ import { request as ask, type IncomingMessage, type ServerResponse } from "node:
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
-import { fileURLToPath } from "node:url";
 import { readRequest, refuseCall, sendAnswer } from "@agentorg/computer-base/http";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { CONNECT_VARIABLE } from "./browser-host.ts";
@@ -42,6 +41,11 @@ export interface BrowserConfig {
   sandbox?: boolean | undefined;
   /** Where the person's own browser is reached: it is theirs, connected to, never started here. */
   connect?: string | undefined;
+  /**
+   * How the program is run, which also runs the browser host and the browser's MCP server: Node
+   * and the program's file, as the program gives them.
+   */
+  program: readonly string[];
 }
 
 /** What the proxy asks of the live view, where a person may answer what a page asks. */
@@ -99,9 +103,6 @@ export function socketFetch(socket: string) {
 
 /** The browser's MCP server, as its socket is asked for it. */
 const MCP = "http://localhost/mcp";
-
-/** This program, which also runs the browser host and the browser's MCP server. */
-const self = fileURLToPath(import.meta.url);
 
 type Answer = {
   result?: {
@@ -195,10 +196,11 @@ export class Browser {
         exited();
       }
     };
+    const [command, ...program] = config.program;
     this.#host = spawn(
-      process.execPath,
+      command as string,
       [
-        self,
+        ...program,
         "browser-host",
         "--profile",
         join(folder, "profile"),
@@ -233,9 +235,9 @@ export class Browser {
         new Promise<ReturnType<typeof socketFetch>>((done, failed) => {
           if (this.#stopping) return failed(new Error("It stopped."));
           const mcp = spawn(
-            process.execPath,
+            command as string,
             [
-              self,
+              ...program,
               "browser-mcp",
               "--endpoint",
               endpoint,

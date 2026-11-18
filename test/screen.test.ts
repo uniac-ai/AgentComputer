@@ -69,7 +69,8 @@ esac
   // A browser folder of its own, so that the machine's own browsers aren't read.
   const runtime = (program: string) =>
     new ProcessRuntime(
-      { path: join(folder, "no-browser"), sandbox: false },
+      // No computer is started here, so no browser, and the program is never run.
+      { path: join(folder, "no-browser"), sandbox: false, program: [process.execPath] },
       false,
       { program },
       join(folder, "browser-data"),
