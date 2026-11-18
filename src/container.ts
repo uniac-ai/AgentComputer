@@ -12,8 +12,8 @@ import { createInterface } from "node:readline";
 import { type Duplex, Readable } from "node:stream";
 import { promisify } from "node:util";
 import { ApiError } from "@agentorg/computer-base/error";
+import { sendAnswer } from "@agentorg/computer-base/http";
 import { newToken, writePrivate } from "@agentorg/computer-base/store";
-import { sendAnswer } from "@agentorg/computer-browser/browser";
 import { ImageFetch } from "./image-fetch.ts";
 import {
   INNER_PORT,

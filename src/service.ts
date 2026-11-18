@@ -19,12 +19,13 @@ import {
   sameToken,
   writePrivate,
 } from "@agentorg/computer-base/store";
+import { VERSION } from "@agentorg/computer-base/version";
 import { OPENAPI, OPERATIONS, type Operation } from "@agentorg/computer-contract/operations";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { fromJsonSchema, McpServer } from "@modelcontextprotocol/server";
 import { Computers } from "./computers.ts";
 import { Connections } from "./connection.ts";
-import { createHandlers, VERSION } from "./handlers.ts";
+import { createHandlers } from "./handlers.ts";
 import { recordOf, running } from "./running.ts";
 import type { Endpoint, Isolation, Runtime } from "./runtime.ts";
 import type { Setup } from "./setup.ts";

@@ -24,9 +24,9 @@ import {
   sameToken,
   writePrivate,
 } from "@agentorg/computer-base/store";
+import { VERSION } from "@agentorg/computer-base/version";
 import type { components } from "@agentorg/computer-contract/schema";
 import { SCREEN_TOOLS } from "@agentorg/computer-screen/screen";
-import { VERSION } from "./handlers.ts";
 import type { LiveMode, Surface } from "./live.ts";
 import type { Endpoint, Isolation, Running, Runtime } from "./runtime.ts";
 

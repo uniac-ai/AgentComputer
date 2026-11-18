@@ -2,6 +2,7 @@
 // has one here, and both the HTTP API and the MCP control tools call these.
 
 import { ApiError } from "@agentorg/computer-base/error";
+import { VERSION } from "@agentorg/computer-base/version";
 import type { operations } from "@agentorg/computer-contract/schema";
 import type { Computers } from "./computers.ts";
 import type { Connections } from "./connection.ts";
@@ -20,8 +21,6 @@ type Success<R> = R extends { 200: infer A }
 type Handlers = {
   [K in keyof operations]: (input: Input<K>) => Promise<Success<operations[K]["responses"]>>;
 };
-
-export const VERSION = "0.0.36";
 
 export function createHandlers(
   computers: Computers,
