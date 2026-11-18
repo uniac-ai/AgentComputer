@@ -28,8 +28,8 @@
     "tag": "next"
   },
   "scripts": {
-    "generate": "node scripts/generate.js",
-    "build": "npm run build --workspace @agentorg/exec && tsc -p tsconfig.json && node scripts/bundle.js",
+    "generate": "npm run generate --workspace @agentorg/computer-contract",
+    "build": "npm run build --workspace @agentorg/exec --workspace @agentorg/computer-contract --workspace @agentorg/computer-base --workspace @agentorg/computer-sdk && tsc -p tsconfig.json && node scripts/bundle.js",
     "check": "biome check .",
     "test": "npm run build && node --test --test-timeout=60000 \"out/test/**/*.test.js\""
   },
@@ -37,6 +37,9 @@
     "playwright-core": "1.65.0-alpha-2026-10-30"
   },
   "devDependencies": {
+    "@agentorg/computer-base": "0.0.0",
+    "@agentorg/computer-contract": "0.0.0",
+    "@agentorg/computer-sdk": "0.0.32",
     "@agentorg/exec": "0.0.11",
     "@biomejs/biome": "2.6.5",
     "@modelcontextprotocol/client": "2.4.0",

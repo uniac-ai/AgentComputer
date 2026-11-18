@@ -4,7 +4,7 @@
 // refused by it, and nothing rests on who did a thing. Computers attached to the same machine share
 // its files, so they share one board for them, and each is shown the person and the other
 // computers' agents acting there.
-import type { components } from "./generated/schema.js";
+import type { components } from "@agentorg/computer-contract/schema";
 
 type Acting = components["schemas"]["Acting"];
 

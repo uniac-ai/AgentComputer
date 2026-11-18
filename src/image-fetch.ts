@@ -2,7 +2,7 @@
 // how far it has come: each layer's bytes as they are downloaded, and each layer unpacked.
 import { request } from "node:http";
 import { createInterface } from "node:readline";
-import type { components } from "./generated/schema.js";
+import type { components } from "@agentorg/computer-contract/schema";
 
 type Progress = components["schemas"]["Progress"];
 

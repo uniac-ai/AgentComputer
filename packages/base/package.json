@@ -1,0 +1,28 @@
+{
+  "name": "@agentorg/computer-base",
+  "version": "0.0.0",
+  "private": true,
+  "description": "What AgentComputer's pieces share: private files and tokens, text in message-sized pieces, a refusal with its status",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./error": {
+      "agentcomputer-source": "./src/error.ts",
+      "types": "./dist/error.d.ts",
+      "default": "./dist/error.js"
+    },
+    "./store": {
+      "agentcomputer-source": "./src/store.ts",
+      "types": "./dist/store.d.ts",
+      "default": "./dist/store.js"
+    },
+    "./text": {
+      "agentcomputer-source": "./src/text.ts",
+      "types": "./dist/text.d.ts",
+      "default": "./dist/text.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

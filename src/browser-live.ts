@@ -2,6 +2,8 @@
 // second connection to the same browser the agent's tools use. Nobody waits for anybody: a person
 // and the agent can both act at once, each in a tab of their own if they like. Which page a socket
 // is shown is that socket's alone.
+
+import type { components } from "@agentorg/computer-contract/schema";
 import type {
   Browser,
   BrowserContext,
@@ -12,7 +14,6 @@ import type {
 } from "playwright-core";
 import type { WebSocket } from "ws";
 import type { BrowserGate } from "./browser.ts";
-import type { components } from "./generated/schema.js";
 import { playwright } from "./playwright.ts";
 import { type Frame, startScreencast } from "./screencast.ts";
 

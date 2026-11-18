@@ -1,0 +1,22 @@
+{
+  "name": "@agentorg/computer-contract",
+  "version": "0.0.0",
+  "private": true,
+  "description": "AgentComputer's contract: openapi.yaml and what is generated from it",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./schema": {
+      "types": "./src/generated/schema.d.ts"
+    },
+    "./operations": {
+      "agentcomputer-source": "./src/generated/operations.ts",
+      "types": "./dist/generated/operations.d.ts",
+      "default": "./dist/generated/operations.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "generate": "node scripts/generate.js"
+  }
+}

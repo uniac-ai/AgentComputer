@@ -27,7 +27,7 @@ import { ownBrowser } from "../src/own-browser.ts";
 import { type Machine, Setup } from "../src/setup.ts";
 import { Switches } from "../src/switches.ts";
 
-type Sdk = typeof import("../src/sdk.ts");
+type Sdk = typeof import("@agentorg/computer-sdk");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const BROWSER = process.env.AGENTCOMPUTER_BROWSER_PATH;
 const where = process.platform === "darwin" ? "this Mac" : "this machine";

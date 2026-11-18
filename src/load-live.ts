@@ -4,8 +4,8 @@ import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { availableParallelism, cpus, freemem, totalmem } from "node:os";
 import { promisify } from "node:util";
+import type { components } from "@agentorg/computer-contract/schema";
 import type { WebSocket } from "ws";
-import type { components } from "./generated/schema.js";
 
 type Reading = components["schemas"]["LoadReading"];
 /** CPU time used out of the CPU time there was, both counted up from some start. */

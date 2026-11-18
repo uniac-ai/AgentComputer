@@ -24,7 +24,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import WebSocket from "ws";
 import { CONTAINER, type Kind, make, named } from "./kinds.ts";
 
-type Sdk = typeof import("../src/sdk.ts");
+type Sdk = typeof import("@agentorg/computer-sdk");
 // biome-ignore lint/suspicious/noExplicitAny: each answer is JSON the test reads.
 type Answer = any;
 const here = dirname(fileURLToPath(import.meta.url));

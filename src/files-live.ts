@@ -1,9 +1,10 @@
 // The workspace's files, live: a person's file window lists a folder, reads a file a range at a
 // time, asks what changed, and at operate writes a file, all on one socket in files@1. The files
 // themselves are AgentExec's to reach, kept inside the workspace as its tools are.
+
+import type { components } from "@agentorg/computer-contract/schema";
 import type { AgentExec, FileUpload } from "@agentorg/exec";
 import type { WebSocket } from "ws";
-import type { components } from "./generated/schema.js";
 
 type Schemas = components["schemas"];
 type Request = Schemas["FilesRequest"];

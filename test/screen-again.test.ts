@@ -24,7 +24,7 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 
-type Sdk = typeof import("../src/sdk.ts");
+type Sdk = typeof import("@agentorg/computer-sdk");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CLI = join(root, "dist", "agentcomputer.js");
 const mac = process.platform === "darwin";

@@ -16,12 +16,19 @@ import { cp, lstat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Duplex } from "node:stream";
-import type { components } from "./generated/schema.js";
+import { ApiError } from "@agentorg/computer-base/error";
+import {
+  digestOf,
+  newToken,
+  privateFolder,
+  sameToken,
+  writePrivate,
+} from "@agentorg/computer-base/store";
+import type { components } from "@agentorg/computer-contract/schema";
 import { VERSION } from "./handlers.ts";
 import type { LiveMode, Surface } from "./live.ts";
-import { ApiError, type Endpoint, type Isolation, type Running, type Runtime } from "./runtime.ts";
+import type { Endpoint, Isolation, Running, Runtime } from "./runtime.ts";
 import { SCREEN_TOOLS } from "./screen.ts";
-import { digestOf, newToken, privateFolder, sameToken, writePrivate } from "./store.ts";
 
 type Schemas = components["schemas"];
 type Access = Schemas["Access"];

@@ -7,12 +7,14 @@ import { createRequire } from "node:module";
 import { hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
+import { ApiError } from "@agentorg/computer-base/error";
+import { privateFolder } from "@agentorg/computer-base/store";
+import type { components } from "@agentorg/computer-contract/schema";
 import { type AgentExec, createAgentExec, type PtySpawn } from "@agentorg/exec";
 import { aboutTool } from "./about.ts";
 import { Browser, type BrowserConfig, readRequest, refuseBody, refuseCall } from "./browser.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { FilesLive } from "./files-live.ts";
-import type { components } from "./generated/schema.js";
 import { Live, type LiveMode, type Surface, type SurfaceInfo } from "./live.ts";
 import { LoadLive } from "./load-live.ts";
 import { ownBrowser } from "./own-browser.ts";
@@ -20,7 +22,6 @@ import { channelProgram, DEFAULT_CHANNEL, playwright } from "./playwright.ts";
 import { Board, Presence } from "./presence.ts";
 import { type DriverAt, findDriver, onlyGrantsMissing, Screen, screenCheck } from "./screen.ts";
 import { ScreenLive } from "./screen-live.ts";
-import { privateFolder } from "./store.ts";
 import type { Switch, Switches } from "./switches.ts";
 
 type Schemas = components["schemas"];
@@ -34,16 +35,6 @@ export type Isolation = Schemas["Isolation"];
 /** What a computer run one way offers, and whether one can be run that way now. */
 export type Offer = Schemas["Offer"];
 export type Endpoint = "computer" | "browser" | "screen";
-
-/** A refusal of the request, with the HTTP status that says so. */
-export class ApiError extends Error {
-  readonly status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
 
 export interface ComputerSpec {
   id: string;

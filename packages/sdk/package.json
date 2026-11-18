@@ -1,0 +1,34 @@
+{
+  "name": "@agentorg/computer-sdk",
+  "version": "0.0.32",
+  "description": "AgentComputer's TypeScript client: make, attach and use computers for agents",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/uniac-ai/AgentComputer.git",
+    "directory": "packages/sdk"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "agentcomputer-source": "./src/sdk.ts",
+      "types": "./dist/types/sdk.d.ts",
+      "default": "./dist/sdk.js"
+    }
+  },
+  "files": [
+    "dist/sdk.js",
+    "dist/types",
+    "dist/THIRD_PARTY_LICENSES.txt",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "engines": {
+    "node": ">=22.15"
+  },
+  "publishConfig": {
+    "tag": "next"
+  }
+}

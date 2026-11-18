@@ -11,6 +11,8 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { type Duplex, Readable } from "node:stream";
 import { promisify } from "node:util";
+import { ApiError } from "@agentorg/computer-base/error";
+import { newToken, writePrivate } from "@agentorg/computer-base/store";
 import { sendAnswer } from "./browser.ts";
 import { ImageFetch } from "./image-fetch.ts";
 import {
@@ -20,15 +22,7 @@ import {
   OUTSIDE_WORKSPACE_VARIABLE,
 } from "./inside.ts";
 import type { SurfaceInfo } from "./live.ts";
-import {
-  ApiError,
-  type ComputerSpec,
-  type Offer,
-  type Running,
-  type Runtime,
-  type RuntimeEvents,
-} from "./runtime.ts";
-import { newToken, writePrivate } from "./store.ts";
+import type { ComputerSpec, Offer, Running, Runtime, RuntimeEvents } from "./runtime.ts";
 
 const run = promisify(execFile);
 const START_MS = 60_000;

@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 import { closeSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { privateFolder } from "./store.ts";
+import { privateFolder } from "@agentorg/computer-base/store";
 
 /** A service that answers: where and which process its record says, and what it says of itself. */
 export interface Running {

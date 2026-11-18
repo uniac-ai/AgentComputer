@@ -5,8 +5,8 @@
 // else shows them.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { components } from "./generated/schema.js";
-import { writePrivate } from "./store.ts";
+import { writePrivate } from "@agentorg/computer-base/store";
+import type { components } from "@agentorg/computer-contract/schema";
 
 export type Switch = components["schemas"]["Switch"];
 export const SWITCHES: Switch[] = ["terminal", "files", "screen", "browser"];

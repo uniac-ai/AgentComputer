@@ -14,12 +14,12 @@ import { readdir } from "node:fs/promises";
 import { release } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { ApiError } from "@agentorg/computer-base/error";
+import { writePrivate } from "@agentorg/computer-base/store";
+import type { components } from "@agentorg/computer-contract/schema";
 import { driverApp, infoValue } from "./driver-app.ts";
-import type { components } from "./generated/schema.js";
 import { browsers, debuggingOn, here, type Where } from "./own-browser.ts";
-import { ApiError } from "./runtime.ts";
 import { type DriverAt, driverGrants, findDriver, QUIET, quiet, screenCheck } from "./screen.ts";
-import { writePrivate } from "./store.ts";
 import { SWITCHES, type Switch, type Switches } from "./switches.ts";
 
 type Schemas = components["schemas"];

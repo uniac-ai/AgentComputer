@@ -24,9 +24,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import WebSocket, { WebSocketServer } from "ws";
 import { CONTAINER, type Kind, make, named } from "./kinds.ts";
 
-type Sdk = typeof import("../src/sdk.ts");
-type TerminalEvent = import("../src/sdk.ts").TerminalEvent;
-type Reading = import("../src/generated/schema.js").components["schemas"]["LoadReading"];
+type Sdk = typeof import("@agentorg/computer-sdk");
+type TerminalEvent = import("@agentorg/computer-sdk").TerminalEvent;
+type Reading = import("@agentorg/computer-contract/schema").components["schemas"]["LoadReading"];
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");

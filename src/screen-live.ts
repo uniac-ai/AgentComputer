@@ -4,10 +4,11 @@
 // the last picture each connection took, so the agent's points stay read against its own. A
 // person's click, drag or scroll is made in the foreground, as a person's own would be, and the
 // machine's pointer is put back where it was, as for the agent's click in the foreground.
+
+import type { components } from "@agentorg/computer-contract/schema";
 import type { WebSocket } from "ws";
 import { z } from "zod";
 import { reason } from "./files-live.ts";
-import type { components } from "./generated/schema.js";
 import {
   type Answer,
   DESKTOP,
