@@ -27,10 +27,11 @@ import {
 import { VERSION } from "@agentorg/computer-base/version";
 import type { components } from "@agentorg/computer-contract/schema";
 import { SCREEN_TOOLS } from "@agentorg/computer-screen/screen";
-import type { LiveMode, Surface } from "./live.ts";
 import type { Endpoint, Isolation, Running, Runtime } from "./runtime.ts";
 
 type Schemas = components["schemas"];
+type Surface = Schemas["Surface"];
+type LiveMode = Schemas["LiveMode"];
 type Access = Schemas["Access"];
 type ComputerState = Schemas["ComputerState"];
 const READ = ["about", "read", "list", "search"];

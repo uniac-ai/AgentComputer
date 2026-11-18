@@ -397,9 +397,9 @@ test("a shell that can't start is refused or heard ending, and nothing else does
 });
 
 test("where a shell can't run on a terminal device, opening one is refused with why", async (t) => {
-  const { Live } = await import("../src/live.ts");
-  const { LoadLive } = await import("../src/load-live.ts");
-  const { Presence } = await import("../src/presence.ts");
+  const { Live } = await import("@agentorg/computer-inside/live");
+  const { LoadLive } = await import("@agentorg/computer-inside/load-live");
+  const { Presence } = await import("@agentorg/computer-inside/presence");
   const { createAgentExec } = await import("@agentorg/exec");
   const workspace = realpathSync(mkdtempSync(join(tmpdir(), "ac-")));
   const pty = () => {
@@ -435,9 +435,9 @@ test("where a shell can't run on a terminal device, opening one is refused with 
 });
 
 test("a viewer more than 4 MiB behind is closed, and one that opens is shown all", async (t) => {
-  const { Live } = await import("../src/live.ts");
-  const { LoadLive } = await import("../src/load-live.ts");
-  const { Presence } = await import("../src/presence.ts");
+  const { Live } = await import("@agentorg/computer-inside/live");
+  const { LoadLive } = await import("@agentorg/computer-inside/load-live");
+  const { Presence } = await import("@agentorg/computer-inside/presence");
   type Exec = import("@agentorg/exec").AgentExec;
   type Heard = Parameters<Parameters<Exec["onCommand"]>[0]>[0];
   const at = new Date().toISOString();
@@ -501,7 +501,7 @@ test("a viewer more than 4 MiB behind is closed, and one that opens is shown all
 });
 
 test("one who opens later is sent the last reading, and nothing is read unwatched", async (t) => {
-  const { LoadLive } = await import("../src/load-live.ts");
+  const { LoadLive } = await import("@agentorg/computer-inside/load-live");
   // A `df` of the test's own, first on the path, that counts each time the disk is read.
   const bin = mkdtempSync(join(tmpdir(), "ac-"));
   const log = join(bin, "log");

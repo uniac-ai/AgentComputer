@@ -2,6 +2,7 @@
 // a port on the machine's loopback that takes a token only the service holds. A stopped
 // computer's container stays, and starts again as it was, unless it was made from another image
 // than the service's: then it is made again, which keeps the two folders that are mounted.
+
 import { execFile, spawn } from "node:child_process";
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -14,6 +15,7 @@ import { promisify } from "node:util";
 import { ApiError } from "@agentorg/computer-base/error";
 import { sendAnswer } from "@agentorg/computer-base/http";
 import { newToken, writePrivate } from "@agentorg/computer-base/store";
+import type { components } from "@agentorg/computer-contract/schema";
 import { ImageFetch } from "./image-fetch.ts";
 import {
   INNER_PORT,
@@ -21,8 +23,9 @@ import {
   OUTSIDE_MACHINE_VARIABLE,
   OUTSIDE_WORKSPACE_VARIABLE,
 } from "./inside.ts";
-import type { SurfaceInfo } from "./live.ts";
 import type { ComputerSpec, Offer, Running, Runtime, RuntimeEvents } from "./runtime.ts";
+
+type SurfaceInfo = components["schemas"]["SurfaceInfo"];
 
 const run = promisify(execFile);
 const START_MS = 60_000;
