@@ -5,7 +5,7 @@
 // person to allow each connection. Nothing is installed, and no port is opened on the person's
 // profile by the service.
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
@@ -135,16 +135,46 @@ async function ours(port: number) {
   }
 }
 
-/** Where a browser is reached, from its DevToolsActivePort, while it is listening there. */
-export async function reachedAt(folder: string) {
+/** What a browser's DevToolsActivePort names, and when it was written; none where it names none. */
+function named(folder: string) {
   try {
-    const [port, path] = readFileSync(join(folder, "DevToolsActivePort"), "utf8").split("\n");
+    const file = join(folder, "DevToolsActivePort");
+    const [port, path] = readFileSync(file, "utf8").split("\n");
     const number = Number(port);
     if (!Number.isInteger(number) || !path?.startsWith("/devtools/browser/")) return undefined;
-    return (await ours(number)) ? `ws://127.0.0.1:${number}${path.trim()}` : undefined;
+    return { port: number, path: path.trim(), written: statSync(file).mtimeMs };
   } catch {
     return undefined;
   }
+}
+
+/** Where a browser is reached, from its DevToolsActivePort, while it is listening there. */
+export async function reachedAt(folder: string) {
+  const at = named(folder);
+  return at && (await ours(at.port)) ? `ws://127.0.0.1:${at.port}${at.path}` : undefined;
+}
+
+/** How long a browser found listening is taken to be, while its DevToolsActivePort is the same. */
+const KEPT_MS = 60_000;
+/** Each browser found listening, by its folder: what its DevToolsActivePort said, and when. */
+const listening = new Map<string, { said: string; at: number }>();
+
+/**
+ * Whether a browser's remote debugging is on, as the setup shows it, read often. Finding who
+ * listens on its port starts a program on a Mac, so one found listening is taken to be, for a
+ * minute, while its DevToolsActivePort names the same port and was written at the same time. A
+ * browser that has closed has removed that file; one that crashed may have left it, and is taken
+ * as on for up to that minute. Attaching to it checks afresh.
+ */
+export async function debuggingOn(folder: string, now = Date.now()) {
+  const at = named(folder);
+  if (!at) return false;
+  const said = `${at.port} ${at.path} ${at.written}`;
+  const kept = listening.get(folder);
+  if (kept?.said === said && now - kept.at < KEPT_MS) return true;
+  if (!(await ours(at.port))) return false;
+  listening.set(folder, { said, at: now });
+  return true;
 }
 
 /** The person's browsers: Chrome, then Edge, installed or not, or the one whose folder is named. */

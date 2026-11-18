@@ -92,6 +92,30 @@ const older = (version: string, than: string) => {
   return false;
 };
 
+/** Each driver's version, by its program, kept while that is the same file. */
+const versions = new Map<string, { file: string; version: string }>();
+
+/**
+ * The driver's version, as `--version` gives it. Reading it starts the driver, and the setup is
+ * read often, so it is kept while the program is the same file: the same size, written at the same
+ * time. A driver installed anew is read again.
+ */
+async function versionOf(program: string) {
+  let file: string | undefined;
+  try {
+    const { size, mtimeMs, ino } = statSync(program);
+    file = `${ino} ${size} ${mtimeMs}`;
+  } catch {
+    // Read each time.
+  }
+  const kept = versions.get(program);
+  if (file && kept?.file === file) return kept.version;
+  const { stdout } = await run(program, ["--version"], { timeout: 5_000, env: quiet() });
+  const version = /(\d+\.\d+\.\d+)/.exec(stdout)?.[1];
+  if (file && version) versions.set(program, { file, version });
+  return version;
+}
+
 /**
  * The one place that decides whether the screen can be reached here through Cua Driver: its
  * readiness, saying what to do where it isn't, the driver found, and on macOS the two grants as
@@ -114,8 +138,7 @@ export async function screenCheck(
     };
   const doesntRun = { ready: false, reason: `Cua Driver doesn't run. ${install} again.` };
   try {
-    const { stdout } = await run(driver.program, ["--version"], { timeout: 5_000, env: quiet() });
-    const version = /(\d+\.\d+\.\d+)/.exec(stdout)?.[1];
+    const version = await versionOf(driver.program);
     if (!version) return { readiness: doesntRun, driver };
     if (older(version, DRIVER_VERSION))
       return {
@@ -276,6 +299,19 @@ const BACKGROUND = {
  * it does in the foreground.
  */
 const POINTED = new Set(["click", "double_click", "right_click", "drag", "scroll"]);
+
+/** What the agent is told first when macOS hasn't let an app be controlled through scripting. */
+export const AUTOMATION =
+  "macOS hasn't allowed that app to be controlled through its scripting interface here, and that isn't asked for, so nothing was done. Do it another way, such as with the menu item or the control in the app's window, or leave it to the person. What the driver said:";
+
+/**
+ * Whether the driver refused for want of macOS's Automation consent for the app, which it isn't
+ * let ask for: its code, `automation_consent_required`, in its answer's fields or its words.
+ */
+export function automationRefused(answer: Answer, said: string) {
+  const code = (answer.structuredContent as { code?: unknown } | undefined)?.code;
+  return code === "automation_consent_required" || /automation_consent_required/.test(said);
+}
 
 /**
  * Whether the driver refused a click in the background before sending anything, saying the
@@ -939,6 +975,14 @@ export class Screen {
             const said = (answer.content ?? [])
               .map((part) => (part as { text?: string }).text ?? "")
               .join("\n");
+            // An app macOS hasn't let be controlled through its scripting interface, where the
+            // driver would have sent a menu's key combination or a rename that way: said in plain
+            // words before the driver's own, since nothing here asks the person for that consent.
+            if (answer.isError && automationRefused(answer, said))
+              return {
+                ...answer,
+                content: [text(AUTOMATION), ...(answer.content ?? [])],
+              };
             // On a lent machine the driver's advice to use the foreground is said in plain words.
             if (this.#onlyBackground && /delivery_mode\W*foreground/i.test(said))
               return {

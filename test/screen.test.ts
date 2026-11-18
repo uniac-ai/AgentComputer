@@ -26,6 +26,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import type { WebSocket } from "ws";
 import { ProcessRuntime } from "../src/runtime.ts";
 import {
+  AUTOMATION,
   clickedAt,
   foregroundWouldDo,
   plain,
@@ -78,8 +79,10 @@ esac
   // The first read is the driver's answer, not that it is still being looked for.
   const quick = runtime(driver("quick", 0));
   assert.deepEqual(await screen(quick), { capability: "screen", ready: true });
-  // Within 10 s the reading stands, whatever the driver would say now.
+  // Within 10 s the reading stands, whatever the driver would say now: an older one installed in
+  // its place, which its version is read again for.
   writeFileSync(version, "cua-driver 0.49.6\n");
+  driver("quick", 0);
   assert.deepEqual(await screen(quick), { capability: "screen", ready: true });
   // Older than that, it is checked again before info answers.
   t.mock.timers.tick(11_000);
@@ -190,6 +193,33 @@ esac
     reason:
       "Screen Recording and Accessibility are needed, and Cua Driver is missing Accessibility. Grant it in System Settings, under Privacy & Security.",
   });
+});
+
+test("the driver's version is read once while its program is the same file, and again once it isn't", async (t) => {
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), "ac-")));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  const log = join(folder, "versions.log");
+  const program = join(folder, "cua-driver");
+  const write = (version: string) => {
+    writeFileSync(
+      program,
+      `#!/bin/sh\ncase "$1" in\n  --version) echo read >> "${log}"; echo "cua-driver ${version}" ;;\nesac\n`,
+    );
+    chmodSync(program, 0o755);
+  };
+  const reads = () => readFileSync(log, "utf8").split("\n").filter(Boolean).length;
+  write("0.49.7");
+  assert.deepEqual((await screenCheck({ program }, "linux")).readiness, { ready: true });
+  assert.deepEqual((await screenCheck({ program }, "linux")).readiness, { ready: true });
+  assert.equal(reads(), 1);
+  // Installed anew, older: read again.
+  write("0.40.0");
+  assert.deepEqual((await screenCheck({ program }, "linux")).readiness, {
+    ready: false,
+    reason:
+      "Cua Driver 0.40.0 is older than 0.49.7. Install the signed app from cua.ai/download to update it.",
+  });
+  assert.equal(reads(), 2);
 });
 
 test("where the screen can't tell an app's grants, its reason says the app's socket in words, never its path", async (t) => {
@@ -1527,4 +1557,22 @@ describe("with the pinned driver run embedded, as an app hosting it runs it", {
     );
     assert.ok(!out.logs.some((line) => /is available \(you have/.test(line)), out.logs.join("\n"));
   });
+});
+
+test("an app macOS hasn't let be controlled through scripting is said in plain words before the driver's", async (t) => {
+  for (const lent of [false, true]) {
+    const { call } = await overStandIn(t, lent);
+    const refused = await call("act", { action: "hotkey", keys: ["cmd", "s"], ...window });
+    assert.equal(refused.isError, true);
+    assert.deepEqual(
+      refused.content.map((one) => one.text),
+      [
+        AUTOMATION,
+        "hotkey refused (automation_consent_required): Save needs TextEdit's scripting interface, and macOS hasn't given consent to control TextEdit. Nothing was sent.",
+      ],
+    );
+    // Any other combination is as the driver answers it.
+    const pressed = await call("act", { action: "hotkey", keys: ["cmd", "c"], ...window });
+    assert.equal(pressed.isError, undefined);
+  }
 });

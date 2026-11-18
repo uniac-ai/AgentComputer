@@ -18,7 +18,7 @@ import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { chromium, type Page } from "playwright-core";
 import { WebSocket } from "ws";
-import { ownBrowser, reachedAt } from "../src/own-browser.ts";
+import { debuggingOn, ownBrowser, reachedAt } from "../src/own-browser.ts";
 
 type Sdk = typeof import("../src/sdk.ts");
 type Computer = Awaited<ReturnType<Sdk["Computer"]["attach"]>>;
@@ -313,4 +313,33 @@ test("only attach takes --own-browser, and not beside --browser", async () => {
     await assert.rejects(run(process.execPath, [CLI, ...args]), (error: { stderr: string }) =>
       error.stderr.startsWith(said),
     );
+});
+
+test("the setup takes a browser found listening as on for a minute while its DevToolsActivePort is the same", async () => {
+  const listening = createServer();
+  await new Promise<void>((done) => listening.listen(0, "127.0.0.1", done));
+  const folder = folderOf("ac-own-");
+  const { port } = listening.address() as AddressInfo;
+  const file = join(folder, "DevToolsActivePort");
+  writeFileSync(file, `${port}\n/devtools/browser/one\n`);
+  const now = Date.now();
+  assert.equal(await debuggingOn(folder, now), true);
+  await new Promise<void>((done) => listening.close(() => done()));
+  // Not listening any more, as after a crash that left the file: still taken as on, within the minute.
+  assert.equal(await debuggingOn(folder, now + 59_000), true);
+  // After the minute, it is checked again, and attaching always checks afresh.
+  assert.equal(await debuggingOn(folder, now + 61_000), false);
+  assert.equal(await reachedAt(folder), undefined);
+  // A file written again is checked again at once.
+  const again = createServer();
+  await new Promise<void>((done) => again.listen(0, "127.0.0.1", done));
+  const moved = (again.address() as AddressInfo).port;
+  writeFileSync(file, `${moved}\n/devtools/browser/two\n`);
+  assert.equal(await debuggingOn(folder, now), true);
+  await new Promise<void>((done) => again.close(() => done()));
+  writeFileSync(file, `${moved}\n/devtools/browser/three\n`);
+  assert.equal(await debuggingOn(folder, now), false);
+  // No file, nothing on.
+  rmSync(file);
+  assert.equal(await debuggingOn(folder, now), false);
 });

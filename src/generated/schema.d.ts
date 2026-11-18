@@ -85,7 +85,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Ask the person, on the service's machine, macOS only, for one thing a part needs, for a button they press for it. screen-recording or accessibility, while it is missing: for a driver an app hosts, the app makes macOS's request each time, so that macOS asks again whenever it would, such as after a reset of the app's privacy entries. That grant's pane of System Settings opens as well, a second later, except at the first request the service has made, for that app's bundle identifier, of a grant whose request may draw an alert: accessibility, and screen-recording before macOS 26. macOS draws that alert until it has been answered, and the alert's own button opens the pane; after a reset, the alert and the pane both come. From macOS 26 Screen Recording's request draws nothing, so its pane opens each time. For Cua Driver's own app, while it is missing: its own grant, its app started first, which makes the system's requests in its own order, Accessibility first, in a window of its own. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. With none named, it makes only what turning the part on makes. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing. */
+        /** Ask the person, on the service's machine, macOS only, for one thing a part needs, for a button they press for it. screen-recording or accessibility, while it is missing: for a driver an app hosts, the app makes macOS's request each time, so that macOS asks again whenever it would, such as after a reset of the app's privacy entries. That grant's pane of System Settings opens as well, a second later, except at the first request the service has made, for that app's bundle identifier, of a grant whose request may draw an alert: accessibility, and screen-recording before macOS 26. macOS draws that alert until it has been answered, and the alert's own button opens the pane; after a reset, the alert and the pane both come. From macOS 26 Screen Recording's request draws nothing, so its pane opens each time. For Cua Driver's own app, while it is missing: its own grant, its app started first, which makes the system's requests in its own order, Accessibility first, in a window of its own. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. folders, for the files: each folder macOS protects that is here is read once, one after another, so that macOS asks for each in turn, now, and waits for the person's answer; their state is unknown until all are answered. With none named, it makes only what turning the part on makes. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing. */
         post: operations["askSetup"];
         delete?: never;
         options?: never;
@@ -104,7 +104,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Open the pane of System Settings for one thing a part needs, on the service's machine, macOS only, for the person to switch it there: screen-recording or accessibility, that grant's pane under Privacy & Security, whether it is missing or not. macOS lists an app there once it has asked, so this follows ask. It is for the person's own choice, such as a button they press: the service opens a pane only here and from ask, each on the person's click. Where an app hosts the driver, it is that app that sees the change and starts its driver again. It answers once the pane is asked to open, with each part then. Elsewhere it answers 409. */
+        /** Open the pane of System Settings for one thing a part needs, on the service's machine, macOS only, for the person to switch it there: screen-recording or accessibility, that grant's pane under Privacy & Security, whether it is missing or not; folders, the pane of Files and Folders, where a folder refused is switched on again. macOS lists an app there once it has asked, so this follows ask. It is for the person's own choice, such as a button they press: the service opens a pane only here and from ask, each on the person's click. Where an app hosts the driver, it is that app that sees the change and starts its driver again. It answers once the pane is asked to open, with each part then. Elsewhere it answers 409. */
         post: operations["openSetupSettings"];
         delete?: never;
         options?: never;
@@ -680,18 +680,20 @@ export interface components {
          */
         Switch: "terminal" | "files" | "screen" | "browser";
         /**
-         * @description install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser, with remote debugging on or off; named: the one browser a service was given the folder of.
+         * @description install: Cua Driver, which the screen works through. screen-recording and accessibility: Cua Driver's two grants. chrome and edge: each browser, with remote debugging on or off; named: the one browser a service was given the folder of. folders: on a Mac, the folders macOS protects, which the files need and macOS asks for one by one: Desktop, Documents, Downloads, iCloud Drive, each cloud drive's folder and each mounted volume.
          * @enum {string}
          */
-        NeedName: "install" | "screen-recording" | "accessibility" | "chrome" | "edge" | "named";
+        NeedName: "install" | "screen-recording" | "accessibility" | "chrome" | "edge" | "named" | "folders";
         Need: {
             need: components["schemas"]["NeedName"];
             /** @description A browser's name: Chrome, Edge, or the browser. */
             name?: string;
+            /** @description For folders that are not-granted, the ones macOS refused at the person's last click, by name: Desktop, Documents, Downloads, iCloud Drive, a cloud drive's folder or a volume. */
+            refused?: string[];
             /** @description For a grant, whose it is, as System Settings lists it: the outermost app Cua Driver is inside, CuaDriver for its own app, or an app that carries the driver. None where Cua Driver is in no app. */
             holder?: string;
             /**
-             * @description missing: not installed. unknown: it can't be read now. A browser is on while it is open with its remote debugging switched on.
+             * @description missing: not installed. unknown: it can't be read now. A browser is on while it is open with its remote debugging switched on. The folders are unknown until the person has asked for them, and while they are being asked for, since macOS gives no way to read a folder's grant without asking; then granted, or not-granted with the ones refused.
              * @enum {string}
              */
             state: "missing" | "granted" | "not-granted" | "unknown" | "on" | "off";
