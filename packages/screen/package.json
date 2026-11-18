@@ -1,0 +1,28 @@
+{
+  "name": "@agentorg/computer-screen",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A computer's screen, through Cua Driver, with its live view",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./driver-app": {
+      "agentcomputer-source": "./src/driver-app.ts",
+      "types": "./dist/driver-app.d.ts",
+      "default": "./dist/driver-app.js"
+    },
+    "./screen": {
+      "agentcomputer-source": "./src/screen.ts",
+      "types": "./dist/screen.d.ts",
+      "default": "./dist/screen.js"
+    },
+    "./screen-live": {
+      "agentcomputer-source": "./src/screen-live.ts",
+      "types": "./dist/screen-live.d.ts",
+      "default": "./dist/screen-live.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

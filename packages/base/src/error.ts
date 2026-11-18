@@ -7,3 +7,6 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
+
+/** What went wrong, in words: an error's message, or the thing itself as text. */
+export const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));

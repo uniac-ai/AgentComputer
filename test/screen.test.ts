@@ -22,9 +22,6 @@ import { createInterface } from "node:readline";
 import test, { before, describe } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import type { WebSocket } from "ws";
-import { ProcessRuntime } from "../src/runtime.ts";
 import {
   AUTOMATION,
   clickedAt,
@@ -35,8 +32,11 @@ import {
   Screen,
   screenCheck,
   unpathed,
-} from "../src/screen.ts";
-import { personCall, ScreenLive } from "../src/screen-live.ts";
+} from "@agentorg/computer-screen/screen";
+import { personCall, ScreenLive } from "@agentorg/computer-screen/screen-live";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import type { WebSocket } from "ws";
+import { ProcessRuntime } from "../src/runtime.ts";
 
 type Sdk = typeof import("@agentorg/computer-sdk");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");

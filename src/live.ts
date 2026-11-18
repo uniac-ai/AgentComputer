@@ -4,15 +4,16 @@
 // Each is a WebSocket in a small protocol of its own.
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
+import { reason } from "@agentorg/computer-base/error";
 import { pieces } from "@agentorg/computer-base/text";
 import type { BrowserLive } from "@agentorg/computer-browser/browser-live";
 import type { components } from "@agentorg/computer-contract/schema";
+import type { ScreenLive } from "@agentorg/computer-screen/screen-live";
 import type { AgentExec, CommandEvent } from "@agentorg/exec";
 import { type WebSocket, WebSocketServer } from "ws";
-import { type FilesLive, MAX_PART, reason } from "./files-live.ts";
+import { type FilesLive, MAX_PART } from "./files-live.ts";
 import type { LoadLive } from "./load-live.ts";
 import type { Presence } from "./presence.ts";
-import type { ScreenLive } from "./screen-live.ts";
 
 type Schemas = components["schemas"];
 export type Surface = Schemas["Surface"];
