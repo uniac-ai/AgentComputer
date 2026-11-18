@@ -84,15 +84,18 @@ test("a group's sessions end together, and nothing else does", async (t) => {
 });
 
 test("a call still waiting for its command is answered when its group ends", async (t) => {
-  const { client, stop, alive } = await mounted(t);
+  const { exec, client, stop } = await mounted(t);
   const began = Date.now();
   const waiting = client.callTool({
     name: "exec_command",
-    arguments: { cmd: "sleep 30", yield_time_ms: 30_000 },
+    arguments: { cmd: "echo up; sleep 30", yield_time_ms: 30_000 },
     _meta: { "agentexec/group": "a" },
   });
-  // Once the command is a session, its group is ended.
-  while (alive().length === 0) await new Promise((done) => setTimeout(done, 20));
+  // Once the command runs, its group is ended. Ended while its shell is still starting, the
+  // command can outlive the interrupt, as it once did on CI, and the kill a second later ends it.
+  const running = () =>
+    exec.terminals.list().some((one) => one.exitCode === undefined && one.output.includes("up\n"));
+  while (!running()) await new Promise((done) => setTimeout(done, 20));
   assert.deepEqual(await stop("a"), { stopped: 1 });
   const { structuredContent } = await waiting;
   assert.deepEqual(
