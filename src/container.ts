@@ -20,9 +20,10 @@ import {
   OUTSIDE_WORKSPACE_VARIABLE,
   pipeUpgrade,
   type Ready,
+  TOOLS,
 } from "@agentorg/computer-inside/client";
 import { ImageFetch } from "./image-fetch.ts";
-import type { ComputerSpec, Offer, Running, Runtime, RuntimeEvents } from "./runtime.ts";
+import type { Access, ComputerSpec, Offer, Running, Runtime, RuntimeEvents } from "./seam.ts";
 
 const run = promisify(execFile);
 const START_MS = 60_000;
@@ -70,6 +71,14 @@ interface Fetch {
 }
 
 export class ContainerRuntime implements Runtime {
+  readonly isolation = "container";
+  readonly attaches = false;
+
+  tools({ access }: { access: Access }) {
+    // A container has no screen.
+    return { computer: access === "none" ? [] : TOOLS[access], screen: [] };
+  }
+
   readonly #image: string;
   /** The id of that image, as it is now on this machine. */
   #imageId: string | undefined;

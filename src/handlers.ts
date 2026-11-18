@@ -5,8 +5,7 @@ import { ApiError } from "@agentorg/computer-base/error";
 import { VERSION } from "@agentorg/computer-base/version";
 import type { operations } from "@agentorg/computer-contract/schema";
 import type { Computers } from "./computers.ts";
-import type { Connections } from "./connection.ts";
-import type { Setup } from "./setup.ts";
+import type { Runtime } from "./seam.ts";
 
 type Json<T> = T extends { content: { "application/json": infer B } } ? B : never;
 type Fields<T> = [NonNullable<T>] extends [never] ? object : NonNullable<T>;
@@ -18,23 +17,15 @@ type Success<R> = R extends { 200: infer A }
   : R extends { 201: infer A }
     ? Json<A>
     : undefined;
-type Handlers = {
+export type Handlers = {
   [K in keyof operations]: (input: Input<K>) => Promise<Success<operations[K]["responses"]>>;
 };
 
-export function createHandlers(
-  computers: Computers,
-  connections: Connections,
-  setup: Setup,
-): Handlers {
+export function createHandlers(computers: Computers, kinds: Runtime[]): Handlers {
   return {
+    // What the kinds answer themselves: this computer's setup, who is connected and who is acting.
+    ...(Object.assign({}, ...kinds.map((kind) => kind.operations ?? {})) as Partial<Handlers>),
     getInfo: async () => ({ version: VERSION, ...(await computers.offers()) }),
-    getConnection: async () => connections.state(),
-    getSetup: () => setup.capabilities(),
-    setSetup: ({ capability, on }) => setup.set(capability, on),
-    askSetup: ({ capability, need }) => setup.ask(capability, need),
-    openSetupSettings: ({ capability, need }) => setup.settings(capability, need),
-    getActing: async () => computers.acting(),
     listComputers: async ({ state }) => computers.list(state),
     createComputer: (input) => computers.create(input),
     attachComputer: (input) => computers.attach(input),
@@ -53,5 +44,5 @@ export function createHandlers(
     openLiveSession: async () => {
       throw new ApiError(426, "Open it as a WebSocket.");
     },
-  };
+  } as Handlers;
 }

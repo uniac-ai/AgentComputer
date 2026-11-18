@@ -24,11 +24,9 @@ import { OPENAPI, OPERATIONS, type Operation } from "@agentorg/computer-contract
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { fromJsonSchema, McpServer } from "@modelcontextprotocol/server";
 import { Computers } from "./computers.ts";
-import { Connections } from "./connection.ts";
 import { createHandlers } from "./handlers.ts";
 import { recordOf, running } from "./running.ts";
-import type { Endpoint, Isolation, Runtime } from "./runtime.ts";
-import type { Setup } from "./setup.ts";
+import type { Endpoint, Runtime } from "./seam.ts";
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
 const WILDCARD = new Set(["0.0.0.0", "::"]);
@@ -37,10 +35,8 @@ const MAX_BODY = 64 * 1024;
 export interface ServeOptions {
   listen: string;
   data: string;
-  /** What this machine needs set up for this computer to reach all of it. */
-  setup: Setup;
-  /** How this computer is run, as `none`, and how a computer is made in each isolation, where it makes any. */
-  runtimes: { none: Runtime } & Partial<Record<Isolation, Runtime>>;
+  /** The kinds of computer it keeps: this computer, attached, and those it makes, where it makes any. */
+  kinds: Runtime[];
   /** Files holding the certificate and its key, to terminate TLS here. */
   tls?: { cert: string; key: string } | undefined;
   /** A proxy in front of the service terminates TLS, so it may listen in the clear. */
@@ -50,10 +46,6 @@ export interface ServeOptions {
   /** Browser origins a live session may be opened from. None by default. */
   allowOrigins?: string[] | undefined;
 }
-
-/** Why a service that other machines can reach doesn't offer this computer. */
-export const NOT_HERE =
-  "This service can be reached from other machines, so it doesn't offer the machine it runs on. Make a computer in a container, or attach this computer through a service that only this machine reaches.";
 
 /**
  * Whether only this machine reaches the service: it listens on loopback, with no proxy in front
@@ -69,7 +61,7 @@ export const onlyThisMachine = (
 function checkExposure(host: string, options: ServeOptions) {
   const { tls, tlsProxy, publicUrl } = options;
   // It would offer nothing: this computer is offered only to this machine.
-  if (!options.runtimes.container && !onlyThisMachine(host, options))
+  if (!options.kinds.some((kind) => !kind.attaches) && !onlyThisMachine(host, options))
     throw new Error(
       "--lend lends only this machine, which a service other machines reach doesn't offer: listen on loopback, with no --tls-proxy and no --public-url.",
     );
@@ -128,17 +120,23 @@ export async function serve(options: ServeOptions) {
   if (live)
     throw new Error(`A service is already running with its data in ${data}, at ${live.url}.`);
   let base = "";
-  const computers = new Computers(
-    data,
-    () => base,
-    options.runtimes,
-    onlyThisMachine(host, options) ? undefined : NOT_HERE,
-  );
-  // Behind a proxy every client comes from it, so where one connects from tells nothing.
-  const connections = new Connections(options.tlsProxy === true);
-  const handlers = createHandlers(computers, connections, options.setup) as unknown as Record<
+  for (const kind of options.kinds)
+    kind.reached?.({
+      onlyThisMachine: onlyThisMachine(host, options),
+      proxied: options.tlsProxy === true,
+    });
+  const computers = new Computers(data, () => base, options.kinds);
+  const handlers = createHandlers(computers, options.kinds) as unknown as Record<
     string,
     (input: unknown) => Promise<unknown>
+  >;
+  // Every operation is answered: by the provider, or by a kind.
+  for (const { operationId } of OPERATIONS)
+    if (!handlers[operationId]) throw new Error(`No kind answers ${operationId}.`);
+  /** The sockets the kinds take, by their path. */
+  const sockets = Object.assign({}, ...options.kinds.map((kind) => kind.sockets ?? {})) as Record<
+    string,
+    NonNullable<Runtime["sockets"]>[string]
   >;
   const routes = OPERATIONS.map((operation) => ({
     operation,
@@ -247,12 +245,13 @@ export async function serve(options: ServeOptions) {
     // so it is looked up as it comes, not decoded.
     const url = URL.parse(request.url ?? "/", "http://localhost");
     const pathname = url?.pathname ?? "";
-    // A client holding a connection: with the control token, as for any control call, which a
-    // page can't send on a WebSocket.
-    if (pathname === "/v1/connection") {
+    // A socket a kind takes, as a client holding a connection: with the control token, as for
+    // any control call, which a page can't send on a WebSocket.
+    const taken = Object.hasOwn(sockets, pathname) ? sockets[pathname] : undefined;
+    if (taken && url) {
       const token = bearerOf(request);
       if (!token || !sameToken(token, control)) return refuse(401, "Unauthorized.");
-      return connections.open(request, socket, head, url?.searchParams.get("name") ?? "");
+      return taken(request, socket, head, url);
     }
     const ticket = /^\/v1\/live\/([^/]+)$/.exec(pathname)?.[1];
     if (!ticket) return refuse(404, "Not found.");
@@ -287,7 +286,7 @@ export async function serve(options: ServeOptions) {
   const stop = async () => {
     if (stopping) return;
     stopping = true;
-    connections.close();
+    for (const kind of options.kinds) kind.close?.();
     await computers.close().catch((error: unknown) => {
       process.stderr.write(`${String(error)}\n`);
     });

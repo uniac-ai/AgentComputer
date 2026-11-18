@@ -9,6 +9,16 @@ import { sendAnswer } from "@agentorg/computer-base/http";
 import type { components } from "@agentorg/computer-contract/schema";
 
 type SurfaceInfo = components["schemas"]["SurfaceInfo"];
+type Access = components["schemas"]["Access"];
+
+const READ = ["about", "read", "list", "search"];
+const FILES = [...READ, "edit"];
+/** The tools a computer's own endpoint offers, by its access. */
+export const TOOLS: Record<Exclude<Access, "none">, string[]> = {
+  read: READ,
+  files: FILES,
+  terminal: [...FILES, "exec_command", "write_stdin", "list_sessions"],
+};
 
 export const INNER_PORT = 8000;
 export const INNER_TOKEN_VARIABLE = "AGENTCOMPUTER_INNER_TOKEN";

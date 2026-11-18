@@ -3,97 +3,41 @@
 // screen's checks, the person's own browser, and the board of who acts on its files and screen.
 // `container.ts` is the other way.
 import { existsSync } from "node:fs";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
+import { VERSION } from "@agentorg/computer-base/version";
 import type { BrowserConfig } from "@agentorg/computer-browser/browser";
 import { ownBrowser } from "@agentorg/computer-browser/own-browser";
 import { channelProgram, DEFAULT_CHANNEL, playwright } from "@agentorg/computer-browser/playwright";
 import type { components } from "@agentorg/computer-contract/schema";
-import { startComputer } from "@agentorg/computer-inside/computer";
-import type { LiveMode, Surface, SurfaceInfo } from "@agentorg/computer-inside/live";
+import { TOOLS } from "@agentorg/computer-inside/client";
+import { type Computer, startComputer } from "@agentorg/computer-inside/computer";
 import { Board } from "@agentorg/computer-inside/presence";
 import {
   type DriverAt,
   findDriver,
   onlyGrantsMissing,
+  SCREEN_TOOLS,
   screenCheck,
 } from "@agentorg/computer-screen/screen";
+import { Connections } from "./connection.ts";
+import type {
+  Access,
+  Brought,
+  ComputerSpec,
+  Offer,
+  Running,
+  Runtime,
+  RuntimeEvents,
+} from "./seam.ts";
+import { Setup } from "./setup.ts";
 import type { Switch, Switches } from "./switches.ts";
 
 type Schemas = components["schemas"];
-/** What a computer that is starting waits on, and how far that has come where it counts. */
-export interface Starting {
-  reason: string;
-  progress: Schemas["Progress"] | null;
-}
-export type Access = Schemas["Access"];
-export type Isolation = Schemas["Isolation"];
-/** What a computer run one way offers, and whether one can be run that way now. */
-export type Offer = Schemas["Offer"];
-export type Endpoint = "computer" | "browser" | "screen";
 
-export interface ComputerSpec {
-  id: string;
-  /** What its agent is called, as a person is shown it. */
-  name: string;
-  access: Access;
-  /** A headless browser of its own, or the person's own. */
-  browser: boolean | "own";
-  /** Whether its agent has the machine's screen, which only this computer can. */
-  screen?: boolean | undefined;
-  /**
-   * Whether it is started again, as when the service starts or it is started after a stop, rather
-   * than made or attached: one started again keeps its terminal, files and browser where its screen
-   * can't be used now.
-   */
-  again?: boolean | undefined;
-  workspace?: string | undefined;
-  /** Its workspace and its machine as they are outside, where this is inside a container. */
-  outside?: { workspace?: string | undefined; machine?: string | undefined } | undefined;
-}
-
-export interface RuntimeEvents {
-  log(line: string): void;
-  /** It stopped working without being asked to. */
-  failed(reason: string): void;
-}
-
-export interface Running {
-  /** The tools its browser offers, read once it is up. */
-  readonly browserTools: string[];
-  /** The version of the program it runs, where the runtime says. */
-  readonly version?: string | undefined;
-  /** What it can open live. */
-  readonly surfaces: SurfaceInfo[];
-  /** Who is acting on it now, where the runtime keeps that itself. */
-  acting?(): Schemas["Acting"][];
-  handle(endpoint: Endpoint, request: IncomingMessage, response: ServerResponse): Promise<void>;
-  /** Take an upgraded request as a live socket on one surface. */
-  openLive(
-    surface: Surface,
-    mode: LiveMode,
-    request: IncomingMessage,
-    socket: Duplex,
-    head: Buffer,
-  ): Promise<void>;
-  stop(): Promise<void>;
-}
-
-export interface Runtime {
-  /** What a computer run this way offers, and whether one can be now. */
-  offer(): Promise<Offer>;
-  /** Check what it needs, before a computer is started this way, and fetch what it lacks. */
-  prepare(): Promise<void>;
-  /** What a computer starting this way is waiting on, and how far it has come where that counts. */
-  starting(): Starting;
-  /** Start one, or start it again, its private folder being `folder`. */
-  start(spec: ComputerSpec, folder: string, events: RuntimeEvents): Promise<Running>;
-  /** Stop one left going by a service that ended without stopping it, or say why not. */
-  stopLeftover(id: string): Promise<void>;
-  /** Remove what running it left behind, apart from its folder, or say why that can't be done. */
-  remove(id: string): Promise<void>;
-}
-
+/** Why a service that other machines can reach doesn't offer this computer. */
+export const NOT_HERE =
+  "This service can be reached from other machines, so it doesn't offer the machine it runs on. Make a computer in a container, or attach this computer through a service that only this machine reaches.";
 /** Whether the browser it starts is on this machine, and if it isn't, why not. */
 /** What `info` says of a browser: ready, or why not. */
 const readiness = (found: { ready: boolean; reason?: string }): Schemas["Readiness"] =>
@@ -146,6 +90,19 @@ export class ThisComputer implements Runtime {
   #checking: ReturnType<typeof screenCheck> | undefined;
   /** Who acts on this machine's files: shared by the computers attached to it. */
   readonly #machine = new Board();
+  /** Its computers running now: who acts on them is answered here. */
+  readonly #computers = new Set<Computer>();
+  /** What this machine needs set up for this computer to reach all of it, where it has switches. */
+  readonly #setup: Setup | undefined;
+  /** Who is connected, holding a connection: known once the service says how it is reached. */
+  #connections: Connections | undefined;
+  /** Why this computer isn't offered here, where it isn't. */
+  #notHere: string | undefined;
+
+  readonly isolation = "none";
+  readonly attaches = true;
+  readonly notMade =
+    "A computer with no isolation is no longer made. Attach this computer, or make a container.";
 
   constructor(
     config: BrowserConfig,
@@ -157,7 +114,73 @@ export class ThisComputer implements Runtime {
     this.#switches = switches;
     this.#config = config;
     this.#screenDriver = screenDriver;
+    this.#setup = switches && new Setup(switches, screenDriver, ownBrowserData);
     void this.#checkScreen();
+  }
+
+  reached({ onlyThisMachine, proxied }: { onlyThisMachine: boolean; proxied: boolean }) {
+    this.#notHere = onlyThisMachine ? undefined : NOT_HERE;
+    // Behind a proxy every client comes from it, so where one connects from tells nothing.
+    this.#connections = new Connections(proxied);
+  }
+
+  refused() {
+    return this.#notHere;
+  }
+
+  tools({ access }: { access: Access }) {
+    return { computer: access === "none" ? [] : TOOLS[access], screen: SCREEN_TOOLS };
+  }
+
+  /** The operations this machine answers: its setup, who is connected, and who is acting. */
+  get operations(): Brought {
+    const setup = this.#setup;
+    return {
+      ...(setup && {
+        getSetup: () => setup.capabilities(),
+        setSetup: ({ capability, on }) => setup.set(capability, on),
+        askSetup: ({ capability, need }) => setup.ask(capability, need),
+        openSetupSettings: ({ capability, need }) => setup.settings(capability, need),
+      }),
+      getConnection: async () => (this.#connections as Connections).state(),
+      getActing: async () => this.#acting(),
+    };
+  }
+
+  /** A client holding a connection, as long as it holds it. */
+  readonly sockets = {
+    "/v1/connection": (request: IncomingMessage, socket: Duplex, head: Buffer, url: URL) =>
+      (this.#connections as Connections).open(
+        request,
+        socket,
+        head,
+        url.searchParams.get("name") ?? "",
+      ),
+  };
+
+  close() {
+    this.#connections?.close();
+  }
+
+  /**
+   * Who is acting now on every computer attached to this machine, the most recent first. Their
+   * files and screen are one board, which each of them lists: those are listed once. A
+   * computer's terminals and browser are its own, so theirs are listed as each has them.
+   */
+  #acting(): Schemas["Acting"][] {
+    const shared = new Map<string, Schemas["Acting"]>();
+    const own: Schemas["Acting"][] = [];
+    for (const computer of this.#computers)
+      for (const one of computer.acting()) {
+        if (one.capability !== "files" && one.capability !== "screen") {
+          own.push(one);
+          continue;
+        }
+        const key = JSON.stringify([one.who, one.name, one.capability]);
+        const known = shared.get(key);
+        if (!known || known.at < one.at) shared.set(key, one);
+      }
+    return [...shared.values(), ...own].sort((a, b) => b.at.localeCompare(a.at));
   }
 
   #checkScreen() {
@@ -231,7 +254,7 @@ export class ThisComputer implements Runtime {
       this.#switches?.refused("screen") ? { ready: false } : this.#screenNow(),
       ownBrowser(this.#ownBrowserData),
     ]);
-    return {
+    const offered: Offer = {
       ready: true,
       capabilities: [
         { capability: "about", ready: true },
@@ -245,6 +268,7 @@ export class ThisComputer implements Runtime {
         { kind: "own" as const, ...unless("browser", readiness(own)) },
       ],
     };
+    return this.#notHere ? { ...offered, ready: false, reason: this.#notHere } : offered;
   }
 
   async prepare() {}
@@ -258,7 +282,7 @@ export class ThisComputer implements Runtime {
   async remove() {}
 
   async start(spec: ComputerSpec, folder: string, events: RuntimeEvents): Promise<Running> {
-    return startComputer(
+    const computer = await startComputer(
       spec,
       folder,
       events,
@@ -285,5 +309,23 @@ export class ThisComputer implements Runtime {
         },
       },
     );
+    this.#computers.add(computer);
+    return {
+      // It runs this service's own program.
+      version: VERSION,
+      get browserTools() {
+        return computer.browserTools;
+      },
+      get surfaces() {
+        return computer.surfaces;
+      },
+      handle: (endpoint, request, response) => computer.handle(endpoint, request, response),
+      openLive: (surface, mode, request, socket, head) =>
+        computer.openLive(surface, mode, request, socket, head),
+      stop: async () => {
+        this.#computers.delete(computer);
+        await computer.stop();
+      },
+    };
   }
 }

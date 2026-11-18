@@ -13,7 +13,6 @@ import { ContainerRuntime } from "./container.ts";
 import { down, recorded, running, up } from "./running.ts";
 import { ThisComputer } from "./runtime.ts";
 import { serve } from "./service.ts";
-import { Setup } from "./setup.ts";
 import { Switches } from "./switches.ts";
 
 /** How this program is run: Node and its file. The browser runs it as its host and its MCP server. */
@@ -194,19 +193,17 @@ async function main() {
       tlsProxy: values["tls-proxy"],
       publicUrl: values["public-url"],
       allowOrigins: values["allow-origin"],
-      setup: new Setup(switches, screenDriver, values["own-browser-data"]),
-      runtimes: {
-        none: new ThisComputer(
+      kinds: [
+        // This computer, which holds what this machine needs set up for it to reach all of it.
+        new ThisComputer(
           { browser: values["browser-name"], path: values["browser-path"], program: PROGRAM },
           screenDriver,
           values["own-browser-data"],
           switches,
         ),
         // Lending this machine only, it makes no computers.
-        ...(values.lend
-          ? {}
-          : { container: new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`) }),
-      },
+        ...(values.lend ? [] : [new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`)]),
+      ],
     });
   }
   // Started by the service for each browser, not for a person to run.

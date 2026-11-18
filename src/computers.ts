@@ -24,23 +24,14 @@ import {
   sameToken,
   writePrivate,
 } from "@agentorg/computer-base/store";
-import { VERSION } from "@agentorg/computer-base/version";
 import type { components } from "@agentorg/computer-contract/schema";
-import { SCREEN_TOOLS } from "@agentorg/computer-screen/screen";
-import type { Endpoint, Isolation, Running, Runtime } from "./runtime.ts";
+import type { Endpoint, Isolation, Running, Runtime } from "./seam.ts";
 
 type Schemas = components["schemas"];
 type Surface = Schemas["Surface"];
 type LiveMode = Schemas["LiveMode"];
 type Access = Schemas["Access"];
 type ComputerState = Schemas["ComputerState"];
-const READ = ["about", "read", "list", "search"];
-const FILES = [...READ, "edit"];
-const TOOLS: Record<Exclude<Access, "none">, string[]> = {
-  read: READ,
-  files: FILES,
-  terminal: [...FILES, "exec_command", "write_stdin", "list_sessions"],
-};
 const MAX_LOG = 256 * 1024;
 /** The longest a timer can wait; past this a computer simply doesn't expire. */
 const MAX_TIMER_S = 2_000_000;
@@ -140,50 +131,49 @@ const refusalOf = (error: unknown) =>
 export class Computers {
   readonly #data: string;
   readonly #base: () => string;
-  /** This computer's way of running, as `none`, and each way of making one, where it makes any. */
-  readonly #runtimes: { none: Runtime } & Partial<Record<Isolation, Runtime>>;
-  /** Why this computer isn't offered here, where it isn't. */
-  readonly #notHere: string | undefined;
+  /** The kinds of computer it keeps: the one attached, and those it makes, where it makes any. */
+  readonly #kinds: Runtime[];
+  /** Those made with no isolation, before that was dropped, which can't start again. */
+  readonly #retired = new Set<string>();
   readonly #stored = new Map<string, Stored>();
   readonly #live = new Map<string, Live>();
   readonly #tickets = new Map<string, Ticket>();
   readonly #file: string;
 
-  constructor(
-    data: string,
-    base: () => string,
-    runtimes: { none: Runtime } & Partial<Record<Isolation, Runtime>>,
-    notHere?: string,
-  ) {
+  constructor(data: string, base: () => string, kinds: Runtime[]) {
     this.#data = data;
     this.#base = base;
-    this.#runtimes = runtimes;
-    this.#notHere = notHere;
+    this.#kinds = kinds;
     this.#file = join(data, "computers.json");
     if (existsSync(this.#file))
       // One recorded by 0.0.14 or earlier, which kept no isolation, is taken as made with none,
-      // the default then. The README says how to bring over one made in a container then.
-      for (const entry of JSON.parse(readFileSync(this.#file, "utf8")) as Stored[])
-        this.#stored.set(entry.id, { ...entry, isolation: entry.isolation ?? "none" });
+      // the default then. The README says how to bring over one made in a container then. One
+      // made with none and not attached was made before that was dropped: it is retired, its
+      // workspace all that is left of it. This is the one place a kind's name is read here, and
+      // it reads an old record, not a kind.
+      for (const entry of JSON.parse(readFileSync(this.#file, "utf8")) as Stored[]) {
+        const isolation = entry.isolation ?? "none";
+        this.#stored.set(entry.id, { ...entry, isolation });
+        if (isolation === "none" && !entry.attached) this.#retired.add(entry.id);
+      }
+  }
+
+  /** The kind its computer is this machine, attached. */
+  #attached(): Runtime {
+    return this.#kinds.find((kind) => kind.attaches) as Runtime;
   }
 
   /** What it offers: this computer, and each kind it makes, with whether it can be now. */
   async offers() {
     // Read together, so that what each waits for, such as Docker or the screen, doesn't add up.
-    const [offered, made] = await Promise.all([
-      this.#runtimes.none.offer(),
+    const [thisComputer, made] = await Promise.all([
+      this.#attached().offer(),
       Promise.all(
-        (Object.keys(this.#runtimes) as Isolation[])
-          .filter((isolation) => isolation !== "none")
-          .map(async (isolation) => ({
-            isolation,
-            ...(await this.#runtime(isolation).offer()),
-          })),
+        this.#kinds
+          .filter((kind) => !kind.attaches)
+          .map(async (kind) => ({ isolation: kind.isolation, ...(await kind.offer()) })),
       ),
     ]);
-    const thisComputer = this.#notHere
-      ? { ...offered, ready: false, reason: this.#notHere }
-      : offered;
     return { thisComputer, made };
   }
 
@@ -197,7 +187,7 @@ export class Computers {
       if (stored.endAt && Date.parse(stored.endAt) <= Date.now()) {
         stored.state = "stopped";
         await Promise.resolve()
-          .then(() => this.#runtime(stored.isolation).stopLeftover(stored.id))
+          .then(() => this.#kind(stored.isolation).stopLeftover(stored.id))
           .catch((error: unknown) =>
             this.#log(stored.id, `What it left running wasn't stopped: ${messageOf(error)}`),
           );
@@ -220,47 +210,27 @@ export class Computers {
   }
 
   async create(input: Schemas["NewComputer"]): Promise<Schemas["CreatedComputer"]> {
-    if (input.isolation === "none")
-      throw new ApiError(
-        400,
-        "A computer with no isolation is no longer made. Attach this computer, or make a container.",
-      );
-    const isolation = input.isolation ?? "container";
-    if (!this.#runtimes[isolation]) throw new ApiError(409, LENDS_ONLY);
-    return this.#make(input, isolation);
+    // The kind named, or the one that makes: while one kind makes, it is the default. When a
+    // second does, which is the default is a question to decide, not an order in this list.
+    const kind =
+      input.isolation === undefined
+        ? this.#kinds.find((one) => !one.attaches)
+        : this.#kinds.find((one) => one.isolation === input.isolation);
+    if (kind?.attaches) throw new ApiError(400, kind.notMade as string);
+    if (!kind) throw new ApiError(409, LENDS_ONLY);
+    return this.#make(input, kind);
   }
 
-  /** The way of running one made so, or why a service that only lends can't, for one made before. */
-  #runtime(isolation: Isolation): Runtime {
-    const runtime = this.#runtimes[isolation];
-    if (!runtime) throw new ApiError(409, MADE_ELSEWHERE);
-    return runtime;
-  }
-
-  /**
-   * Who is acting now on every computer attached to this machine, the most recent first. Their
-   * files and screen are one board, which each of them lists: those are listed once. A
-   * computer's terminals and browser are its own, so theirs are listed as each has them.
-   */
-  acting(): Schemas["Acting"][] {
-    const shared = new Map<string, Schemas["Acting"]>();
-    const own: Schemas["Acting"][] = [];
-    for (const live of this.#live.values())
-      for (const one of live.running?.acting?.() ?? []) {
-        if (one.capability !== "files" && one.capability !== "screen") {
-          own.push(one);
-          continue;
-        }
-        const key = JSON.stringify([one.who, one.name, one.capability]);
-        const known = shared.get(key);
-        if (!known || known.at < one.at) shared.set(key, one);
-      }
-    return [...shared.values(), ...own].sort((a, b) => b.at.localeCompare(a.at));
+  /** The kind one was made as, or why a service that only lends can't run it, for one made before. */
+  #kind(isolation: Isolation): Runtime {
+    const kind = this.#kinds.find((one) => one.isolation === isolation);
+    if (!kind) throw new ApiError(409, MADE_ELSEWHERE);
+    return kind;
   }
 
   /** This computer, attached with its work folder. Nothing is made for it. */
   attach(input: Schemas["AttachComputer"]): Promise<Schemas["CreatedComputer"]> {
-    return this.#make(input, "none");
+    return this.#make(input, this.#attached());
   }
 
   async #make(
@@ -268,7 +238,7 @@ export class Computers {
       Pick<Schemas["AttachComputer"], "browser"> & {
         screen?: boolean;
       },
-    isolation: Isolation,
+    kind: Runtime,
   ): Promise<Schemas["CreatedComputer"]> {
     const { access, name, timeout, metadata } = input;
     const browser = input.browser ?? false;
@@ -297,8 +267,8 @@ export class Computers {
       id,
       name: name ?? id,
       access,
-      isolation,
-      ...(isolation === "none" ? { attached: true } : {}),
+      isolation: kind.isolation,
+      ...(kind.attaches ? { attached: true } : {}),
       browser,
       ...(input.screen ? { screen: true } : {}),
       ...(workspace ? { workspace } : {}),
@@ -338,7 +308,7 @@ export class Computers {
       this.#stored.delete(id);
       this.#save();
       await Promise.resolve()
-        .then(() => this.#runtime(stored.isolation).remove(id))
+        .then(() => this.#kind(stored.isolation).remove(id))
         .catch(() => {});
       try {
         removeFolder(this.#folder(id));
@@ -361,6 +331,10 @@ export class Computers {
   get(id: string): Schemas["ComputerDetail"] {
     const stored = this.#found(id);
     const live = this.#live.get(id);
+    // One made elsewhere, by a kind not here, offers what every kind's inside does alike.
+    const tools = (
+      this.#kinds.find((kind) => kind.isolation === stored.isolation) ?? this.#attached()
+    ).tools({ access: stored.access });
     return {
       ...this.#describe(stored),
       uptimeSeconds:
@@ -368,9 +342,9 @@ export class Computers {
           ? Math.round((Date.now() - Date.parse(stored.startedAt)) / 1000)
           : 0,
       tools: {
-        computer: stored.access === "none" ? [] : TOOLS[stored.access],
+        computer: tools.computer,
         browser: live?.running?.browserTools ?? [],
-        screen: stored.screen && live?.running ? SCREEN_TOOLS : [],
+        screen: stored.screen && live?.running ? tools.screen : [],
       },
       surfaces: live?.running?.surfaces ?? [],
     };
@@ -427,7 +401,7 @@ export class Computers {
     const stored = this.#found(id);
     await this.#halt(id);
     try {
-      await this.#runtime(stored.isolation).remove(id);
+      await this.#kind(stored.isolation).remove(id);
     } catch (error) {
       // What it left can't be removed now. It stays, stopped, to be killed when that can be done.
       stored.state = "stopped";
@@ -440,7 +414,7 @@ export class Computers {
     // made with no isolation can't start again, so its workspace is all that is left of it: that
     // stays, to be attached or made a container's.
     const folder = this.#folder(id);
-    if (stored.isolation === "none" && !stored.attached && existsSync(join(folder, "workspace")))
+    if (this.#retired.has(id) && existsSync(join(folder, "workspace")))
       for (const entry of readdirSync(folder)) {
         if (entry !== "workspace") removeFolder(join(folder, entry));
       }
@@ -570,7 +544,7 @@ export class Computers {
     const failed = stored.state === "running" ? live?.failed : undefined;
     const starting =
       stored.state === "running" && !failed && live?.starting
-        ? this.#runtime(stored.isolation).starting()
+        ? this.#kind(stored.isolation).starting()
         : undefined;
     return {
       computerID: stored.id,
@@ -604,12 +578,12 @@ export class Computers {
     this.#live.set(stored.id, live);
     const stopped = () => this.#live.get(stored.id) !== live;
     const STOPPED = "It was stopped while it was starting.";
-    if (stored.isolation === "none" && !stored.attached)
-      throw new ApiError(409, noLongerMade(stored));
-    if (stored.attached && this.#notHere) throw new ApiError(409, this.#notHere);
+    if (this.#retired.has(stored.id)) throw new ApiError(409, noLongerMade(stored));
+    const refused = this.#kinds.find((kind) => kind.isolation === stored.isolation)?.refused?.();
+    if (refused) throw new ApiError(409, refused);
     stored.startedAt = new Date().toISOString();
     // In the isolation it was made in, and never another.
-    const runtime = this.#runtime(stored.isolation);
+    const runtime = this.#kind(stored.isolation);
     live.starting = true;
     try {
       await runtime.prepare();
@@ -642,8 +616,9 @@ export class Computers {
       if (!this.#stored.has(stored.id)) await runtime.remove(stored.id).catch(() => {});
       throw new ApiError(409, STOPPED);
     }
-    // This computer runs this service's program; a container, its image's, if it says.
-    const version = stored.isolation === "none" ? VERSION : live.running.version;
+    // The program it runs, as its kind says: this computer's is this service's, a container's its
+    // image's, where that says.
+    const version = live.running.version;
     if (version) stored.version = version;
     else delete stored.version;
     this.#arm(stored);
