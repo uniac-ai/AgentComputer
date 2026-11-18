@@ -1,6 +1,6 @@
 {
   "name": "@agentorg/computer-sdk",
-  "version": "0.0.32",
+  "version": "0.0.33",
   "description": "AgentComputer's TypeScript client: make, attach and use computers for agents",
   "license": "Apache-2.0",
   "repository": {
