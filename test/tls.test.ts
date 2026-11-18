@@ -11,7 +11,8 @@ import { createInterface } from "node:readline";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { NOT_HERE, onlyThisMachine } from "../src/service.ts";
+import { NOT_HERE } from "../src/runtime.ts";
+import { onlyThisMachine } from "../src/service.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = join(here, "..", "..", "dist", "agentcomputer.js");
