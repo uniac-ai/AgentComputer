@@ -117,6 +117,25 @@ async function versionOf(program: string) {
 }
 
 /**
+ * Whether all the screen lacks is macOS's grants: the driver runs, at a version this works with,
+ * and its grants were read, one of them not given. A computer attached with its screen then
+ * starts, as one started again does, its screen's tools saying which grants are missing and
+ * working once they are given; anything else that keeps the screen from being used refuses it.
+ */
+export function onlyGrantsMissing({
+  readiness,
+  driver,
+  grants,
+}: Awaited<ReturnType<typeof screenCheck>>): boolean {
+  return (
+    !readiness.ready &&
+    driver !== undefined &&
+    typeof grants?.accessibility === "boolean" &&
+    typeof grants.screen_recording === "boolean"
+  );
+}
+
+/**
  * The one place that decides whether the screen can be reached here through Cua Driver: its
  * readiness, saying what to do where it isn't, the driver found, and on macOS the two grants as
  * the driver read them.

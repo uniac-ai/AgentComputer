@@ -18,7 +18,7 @@ import { LoadLive } from "./load-live.ts";
 import { ownBrowser } from "./own-browser.ts";
 import { channelProgram, DEFAULT_CHANNEL, playwright } from "./playwright.ts";
 import { Board, Presence } from "./presence.ts";
-import { type DriverAt, findDriver, Screen, screenCheck } from "./screen.ts";
+import { type DriverAt, findDriver, onlyGrantsMissing, Screen, screenCheck } from "./screen.ts";
 import { ScreenLive } from "./screen-live.ts";
 import { privateFolder } from "./store.ts";
 import type { Switch, Switches } from "./switches.ts";
@@ -440,13 +440,15 @@ export class ProcessRuntime implements Runtime {
     let screenLive: ScreenLive | undefined;
     if (spec.screen) {
       // Asked afresh, not as last seen: a new one rests on it.
-      const { readiness: ready, driver } = await this.#checkScreen();
+      const checked = await this.#checkScreen();
+      const { readiness: ready, driver } = checked;
+      const off = this.#switches?.refused("screen");
       const why =
-        this.#switches?.refused("screen") ??
-        (ready.ready && driver ? undefined : (ready.reason ?? "The screen isn't ready."));
+        off ?? (ready.ready && driver ? undefined : (ready.reason ?? "The screen isn't ready."));
       // One started again keeps its terminal, files and browser: its screen's tools say why
-      // they can't be used, and work once the screen can be, with no restart.
-      if (why && !spec.again) {
+      // they can't be used, and work once the screen can be, with no restart. So does a new one
+      // whose screen lacks only macOS's grants, which the person gives from the app's setup.
+      if (why && !spec.again && (off !== undefined || !onlyGrantsMissing(checked))) {
         await Promise.all([exec?.close(), browser?.stop()]);
         throw new ApiError(409, why);
       }

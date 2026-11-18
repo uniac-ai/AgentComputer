@@ -184,7 +184,7 @@ test("started again with the screen switched off, it keeps its terminal and file
   assert.equal(restarted.state, "running");
 });
 
-test("started again with its screen not ready, it keeps its terminal, and its screen works once ready; a new attach is refused meanwhile", async (t) => {
+test("started again with its screen not ready, it keeps its terminal, and its screen works once ready; a new attach starts only where grants alone are missing", async (t) => {
   const { driver, again, info, unavailable, service, Computer, folder, until } = await setup(t);
   // On macOS a grant is missing; elsewhere, where there are none, the driver is gone.
   const away = join(folder, "away");
@@ -204,13 +204,29 @@ test("started again with its screen not ready, it keeps its terminal, and its sc
   const refused = await screen.call("see");
   assert.equal(refused.refused, true);
   assert.match(refused.text, why);
-  // Attaching another with the screen is refused, as before.
+  // Attaching another with the screen: on a Mac, where only a grant is missing, it starts as one
+  // started again does, its screen's tools saying why; with the driver gone, it is refused.
   const elsewhere = join(folder, "elsewhere");
   mkdirSync(elsewhere);
-  await assert.rejects(
-    Computer.attach({ ...service().to, access: "read", workspace: elsewhere, screen: true }),
-    (error: Error & { code: number }) => error.code === 409 && why.test(error.message),
-  );
+  const attaching = Computer.attach({
+    ...service().to,
+    access: "read",
+    workspace: elsewhere,
+    screen: true,
+  });
+  if (mac) {
+    const other = await attaching;
+    const made = await other.getInfo();
+    assert.deepEqual(
+      [made.state, made.screen, made.tools.screen.sort()],
+      ["running", true, ["act", "apps", "see"]],
+    );
+    await other.kill();
+  } else
+    await assert.rejects(
+      attaching,
+      (error: Error & { code: number }) => error.code === 409 && why.test(error.message),
+    );
   // Ready, the surface says so without an agent's call, and the next call works, with no restart.
   ready();
   await until(async () => (await unavailable()) === undefined);
