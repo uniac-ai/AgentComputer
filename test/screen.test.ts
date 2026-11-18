@@ -34,9 +34,9 @@ import {
   unpathed,
 } from "@agentorg/computer-screen/screen";
 import { personCall, ScreenLive } from "@agentorg/computer-screen/screen-live";
+import { ThisComputer } from "@agentorg/computer-this-computer/this-computer";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { WebSocket } from "ws";
-import { ThisComputer } from "../src/runtime.ts";
 
 type Sdk = typeof import("@agentorg/computer-sdk");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");

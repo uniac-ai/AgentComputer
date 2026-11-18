@@ -1,0 +1,38 @@
+{
+  "name": "@agentorg/computer-provider",
+  "version": "0.0.0",
+  "private": true,
+  "description": "What makes and keeps computers: their records, tokens and timeouts, the contract served, and the seam the kinds of computer meet it at",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./computers": {
+      "agentcomputer-source": "./src/computers.ts",
+      "types": "./dist/computers.d.ts",
+      "default": "./dist/computers.js"
+    },
+    "./handlers": {
+      "agentcomputer-source": "./src/handlers.ts",
+      "types": "./dist/handlers.d.ts",
+      "default": "./dist/handlers.js"
+    },
+    "./running": {
+      "agentcomputer-source": "./src/running.ts",
+      "types": "./dist/running.d.ts",
+      "default": "./dist/running.js"
+    },
+    "./seam": {
+      "agentcomputer-source": "./src/seam.ts",
+      "types": "./dist/seam.d.ts",
+      "default": "./dist/seam.js"
+    },
+    "./service": {
+      "agentcomputer-source": "./src/service.ts",
+      "types": "./dist/service.d.ts",
+      "default": "./dist/service.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

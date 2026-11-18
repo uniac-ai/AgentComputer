@@ -23,9 +23,9 @@ import { createInterface } from "node:readline";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { ownBrowser } from "@agentorg/computer-browser/own-browser";
+import { type Machine, Setup } from "@agentorg/computer-this-computer/setup";
+import { Switches } from "@agentorg/computer-this-computer/switches";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { type Machine, Setup } from "../src/setup.ts";
-import { Switches } from "../src/switches.ts";
 
 type Sdk = typeof import("@agentorg/computer-sdk");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
