@@ -68,6 +68,27 @@ jobs:
       - name: Build and test
         run: npm test --workspace @agentorg/exec
 
+  # The Mac app's side that runs anywhere: its assembly's, brand and version tests, over stand-ins,
+  # and its window's page, built and driven in a browser. Its Rust and its bundle are the Mac job's.
+  mac-app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Install the headless browser for the page's tests
+        run: npx playwright install --only-shell chromium
+      - name: The app's tests
+        run: npm test --workspace @agentorg/mac
+      - name: The window's page, built and tested
+        run: |
+          npm run build --workspace @agentorg/mac-window
+          npm test --workspace @agentorg/mac-window
+
   # The browser host on macOS, where a user's temporary folder is long enough to matter.
   macos:
     runs-on: macos-latest

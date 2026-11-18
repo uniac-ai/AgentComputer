@@ -1,3 +1,5 @@
 node_modules
 dist
 out
+packages/mac/src-tauri/target/
+packages/mac/src-tauri/gen/

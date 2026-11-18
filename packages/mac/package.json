@@ -1,0 +1,15 @@
+{
+  "name": "@agentorg/mac",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Mac app that lends a Mac, under the brand in brand.json: its window, showing the page from @agentorg/mac-window, and its seam to the service on this Mac.",
+  "license": "MIT",
+  "scripts": {
+    "app": "npm run build --prefix ../.. && node scripts/assemble.mjs && tauri build --bundles app",
+    "dev": "tauri dev",
+    "test": "node --test \"test/**/*.test.mjs\""
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4"
+  }
+}
