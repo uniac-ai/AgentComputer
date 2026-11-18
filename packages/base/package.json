@@ -11,6 +11,11 @@
       "types": "./dist/error.d.ts",
       "default": "./dist/error.js"
     },
+    "./http": {
+      "agentcomputer-source": "./src/http.ts",
+      "types": "./dist/http.d.ts",
+      "default": "./dist/http.js"
+    },
     "./store": {
       "agentcomputer-source": "./src/store.ts",
       "types": "./dist/store.d.ts",
@@ -20,6 +25,11 @@
       "agentcomputer-source": "./src/text.ts",
       "types": "./dist/text.d.ts",
       "default": "./dist/text.js"
+    },
+    "./version": {
+      "agentcomputer-source": "./src/version.ts",
+      "types": "./dist/version.d.ts",
+      "default": "./dist/version.js"
     }
   },
   "scripts": {

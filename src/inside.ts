@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { Duplex } from "node:stream";
 import { ApiError } from "@agentorg/computer-base/error";
 import { digestOf, privateFolder, sameToken } from "@agentorg/computer-base/store";
-import { VERSION } from "./handlers.ts";
+import { VERSION } from "@agentorg/computer-base/version";
 import { PROTOCOLS, type Surface } from "./live.ts";
 import { type Access, ProcessRuntime } from "./runtime.ts";
 

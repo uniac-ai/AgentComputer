@@ -8,14 +8,9 @@ import { hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import { ApiError } from "@agentorg/computer-base/error";
+import { readRequest, refuseBody, refuseCall } from "@agentorg/computer-base/http";
 import { privateFolder } from "@agentorg/computer-base/store";
-import {
-  Browser,
-  type BrowserConfig,
-  readRequest,
-  refuseBody,
-  refuseCall,
-} from "@agentorg/computer-browser/browser";
+import { Browser, type BrowserConfig } from "@agentorg/computer-browser/browser";
 import { BrowserLive } from "@agentorg/computer-browser/browser-live";
 import { ownBrowser } from "@agentorg/computer-browser/own-browser";
 import { channelProgram, DEFAULT_CHANNEL, playwright } from "@agentorg/computer-browser/playwright";
