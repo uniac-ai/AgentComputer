@@ -15,6 +15,16 @@ import { BrowserLive } from "@agentorg/computer-browser/browser-live";
 import { ownBrowser } from "@agentorg/computer-browser/own-browser";
 import { channelProgram, DEFAULT_CHANNEL, playwright } from "@agentorg/computer-browser/playwright";
 import type { components } from "@agentorg/computer-contract/schema";
+import { aboutTool } from "@agentorg/computer-inside/about";
+import { FilesLive } from "@agentorg/computer-inside/files-live";
+import {
+  Live,
+  type LiveMode,
+  type Surface,
+  type SurfaceInfo,
+} from "@agentorg/computer-inside/live";
+import { LoadLive } from "@agentorg/computer-inside/load-live";
+import { Board, Presence } from "@agentorg/computer-inside/presence";
 import {
   type DriverAt,
   findDriver,
@@ -24,11 +34,6 @@ import {
 } from "@agentorg/computer-screen/screen";
 import { ScreenLive } from "@agentorg/computer-screen/screen-live";
 import { type AgentExec, createAgentExec, type PtySpawn } from "@agentorg/exec";
-import { aboutTool } from "./about.ts";
-import { FilesLive } from "./files-live.ts";
-import { Live, type LiveMode, type Surface, type SurfaceInfo } from "./live.ts";
-import { LoadLive } from "./load-live.ts";
-import { Board, Presence } from "./presence.ts";
 import type { Switch, Switches } from "./switches.ts";
 
 type Schemas = components["schemas"];

@@ -43,6 +43,13 @@ const MAY: Record<string, string[]> = {
   "@agentorg/computer-sdk": ["@agentorg/computer-contract", "@agentorg/computer-base"],
   "@agentorg/computer-browser": ["@agentorg/computer-contract", "@agentorg/computer-base"],
   "@agentorg/computer-screen": ["@agentorg/computer-contract", "@agentorg/computer-base"],
+  "@agentorg/computer-inside": [
+    "@agentorg/exec",
+    "@agentorg/computer-browser",
+    "@agentorg/computer-screen",
+    "@agentorg/computer-contract",
+    "@agentorg/computer-base",
+  ],
 };
 
 /** Every source file below `folder`. */

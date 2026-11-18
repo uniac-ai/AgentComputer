@@ -7,7 +7,7 @@ import type { Duplex } from "node:stream";
 import { ApiError } from "@agentorg/computer-base/error";
 import { digestOf, privateFolder, sameToken } from "@agentorg/computer-base/store";
 import { VERSION } from "@agentorg/computer-base/version";
-import { PROTOCOLS, type Surface } from "./live.ts";
+import { PROTOCOLS, type Surface } from "@agentorg/computer-inside/live";
 import { type Access, ProcessRuntime } from "./runtime.ts";
 
 export const INNER_PORT = 8000;

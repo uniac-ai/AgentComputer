@@ -286,7 +286,7 @@ test("two computers attached to this computer each see the other on its files", 
 test("acting now lasts 10 s, and each start and stop is heard", async (t) => {
   // The clock is the test's: it moves only by tick, from 0.
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
-  const { Presence } = await import("../src/presence.ts");
+  const { Presence } = await import("@agentorg/computer-inside/presence");
   const presence = new Presence("c_scout", "Scout");
   let changes = 0;
   presence.onChange(() => changes++);
@@ -329,7 +329,7 @@ test("acting now lasts 10 s, and each start and stop is heard", async (t) => {
 test("an agent's command is acting on its terminal until it ends, and 10 s after", async (t) => {
   // The clock is the test's: it moves only by tick, from 0.
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
-  const { Presence } = await import("../src/presence.ts");
+  const { Presence } = await import("@agentorg/computer-inside/presence");
   const presence = new Presence("c_scout", "Scout");
   let changes = 0;
   presence.onChange(() => changes++);
@@ -368,7 +368,7 @@ test("an agent's command is acting on its terminal until it ends, and 10 s after
 /** Two computers attached to one machine, on a clock that moves only by tick, from 0. */
 async function twoOnOneMachine(t: test.TestContext) {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
-  const { Board, Presence } = await import("../src/presence.ts");
+  const { Board, Presence } = await import("@agentorg/computer-inside/presence");
   const machine = new Board();
   const scout = new Presence("c_1", "Scout", machine);
   const helper = new Presence("c_2", "Helper", machine);

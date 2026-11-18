@@ -1,0 +1,38 @@
+{
+  "name": "@agentorg/computer-inside",
+  "version": "0.0.0",
+  "private": true,
+  "description": "What runs where a computer is: its parts put together, and its live views",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./about": {
+      "agentcomputer-source": "./src/about.ts",
+      "types": "./dist/about.d.ts",
+      "default": "./dist/about.js"
+    },
+    "./files-live": {
+      "agentcomputer-source": "./src/files-live.ts",
+      "types": "./dist/files-live.d.ts",
+      "default": "./dist/files-live.js"
+    },
+    "./live": {
+      "agentcomputer-source": "./src/live.ts",
+      "types": "./dist/live.d.ts",
+      "default": "./dist/live.js"
+    },
+    "./load-live": {
+      "agentcomputer-source": "./src/load-live.ts",
+      "types": "./dist/load-live.d.ts",
+      "default": "./dist/load-live.js"
+    },
+    "./presence": {
+      "agentcomputer-source": "./src/presence.ts",
+      "types": "./dist/presence.d.ts",
+      "default": "./dist/presence.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}
