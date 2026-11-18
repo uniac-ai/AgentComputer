@@ -1,7 +1,7 @@
 // A screenshot too large to pass on is refused in its answer, however the answer was sent.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changed, withoutLarge } from "../src/browser.ts";
+import { changed, withoutLarge } from "@agentorg/computer-browser/browser";
 
 const MOST = 3 * 1024 * 1024;
 const answerOf = (bytes: number) =>

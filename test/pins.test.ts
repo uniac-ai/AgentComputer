@@ -11,9 +11,9 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { socketFetch } from "@agentorg/computer-browser/browser";
+import { channelProgram } from "@agentorg/computer-browser/playwright";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { socketFetch } from "../src/browser.ts";
-import { channelProgram } from "../src/playwright.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const require = createRequire(join(root, "package.json"));

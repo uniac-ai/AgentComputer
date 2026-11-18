@@ -9,16 +9,22 @@ import { basename, dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import { ApiError } from "@agentorg/computer-base/error";
 import { privateFolder } from "@agentorg/computer-base/store";
+import {
+  Browser,
+  type BrowserConfig,
+  readRequest,
+  refuseBody,
+  refuseCall,
+} from "@agentorg/computer-browser/browser";
+import { BrowserLive } from "@agentorg/computer-browser/browser-live";
+import { ownBrowser } from "@agentorg/computer-browser/own-browser";
+import { channelProgram, DEFAULT_CHANNEL, playwright } from "@agentorg/computer-browser/playwright";
 import type { components } from "@agentorg/computer-contract/schema";
 import { type AgentExec, createAgentExec, type PtySpawn } from "@agentorg/exec";
 import { aboutTool } from "./about.ts";
-import { Browser, type BrowserConfig, readRequest, refuseBody, refuseCall } from "./browser.ts";
-import { BrowserLive } from "./browser-live.ts";
 import { FilesLive } from "./files-live.ts";
 import { Live, type LiveMode, type Surface, type SurfaceInfo } from "./live.ts";
 import { LoadLive } from "./load-live.ts";
-import { ownBrowser } from "./own-browser.ts";
-import { channelProgram, DEFAULT_CHANNEL, playwright } from "./playwright.ts";
 import { Board, Presence } from "./presence.ts";
 import { type DriverAt, findDriver, onlyGrantsMissing, Screen, screenCheck } from "./screen.ts";
 import { ScreenLive } from "./screen-live.ts";

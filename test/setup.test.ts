@@ -22,8 +22,8 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { ownBrowser } from "@agentorg/computer-browser/own-browser";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { ownBrowser } from "../src/own-browser.ts";
 import { type Machine, Setup } from "../src/setup.ts";
 import { Switches } from "../src/switches.ts";
 

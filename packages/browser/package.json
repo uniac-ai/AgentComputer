@@ -1,0 +1,48 @@
+{
+  "name": "@agentorg/computer-browser",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A computer's browser: a headless one of its own, or the person's own, with its live view",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./browser": {
+      "agentcomputer-source": "./src/browser.ts",
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./browser-host": {
+      "agentcomputer-source": "./src/browser-host.ts",
+      "types": "./dist/browser-host.d.ts",
+      "default": "./dist/browser-host.js"
+    },
+    "./browser-live": {
+      "agentcomputer-source": "./src/browser-live.ts",
+      "types": "./dist/browser-live.d.ts",
+      "default": "./dist/browser-live.js"
+    },
+    "./browser-mcp": {
+      "agentcomputer-source": "./src/browser-mcp.ts",
+      "types": "./dist/browser-mcp.d.ts",
+      "default": "./dist/browser-mcp.js"
+    },
+    "./own-browser": {
+      "agentcomputer-source": "./src/own-browser.ts",
+      "types": "./dist/own-browser.d.ts",
+      "default": "./dist/own-browser.js"
+    },
+    "./playwright": {
+      "agentcomputer-source": "./src/playwright.ts",
+      "types": "./dist/playwright.d.ts",
+      "default": "./dist/playwright.js"
+    },
+    "./screencast": {
+      "agentcomputer-source": "./src/screencast.ts",
+      "types": "./dist/screencast.d.ts",
+      "default": "./dist/screencast.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

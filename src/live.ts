@@ -5,10 +5,10 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { pieces } from "@agentorg/computer-base/text";
+import type { BrowserLive } from "@agentorg/computer-browser/browser-live";
 import type { components } from "@agentorg/computer-contract/schema";
 import type { AgentExec, CommandEvent } from "@agentorg/exec";
 import { type WebSocket, WebSocketServer } from "ws";
-import type { BrowserLive } from "./browser-live.ts";
 import { type FilesLive, MAX_PART, reason } from "./files-live.ts";
 import type { LoadLive } from "./load-live.ts";
 import type { Presence } from "./presence.ts";

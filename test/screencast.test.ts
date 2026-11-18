@@ -2,8 +2,8 @@
 // one started as a tab opens, and a page that then stays still would never be seen.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { type Frame, startScreencast } from "@agentorg/computer-browser/screencast";
 import type { Page } from "playwright-core";
-import { type Frame, startScreencast } from "../src/screencast.ts";
 
 type OnFrame = (frame: { data: Buffer; viewportWidth: number; viewportHeight: number }) => void;
 
