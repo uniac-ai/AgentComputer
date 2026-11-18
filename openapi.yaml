@@ -118,7 +118,9 @@ paths:
         each time. For Cua Driver's own app, while it is missing: its own grant, its app started
         first, which makes the system's requests in its own order, Accessibility first, in a window
         of its own. chrome or edge: that browser opens at its inspect page, where remote debugging
-        is switched on. With none named, it makes only what turning the part on makes. It answers
+        is switched on. folders, for the files: each folder macOS protects that is here is read
+        once, one after another, so that macOS asks for each in turn, now, and waits for the
+        person's answer; their state is unknown until all are answered. With none named, it makes only what turning the part on makes. It answers
         once the steps have started, with each part then; what the person does next is read afresh
         later. A browser the service was given only the folder of, the person opens. Elsewhere it
         asks for nothing.
@@ -156,7 +158,8 @@ paths:
       summary: >-
         Open the pane of System Settings for one thing a part needs, on the service's machine,
         macOS only, for the person to switch it there: screen-recording or accessibility, that
-        grant's pane under Privacy & Security, whether it is missing or not. macOS lists an app
+        grant's pane under Privacy & Security, whether it is missing or not; folders, the pane of
+        Files and Folders, where a folder refused is switched on again. macOS lists an app
         there once it has asked, so this follows ask. It is for the person's own choice, such as a
         button they press: the service opens a pane only here and from ask, each on the person's
         click. Where an app hosts the driver, it
@@ -1092,17 +1095,25 @@ components:
         the person's own browser.
     NeedName:
       type: string
-      enum: [install, screen-recording, accessibility, chrome, edge, named]
+      enum: [install, screen-recording, accessibility, chrome, edge, named, folders]
       description: >-
         install: Cua Driver, which the screen works through. screen-recording and accessibility:
         Cua Driver's two grants. chrome and edge: each browser, with remote debugging on or off;
-        named: the one browser a service was given the folder of.
+        named: the one browser a service was given the folder of. folders: on a Mac, the folders
+        macOS protects, which the files need and macOS asks for one by one: Desktop, Documents,
+        Downloads, iCloud Drive, each cloud drive's folder and each mounted volume.
     Need:
       type: object
       required: [need, state]
       properties:
         need: { $ref: "#/components/schemas/NeedName" }
         name: { type: string, description: "A browser's name: Chrome, Edge, or the browser." }
+        refused:
+          type: array
+          items: { type: string }
+          description: >-
+            For folders that are not-granted, the ones macOS refused at the person's last click, by
+            name: Desktop, Documents, Downloads, iCloud Drive, a cloud drive's folder or a volume.
         holder:
           type: string
           description: >-
@@ -1114,7 +1125,9 @@ components:
           enum: [missing, granted, not-granted, unknown, "on", "off"]
           description: >-
             missing: not installed. unknown: it can't be read now. A browser is on while it is open
-            with its remote debugging switched on.
+            with its remote debugging switched on. The folders are unknown until the person has
+            asked for them, and while they are being asked for, since macOS gives no way to read a
+            folder's grant without asking; then granted, or not-granted with the ones refused.
     Setup:
       type: object
       required: [capabilities]

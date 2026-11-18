@@ -267,6 +267,16 @@ const answers = {
       : args.delivery_mode === "foreground"
         ? foreground(args)
         : (background[args.x] ?? standing)(args),
+  // A menu's key combination in an app not in front, run through its scripting interface, which
+  // macOS hasn't let be controlled: refused, as the driver started with --no-automation-prompts is.
+  hotkey: ({ keys }) =>
+    keys.join("+") === "cmd+s"
+      ? said(
+          "hotkey refused (automation_consent_required): Save needs TextEdit's scripting interface, and macOS hasn't given consent to control TextEdit. Nothing was sent.",
+          { code: "automation_consent_required", effect: "refused" },
+          true,
+        )
+      : said("✅ hotkey"),
   drag: (args) => (inDesktop(args) ? atDesktop("drag", args) : said("✅ drag")),
   scroll: (args) => (inDesktop(args) ? atDesktop("scroll", args) : said("✅ scroll")),
   type_text: () =>

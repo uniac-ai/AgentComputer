@@ -1,19 +1,22 @@
 // The setup of this machine for its computer: for each part an agent can use (its terminal, its
 // files, its screen and the person's own browser), the person's switch, and what that part still
 // needs before it works. Asking for what a part needs takes the steps on this machine, so a
-// window, wherever it is drawn, only shows them. The terminal and the files need nothing: on
-// macOS the Mac asks folder by folder. The screen needs Cua Driver, and Screen Recording and
+// window, wherever it is drawn, only shows them. The terminal needs nothing, nor do the files off
+// macOS. On macOS the Mac asks folder by folder for the folders it protects, so the files list
+// them as one need, asked for on one click: each is read once then. The screen needs Cua Driver,
+// and Screen Recording and
 // Accessibility for the app whose grants it uses, its own or the app hosting it; the browser needs
 // remote debugging on. Only macOS asks. Nothing that shows an alert or a window comes from a
 // switch: each comes from asking for that one need, on the person's click.
 import { execFile, spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { release } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { driverApp, infoValue } from "./driver-app.ts";
 import type { components } from "./generated/schema.js";
-import { browsers, here, reachedAt, type Where } from "./own-browser.ts";
+import { browsers, debuggingOn, here, type Where } from "./own-browser.ts";
 import { ApiError } from "./runtime.ts";
 import { type DriverAt, driverGrants, findDriver, QUIET, quiet, screenCheck } from "./screen.ts";
 import { writePrivate } from "./store.ts";
@@ -35,6 +38,14 @@ export interface Machine extends Where {
   run(program: string, args: string[]): Promise<void>;
   /** Start a program, and let it run on by itself. */
   start(program: string, args: string[], env: NodeJS.ProcessEnv): Promise<void>;
+  /**
+   * Read a folder's names once, as the service: on a Mac, macOS asks for a folder it protects then,
+   * the first time, and waits for the person's answer. `refused` where macOS refuses it, `gone`
+   * where it isn't there or can't be read for another reason.
+   */
+  touch(folder: string): Promise<"read" | "refused" | "gone">;
+  /** The names in a folder that macOS doesn't protect; none where it can't be read. */
+  entries(folder: string): Promise<string[]>;
 }
 
 const exec = promisify(execFile);
@@ -58,6 +69,16 @@ const thisMachine = (): Machine => ({
         done();
       });
     }),
+  touch: async (folder) => {
+    try {
+      await readdir(folder);
+      return "read";
+    } catch (error) {
+      const { code } = error as NodeJS.ErrnoException;
+      return code === "EPERM" || code === "EACCES" ? "refused" : "gone";
+    }
+  },
+  entries: (folder) => readdir(folder).catch(() => []),
 });
 
 /** How long the driver's app has to start answering before its grant runs anyway. */
@@ -78,7 +99,10 @@ const PANE: Partial<Record<NeedName, string>> = {
   "screen-recording":
     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
   accessibility: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+  folders: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders",
 };
+/** Where a Mac mounts its other volumes. */
+const VOLUMES = "/Volumes";
 
 /**
  * The macOS requests made through an app hosting the driver, for each grant whose request may draw
@@ -120,9 +144,68 @@ class Made {
   }
 }
 
+/**
+ * The folders macOS protects, as the files' one need on a Mac: whether they were asked for, and
+ * which the person refused, kept in the service's folder beside the switches. macOS gives no way to
+ * read a folder's grant without asking for it, so until the person's click it is `unknown`, and
+ * after it, what that click's answers were.
+ */
+class Folders {
+  readonly #file: string;
+  #refused: string[] | undefined;
+  #asking = false;
+
+  constructor(folder: string) {
+    this.#file = join(folder, "folders.json");
+    try {
+      const read: unknown = existsSync(this.#file)
+        ? JSON.parse(readFileSync(this.#file, "utf8"))
+        : undefined;
+      const refused = (read as { refused?: unknown } | undefined)?.refused;
+      if (Array.isArray(refused) && refused.every((name) => typeof name === "string"))
+        this.#refused = refused;
+    } catch {
+      // Unreadable, they are taken as never asked for.
+    }
+  }
+
+  need(): Need {
+    if (this.#asking || !this.#refused) return { need: "folders", state: "unknown" };
+    return this.#refused.length
+      ? { need: "folders", state: "not-granted", refused: this.#refused }
+      : { need: "folders", state: "granted" };
+  }
+
+  /**
+   * Read each folder once, one after another, as macOS asks for each and waits for the answer; a
+   * second click while that goes on asks for nothing more. It answers at once.
+   */
+  ask(folders: () => Promise<[name: string, path: string][]>, touch: Machine["touch"]) {
+    if (this.#asking) return;
+    this.#asking = true;
+    void (async () => {
+      const refused: string[] = [];
+      for (const [name, path] of await folders())
+        if ((await touch(path)) === "refused") refused.push(name);
+      this.#refused = refused;
+      try {
+        writePrivate(this.#file, JSON.stringify({ refused }));
+      } catch {
+        // Kept until the service stops.
+      }
+    })()
+      .catch(() => {
+        // Nothing is recorded: the next click asks again.
+      })
+      .finally(() => {
+        this.#asking = false;
+      });
+  }
+}
+
 /** A part: whether it has all it needs, and each thing it needs. */
 type Part = { ready: boolean; needs: Need[] };
-/** The terminal's and the files': nothing. */
+/** The terminal's, and the files' off macOS: nothing. */
 const NOTHING: Part = { ready: true, needs: [] };
 
 export class Setup {
@@ -131,6 +214,7 @@ export class Setup {
   readonly #browserData: string | undefined;
   readonly #machine: Machine;
   readonly #made: Made;
+  readonly #folders: Folders;
 
   /** `driver` and `browserData` are as `serve` names them: Cua Driver, and the browser's folder. */
   constructor(
@@ -144,6 +228,7 @@ export class Setup {
     this.#browserData = browserData;
     this.#machine = machine;
     this.#made = new Made(switches.folder);
+    this.#folders = new Folders(switches.folder);
   }
 
   /** Each part, its switch, whether it has all it needs, and each thing it needs. */
@@ -160,7 +245,7 @@ export class Setup {
 
   async #parts(): Promise<Record<Switch, Part>> {
     const [screen, browser] = await Promise.all([this.#screen(), this.#browser()]);
-    return { terminal: NOTHING, files: NOTHING, screen, browser };
+    return { terminal: NOTHING, files: this.#files(), screen, browser };
   }
 
   /**
@@ -182,6 +267,39 @@ export class Setup {
     };
   }
 
+  /**
+   * The files: ready, as the Mac asks folder by folder whatever is asked for here; on a Mac, the
+   * folders it protects, as one need.
+   */
+  #files(): Part {
+    if (this.#machine.platform !== "darwin") return NOTHING;
+    return { ready: true, needs: [this.#folders.need()] };
+  }
+
+  /**
+   * The folders macOS protects that are here: Desktop, Documents and Downloads, iCloud Drive, each
+   * cloud drive's folder, and each mounted volume, of which macOS asks once for each kind.
+   */
+  async #protected(): Promise<[name: string, path: string][]> {
+    const { home } = this.#machine;
+    const shown = (names: string[]) => names.filter((name) => !name.startsWith("."));
+    const clouds = join(home, "Library", "CloudStorage");
+    return [
+      ["Desktop", join(home, "Desktop")],
+      ["Documents", join(home, "Documents")],
+      ["Downloads", join(home, "Downloads")],
+      ["iCloud Drive", join(home, "Library", "Mobile Documents", "com~apple~CloudDocs")],
+      ...shown(await this.#machine.entries(clouds)).map((name): [string, string] => [
+        name,
+        join(clouds, name),
+      ]),
+      ...shown(await this.#machine.entries(VOLUMES)).map((name): [string, string] => [
+        name,
+        join(VOLUMES, name),
+      ]),
+    ];
+  }
+
   /** The person's browser: ready with one on, that is, open with remote debugging on. */
   async #browser(): Promise<Part> {
     const needs = await Promise.all(
@@ -189,7 +307,7 @@ export class Setup {
         async ({ browser, name, folder, installed }): Promise<Need> => ({
           need: browser,
           name,
-          state: !installed ? "missing" : (await reachedAt(folder)) ? "on" : "off",
+          state: !installed ? "missing" : (await debuggingOn(folder)) ? "on" : "off",
         }),
       ),
     );
@@ -287,6 +405,7 @@ export class Setup {
       await (driver.socket ? this.#askHost(driver, need) : this.#askScreen(driver));
     }
     if (capability === "browser") await this.#askBrowser(need);
+    if (capability === "files") this.#folders.ask(() => this.#protected(), this.#machine.touch);
   }
 
   /**

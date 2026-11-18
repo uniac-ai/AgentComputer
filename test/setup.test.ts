@@ -40,7 +40,9 @@ const folderOf = (t: test.TestContext) => {
 
 /**
  * A machine that records what it would run and start; `fail` makes each run fail. Its release is
- * macOS 26's Darwin, unless given.
+ * macOS 26's Darwin, unless given. It reads no folder of this one: `touched` records each folder
+ * it would read, answered as `folders.answers` says, and `folders.lists` gives the names in the
+ * ones it lists.
  */
 const machine = (
   platform: NodeJS.Platform,
@@ -48,8 +50,13 @@ const machine = (
   onRun?: () => void,
   fail?: string,
   release = "25.4.0",
+  folders: {
+    answers?: Record<string, "read" | "refused" | "gone" | Promise<"read" | "refused" | "gone">>;
+    lists?: Record<string, string[]>;
+  } = {},
 ) => {
   const ran: [string, string[]][] = [];
+  const touched: string[] = [];
   const stands: Machine = {
     platform,
     home,
@@ -66,8 +73,13 @@ const machine = (
       assert.equal(env.CUA_DRIVER_RS_UPDATE_CHECK, "false");
       ran.push([program, args]);
     },
+    touch: async (folder) => {
+      touched.push(folder);
+      return (await folders.answers?.[folder]) ?? "read";
+    },
+    entries: async (folder) => folders.lists?.[folder] ?? [],
   };
-  return { stands, ran };
+  return { stands, ran, touched };
 };
 
 /**
@@ -110,6 +122,7 @@ async function debuggingOn(t: test.TestContext, folder: string) {
 
 const partOf = async (setup: Setup, capability: string) =>
   (await setup.capabilities()).capabilities.find((one) => one.capability === capability);
+const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 const needsOf = async (setup: Setup, capability: string) =>
   (await partOf(setup, capability))?.needs;
 const readyOf = async (setup: Setup, capability: string) =>
@@ -148,7 +161,8 @@ test("the terminal and files need nothing, and the screen needs the driver and, 
   const driver = driverAt(join(app, "Contents", "MacOS", "cua-driver"), answering);
   const mac = new Setup(switches, { program: driver }, undefined, machine("darwin", folder).stands);
   assert.deepEqual(await needsOf(mac, "terminal"), []);
-  assert.deepEqual(await needsOf(mac, "files"), []);
+  // On a Mac, the folders macOS protects, not yet asked for.
+  assert.deepEqual(await needsOf(mac, "files"), [{ need: "folders", state: "unknown" }]);
   assert.equal(await readyOf(mac, "files"), true);
   assert.equal(await readyOf(mac, "screen"), false);
   // Under the app's name, as System Settings lists it.
@@ -801,4 +815,81 @@ test("a part switched off isn't ready, and its tools refuse, until the person tu
   }
   // Ending its session isn't a call, and goes through while the terminal is off.
   await call.end();
+});
+
+test("on a Mac the files list the folders macOS protects as one need, each read once on one click", async (t) => {
+  const folder = folderOf(t);
+  const home = join(folder, "home");
+  const clouds = join(home, "Library", "CloudStorage");
+  // The person hasn't answered for Documents yet.
+  let answer: (said: "refused") => void = () => {};
+  const documents = new Promise<"refused">((done) => {
+    answer = done;
+  });
+  const mac = machine("darwin", home, undefined, undefined, undefined, {
+    answers: {
+      [join(home, "Documents")]: documents,
+      [join(home, "Library", "Mobile Documents", "com~apple~CloudDocs")]: "gone",
+    },
+    lists: { [clouds]: [".DS_Store", "Dropbox"], "/Volumes": ["Macintosh HD", "USB"] },
+  });
+  const switches = new Switches(folder, false);
+  const setup = new Setup(switches, undefined, undefined, mac.stands);
+  // Turning the files on reads nothing.
+  await setup.set("files", true);
+  assert.deepEqual(mac.touched, []);
+  await setup.ask("files");
+  assert.deepEqual(mac.touched, []);
+  // The click: each is read in turn, and macOS's answer for each awaited.
+  await setup.ask("files", "folders");
+  await sleep(50);
+  assert.deepEqual(mac.touched, [join(home, "Desktop"), join(home, "Documents")]);
+  assert.deepEqual(await needsOf(setup, "files"), [{ need: "folders", state: "unknown" }]);
+  // A second click while that goes on reads nothing more.
+  await setup.ask("files", "folders");
+  answer("refused");
+  let needs = await needsOf(setup, "files");
+  for (let i = 0; needs?.[0]?.state === "unknown" && i < 100; i++) {
+    await sleep(20);
+    needs = await needsOf(setup, "files");
+  }
+  assert.deepEqual(mac.touched, [
+    join(home, "Desktop"),
+    join(home, "Documents"),
+    join(home, "Downloads"),
+    join(home, "Library", "Mobile Documents", "com~apple~CloudDocs"),
+    join(clouds, "Dropbox"),
+    "/Volumes/Macintosh HD",
+    "/Volumes/USB",
+  ]);
+  assert.deepEqual(needs, [{ need: "folders", state: "not-granted", refused: ["Documents"] }]);
+  assert.equal(await readyOf(setup, "files"), true);
+  assert.deepEqual(mac.ran, []);
+  // Kept across a restart.
+  const again = new Setup(switches, undefined, undefined, mac.stands);
+  assert.deepEqual(await needsOf(again, "files"), needs);
+  // A refused one is switched on again in its pane, on the person's click.
+  await again.settings("files", "folders");
+  assert.deepEqual(mac.ran, [
+    [
+      "/usr/bin/open",
+      ["x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"],
+    ],
+  ]);
+  // Asked again with all read, they are granted.
+  const allowed = machine("darwin", home);
+  const later = new Setup(switches, undefined, undefined, allowed.stands);
+  await later.ask("files", "folders");
+  for (let i = 0; (await needsOf(later, "files"))?.[0]?.state !== "granted" && i < 100; i++)
+    await sleep(20);
+  assert.deepEqual(await needsOf(later, "files"), [{ need: "folders", state: "granted" }]);
+  // Off macOS the files need nothing, and nothing is read.
+  const linux = machine("linux", home);
+  const off = new Setup(new Switches(folderOf(t), true), undefined, undefined, linux.stands);
+  assert.deepEqual(await needsOf(off, "files"), []);
+  await assert.rejects(off.ask("files", "folders"), {
+    status: 409,
+    message: 'There\'s no "folders" for files here.',
+  });
+  assert.deepEqual(linux.touched, []);
 });
