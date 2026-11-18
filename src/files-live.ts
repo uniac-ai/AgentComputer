@@ -2,6 +2,7 @@
 // time, asks what changed, and at operate writes a file, all on one socket in files@1. The files
 // themselves are AgentExec's to reach, kept inside the workspace as its tools are.
 
+import { reason } from "@agentorg/computer-base/error";
 import type { components } from "@agentorg/computer-contract/schema";
 import type { AgentExec, FileUpload } from "@agentorg/exec";
 import type { WebSocket } from "ws";
@@ -20,7 +21,6 @@ const MAX_BUFFERED = 4 * 1024 * 1024;
 /** Files part written at once on one computer: each holds a file open. */
 const MAX_UPLOADS = 64;
 
-export const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const text = (value: unknown): value is string => typeof value === "string";
 const whole = (value: unknown): value is number => Number.isSafeInteger(value);
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));

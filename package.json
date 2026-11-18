@@ -29,7 +29,7 @@
   },
   "scripts": {
     "generate": "npm run generate --workspace @agentorg/computer-contract",
-    "build": "npm run build --workspace @agentorg/exec --workspace @agentorg/computer-contract --workspace @agentorg/computer-base --workspace @agentorg/computer-browser --workspace @agentorg/computer-sdk && tsc -p tsconfig.json && node scripts/bundle.js",
+    "build": "npm run build --workspace @agentorg/exec --workspace @agentorg/computer-contract --workspace @agentorg/computer-base --workspace @agentorg/computer-browser --workspace @agentorg/computer-screen --workspace @agentorg/computer-sdk && tsc -p tsconfig.json && node scripts/bundle.js",
     "check": "biome check .",
     "test": "npm run build && node --test --test-timeout=60000 \"out/test/**/*.test.js\""
   },
@@ -40,6 +40,7 @@
     "@agentorg/computer-base": "0.0.0",
     "@agentorg/computer-browser": "0.0.0",
     "@agentorg/computer-contract": "0.0.0",
+    "@agentorg/computer-screen": "0.0.0",
     "@agentorg/computer-sdk": "0.0.35",
     "@agentorg/exec": "0.0.11",
     "@biomejs/biome": "2.6.5",

@@ -5,10 +5,10 @@
 // person's click, drag or scroll is made in the foreground, as a person's own would be, and the
 // machine's pointer is put back where it was, as for the agent's click in the foreground.
 
+import { reason } from "@agentorg/computer-base/error";
 import type { components } from "@agentorg/computer-contract/schema";
 import type { WebSocket } from "ws";
 import { z } from "zod";
-import { reason } from "./files-live.ts";
 import {
   type Answer,
   DESKTOP,

@@ -18,8 +18,15 @@ import { ApiError } from "@agentorg/computer-base/error";
 import { writePrivate } from "@agentorg/computer-base/store";
 import { browsers, debuggingOn, here, type Where } from "@agentorg/computer-browser/own-browser";
 import type { components } from "@agentorg/computer-contract/schema";
-import { driverApp, infoValue } from "./driver-app.ts";
-import { type DriverAt, driverGrants, findDriver, QUIET, quiet, screenCheck } from "./screen.ts";
+import { driverApp, infoValue } from "@agentorg/computer-screen/driver-app";
+import {
+  type DriverAt,
+  driverGrants,
+  findDriver,
+  QUIET,
+  quiet,
+  screenCheck,
+} from "@agentorg/computer-screen/screen";
 import { SWITCHES, type Switch, type Switches } from "./switches.ts";
 
 type Schemas = components["schemas"];
