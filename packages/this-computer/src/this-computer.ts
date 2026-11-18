@@ -1,7 +1,7 @@
 // How a computer runs, and this computer: the machine the service runs on, lent whole. Its
 // computers are put together by the inside with what this machine adds: the person's switches, the
 // screen's checks, the person's own browser, and the board of who acts on its files and screen.
-// `container.ts` is the other way.
+// The containers kind is the other way.
 import { existsSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
@@ -13,14 +13,6 @@ import type { components } from "@agentorg/computer-contract/schema";
 import { TOOLS } from "@agentorg/computer-inside/client";
 import { type Computer, startComputer } from "@agentorg/computer-inside/computer";
 import { Board } from "@agentorg/computer-inside/presence";
-import {
-  type DriverAt,
-  findDriver,
-  onlyGrantsMissing,
-  SCREEN_TOOLS,
-  screenCheck,
-} from "@agentorg/computer-screen/screen";
-import { Connections } from "./connection.ts";
 import type {
   Access,
   Brought,
@@ -29,7 +21,15 @@ import type {
   Running,
   Runtime,
   RuntimeEvents,
-} from "./seam.ts";
+} from "@agentorg/computer-provider/seam";
+import {
+  type DriverAt,
+  findDriver,
+  onlyGrantsMissing,
+  SCREEN_TOOLS,
+  screenCheck,
+} from "@agentorg/computer-screen/screen";
+import { Connections } from "./connection.ts";
 import { Setup } from "./setup.ts";
 import type { Switch, Switches } from "./switches.ts";
 

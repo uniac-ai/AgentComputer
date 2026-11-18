@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { ImageFetch } from "../src/image-fetch.ts";
+import { ImageFetch } from "@agentorg/computer-containers/image-fetch";
 
 type Sdk = typeof import("@agentorg/computer-sdk");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");

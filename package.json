@@ -29,7 +29,7 @@
   },
   "scripts": {
     "generate": "npm run generate --workspace @agentorg/computer-contract",
-    "build": "npm run build --workspace @agentorg/exec --workspace @agentorg/computer-contract --workspace @agentorg/computer-base --workspace @agentorg/computer-browser --workspace @agentorg/computer-screen --workspace @agentorg/computer-inside --workspace @agentorg/computer-sdk && tsc -p tsconfig.json && node scripts/bundle.js",
+    "build": "npm run build --workspace @agentorg/exec --workspace @agentorg/computer-contract --workspace @agentorg/computer-base --workspace @agentorg/computer-browser --workspace @agentorg/computer-screen --workspace @agentorg/computer-inside --workspace @agentorg/computer-provider --workspace @agentorg/computer-this-computer --workspace @agentorg/computer-containers --workspace @agentorg/computer-sdk && tsc -p tsconfig.json && node scripts/bundle.js",
     "check": "biome check .",
     "test": "npm run build && node --test --test-timeout=60000 \"out/test/**/*.test.js\""
   },
@@ -39,10 +39,13 @@
   "devDependencies": {
     "@agentorg/computer-base": "0.0.0",
     "@agentorg/computer-browser": "0.0.0",
+    "@agentorg/computer-containers": "0.0.0",
     "@agentorg/computer-contract": "0.0.0",
     "@agentorg/computer-inside": "0.0.0",
+    "@agentorg/computer-provider": "0.0.0",
     "@agentorg/computer-screen": "0.0.0",
     "@agentorg/computer-sdk": "0.0.36",
+    "@agentorg/computer-this-computer": "0.0.0",
     "@agentorg/exec": "0.0.11",
     "@biomejs/biome": "2.6.5",
     "@modelcontextprotocol/client": "2.4.0",

@@ -22,8 +22,15 @@ import {
   type Ready,
   TOOLS,
 } from "@agentorg/computer-inside/client";
+import type {
+  Access,
+  ComputerSpec,
+  Offer,
+  Running,
+  Runtime,
+  RuntimeEvents,
+} from "@agentorg/computer-provider/seam";
 import { ImageFetch } from "./image-fetch.ts";
-import type { Access, ComputerSpec, Offer, Running, Runtime, RuntimeEvents } from "./seam.ts";
 
 const run = promisify(execFile);
 const START_MS = 60_000;

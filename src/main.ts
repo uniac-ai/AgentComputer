@@ -7,13 +7,13 @@ import { isMainThread } from "node:worker_threads";
 import { VERSION } from "@agentorg/computer-base/version";
 import { CONNECT_VARIABLE, hostBrowser } from "@agentorg/computer-browser/browser-host";
 import { serveBrowserMcp } from "@agentorg/computer-browser/browser-mcp";
+import { ContainerRuntime } from "@agentorg/computer-containers/container";
 import { serveInside } from "@agentorg/computer-inside/inside";
+import { down, recorded, running, up } from "@agentorg/computer-provider/running";
+import { serve } from "@agentorg/computer-provider/service";
 import { Computer, type CreateOpts, type LiveMode, type LiveSurface } from "@agentorg/computer-sdk";
-import { ContainerRuntime } from "./container.ts";
-import { down, recorded, running, up } from "./running.ts";
-import { ThisComputer } from "./runtime.ts";
-import { serve } from "./service.ts";
-import { Switches } from "./switches.ts";
+import { Switches } from "@agentorg/computer-this-computer/switches";
+import { ThisComputer } from "@agentorg/computer-this-computer/this-computer";
 
 /** How this program is run: Node and its file. The browser runs it as its host and its MCP server. */
 const PROGRAM = [process.execPath, fileURLToPath(import.meta.url)];

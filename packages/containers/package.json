@@ -1,0 +1,23 @@
+{
+  "name": "@agentorg/computer-containers",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The containers kind: a computer made in a container of its own, its image fetched",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./container": {
+      "agentcomputer-source": "./src/container.ts",
+      "types": "./dist/container.d.ts",
+      "default": "./dist/container.js"
+    },
+    "./image-fetch": {
+      "agentcomputer-source": "./src/image-fetch.ts",
+      "types": "./dist/image-fetch.d.ts",
+      "default": "./dist/image-fetch.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "@agentorg/computer-this-computer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "This computer, the machine the service runs on, lent whole: the person's switches, its setup, who is connected and who is acting",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./connection": {
+      "agentcomputer-source": "./src/connection.ts",
+      "types": "./dist/connection.d.ts",
+      "default": "./dist/connection.js"
+    },
+    "./setup": {
+      "agentcomputer-source": "./src/setup.ts",
+      "types": "./dist/setup.d.ts",
+      "default": "./dist/setup.js"
+    },
+    "./switches": {
+      "agentcomputer-source": "./src/switches.ts",
+      "types": "./dist/switches.d.ts",
+      "default": "./dist/switches.js"
+    },
+    "./this-computer": {
+      "agentcomputer-source": "./src/this-computer.ts",
+      "types": "./dist/this-computer.d.ts",
+      "default": "./dist/this-computer.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

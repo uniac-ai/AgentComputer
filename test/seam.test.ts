@@ -7,8 +7,8 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { ApiError } from "@agentorg/computer-base/error";
-import { Computers } from "../src/computers.ts";
-import type { Isolation, Runtime } from "../src/seam.ts";
+import { Computers } from "@agentorg/computer-provider/computers";
+import type { Isolation, Runtime } from "@agentorg/computer-provider/seam";
 
 // out/test/seam.test.js → the repository.
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -18,7 +18,7 @@ const PROVIDER = ["computers.ts", "service.ts", "handlers.ts", "running.ts", "se
 test("the provider reads a kind's name in one place only, an old record's at load, and no part", () => {
   const named: string[] = [];
   for (const file of PROVIDER) {
-    const text = readFileSync(join(root, "src", file), "utf8");
+    const text = readFileSync(join(root, "packages", "provider", "src", file), "utf8");
     for (const line of text.split("\n"))
       if (/isolation[^;]*"(none|container)"|"(none|container)"[^;]*isolation/.test(line))
         named.push(`${file}: ${line.trim()}`);

@@ -2,12 +2,9 @@
 // a package knows only what is below it. It reads the sources, every `import`, `export … from`
 // and `import()`, so it needs no build. Third-party packages and Node's own are not judged.
 //
-// The program's own `src` has no rule yet: it is still the provider, the kinds and the inside in
-// one. Until those are packages, the table's limits on them aren't held here. These edges the
-// table forbids are in the code today:
-// - `src/computers.ts`, the provider, imports the screen;
-// - the provider tells the kinds apart by name, and imports this computer's setup, connection and
-//   acting.
+// The provider knows the kinds only by the seam, and each kind knows only the seam of it; this
+// computer may know the parts, a container's kind only the client of what runs inside it. The
+// program's own `src` is where they are put together, and may take any of them.
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -34,7 +31,10 @@ const packages = new Map<string, string>(
 /** This repository's own names: every package of the workspace, and the program's. */
 const ours = [read("package.json").name as string, ...packages.keys()];
 
-/** What each package may import of this repository's own, by name. */
+/**
+ * What each package may import of this repository's own: a package by its name, any of it, or one
+ * subpath of one, that alone.
+ */
 const MAY: Record<string, string[]> = {
   "@agentorg/computer-contract": [],
   "@agentorg/computer-base": [],
@@ -49,7 +49,24 @@ const MAY: Record<string, string[]> = {
     "@agentorg/computer-contract",
     "@agentorg/computer-base",
   ],
+  "@agentorg/computer-provider": ["@agentorg/computer-contract", "@agentorg/computer-base"],
+  "@agentorg/computer-this-computer": [
+    "@agentorg/computer-provider/seam",
+    "@agentorg/computer-inside",
+    "@agentorg/computer-browser",
+    "@agentorg/computer-screen",
+    "@agentorg/computer-contract",
+    "@agentorg/computer-base",
+  ],
+  "@agentorg/computer-containers": [
+    "@agentorg/computer-provider/seam",
+    "@agentorg/computer-inside/client",
+    "@agentorg/computer-contract",
+    "@agentorg/computer-base",
+  ],
 };
+/** The program, its own `src`: where the pieces are put together. It may take any of them. */
+const PROGRAM = read("package.json").name as string;
 
 /** Every source file below `folder`. */
 const sources = (folder: string): string[] =>
@@ -70,12 +87,13 @@ const imports = (file: string) => {
 /** The package of ours a specifier names, or `undefined` for anyone else's. */
 const ourName = (specifier: string) =>
   ours.find((name) => specifier === name || specifier.startsWith(`${name}/`));
-/** Each package with sources: its name, folder, and every import of its sources. */
-const sourced = [...packages]
+/** Each package with sources, the program's among them: its name, folder, and every import. */
+const sourced = [...packages, [PROGRAM, "."] as [string, string]]
   .filter(([, folder]) => existsSync(join(root, folder, "src")))
   .map(([name, folder]) => ({
     name,
-    folder,
+    // The program's own folder is its `src`: the packages around it aren't its to reach into.
+    folder: folder === "." ? "src" : folder,
     found: sources(join(root, folder, "src")).flatMap((file) =>
       imports(file).map((specifier) => ({ file: relative(root, file), specifier })),
     ),
@@ -92,7 +110,13 @@ test("each package imports of this repository only what the table lets it", () =
       ? found
           .filter(({ specifier }) => {
             const named = ourName(specifier);
-            return named !== undefined && named !== name && !MAY[name]?.includes(named);
+            const may = MAY[name] ?? [];
+            return (
+              named !== undefined &&
+              named !== name &&
+              !may.includes(named) &&
+              !may.includes(specifier)
+            );
           })
           .map(({ file, specifier }) => `${file} imports ${specifier}`)
       : [],
