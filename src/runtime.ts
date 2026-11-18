@@ -1,39 +1,23 @@
-// How a computer runs. This computer is processes of the service's user, reaching the whole
-// machine; `container.ts` is the other way. Inside a container the same processes run, through
-// this file, kept to its workspace.
-import { chmodSync, existsSync, statSync } from "node:fs";
+// How a computer runs, and this computer: the machine the service runs on, lent whole. Its
+// computers are put together by the inside with what this machine adds: the person's switches, the
+// screen's checks, the person's own browser, and the board of who acts on its files and screen.
+// `container.ts` is the other way.
+import { existsSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createRequire } from "node:module";
-import { hostname } from "node:os";
-import { basename, dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
-import { ApiError } from "@agentorg/computer-base/error";
-import { readRequest, refuseBody, refuseCall } from "@agentorg/computer-base/http";
-import { privateFolder } from "@agentorg/computer-base/store";
-import { Browser, type BrowserConfig } from "@agentorg/computer-browser/browser";
-import { BrowserLive } from "@agentorg/computer-browser/browser-live";
+import type { BrowserConfig } from "@agentorg/computer-browser/browser";
 import { ownBrowser } from "@agentorg/computer-browser/own-browser";
 import { channelProgram, DEFAULT_CHANNEL, playwright } from "@agentorg/computer-browser/playwright";
 import type { components } from "@agentorg/computer-contract/schema";
-import { aboutTool } from "@agentorg/computer-inside/about";
-import { FilesLive } from "@agentorg/computer-inside/files-live";
-import {
-  Live,
-  type LiveMode,
-  type Surface,
-  type SurfaceInfo,
-} from "@agentorg/computer-inside/live";
-import { LoadLive } from "@agentorg/computer-inside/load-live";
-import { Board, Presence } from "@agentorg/computer-inside/presence";
+import { startComputer } from "@agentorg/computer-inside/computer";
+import type { LiveMode, Surface, SurfaceInfo } from "@agentorg/computer-inside/live";
+import { Board } from "@agentorg/computer-inside/presence";
 import {
   type DriverAt,
   findDriver,
   onlyGrantsMissing,
-  Screen,
   screenCheck,
 } from "@agentorg/computer-screen/screen";
-import { ScreenLive } from "@agentorg/computer-screen/screen-live";
-import { type AgentExec, createAgentExec, type PtySpawn } from "@agentorg/exec";
 import type { Switch, Switches } from "./switches.ts";
 
 type Schemas = components["schemas"];
@@ -110,41 +94,6 @@ export interface Runtime {
   remove(id: string): Promise<void>;
 }
 
-/**
- * What a person's shell runs on: node-pty's spawn. Where node-pty can't be used, one that fails
- * saying why, so the shell is refused and the agent's commands are as they are.
- */
-let pty: Promise<PtySpawn> | undefined;
-const loadPty = () => {
-  pty ??= (async () => {
-    const fails =
-      (why: string): PtySpawn =>
-      () => {
-        throw new Error(why);
-      };
-    const require = createRequire(import.meta.url);
-    let loaded: typeof import("node-pty");
-    try {
-      loaded = require("node-pty") as typeof import("node-pty");
-    } catch {
-      return fails("node-pty isn't installed with this service.");
-    }
-    // Its prebuilt helper is packed without its execute bit, and npm doesn't restore it.
-    const root = dirname(require.resolve("node-pty/package.json"));
-    for (const helper of [
-      join(root, "prebuilds", `${process.platform}-${process.arch}`, "spawn-helper"),
-      join(root, "build", "Release", "spawn-helper"),
-    ])
-      try {
-        if (existsSync(helper) && (statSync(helper).mode & 0o111) === 0) chmodSync(helper, 0o755);
-      } catch {
-        return fails(`${helper} has to be executable, and it isn't.`);
-      }
-    return loaded.spawn;
-  })();
-  return pty;
-};
-
 /** Whether the browser it starts is on this machine, and if it isn't, why not. */
 /** What `info` says of a browser: ready, or why not. */
 const readiness = (found: { ready: boolean; reason?: string }): Schemas["Readiness"] =>
@@ -170,39 +119,17 @@ function browserProgram(config: BrowserConfig): Schemas["Readiness"] {
 }
 
 /**
- * The agent's tools that act on its files, for presence. A command it starts is heard as it
- * starts, and one it types into by `write_stdin`; reading its sessions, or what the computer is,
- * acts on nothing.
- */
-const FILE_TOOLS = new Set(["read", "list", "search", "edit"]);
-/**
- * The switch each tool answers to by its name: the computer's own, and the browser's that runs
- * code on the machine. A browser call that names files, by `paths` or `filename`, answers to the
- * files' switch as well. `about` and the rest of the browser's answer to none.
- */
-const TOOL_SWITCH: Record<string, Switch> = {
-  ...Object.fromEntries([...FILE_TOOLS].map((tool) => [tool, "files" as const])),
-  exec_command: "terminal",
-  write_stdin: "terminal",
-  list_sessions: "terminal",
-  browser_run_code_unsafe: "terminal",
-};
-
-/** The most an agent's request to its computer may be, as AgentExec itself takes it. */
-const MAX_CALL = 4 * 1024 * 1024;
-/**
  * How long `info` waits for a new check of the screen, well short of the seconds a client gives it.
  */
 const SCREEN_WAIT_MS = 1_000;
 
-export class ProcessRuntime implements Runtime {
+export class ThisComputer implements Runtime {
   readonly #config: BrowserConfig;
-  readonly #contained: boolean;
   /** Cua Driver as it was named, if it was; otherwise it is looked for. */
   readonly #screenDriver: Partial<DriverAt>;
   /** The person's browser's user data folder, where named; otherwise Chrome's, then Edge's. */
   readonly #ownBrowserData: string | undefined;
-  /** The person's switches for this machine; inside a container there are none. */
+  /** The person's switches for this machine. */
   readonly #switches: Switches | undefined;
   /**
    * Whether the screen can be reached, as last checked. It is checked when the service starts,
@@ -218,16 +145,10 @@ export class ProcessRuntime implements Runtime {
   };
   #checking: ReturnType<typeof screenCheck> | undefined;
   /** Who acts on this machine's files: shared by the computers attached to it. */
-  readonly #machine: Board | undefined;
+  readonly #machine = new Board();
 
-  /**
-   * Outside a container it is this computer, its files reaching the whole machine. `contained` is
-   * for inside one, where the computer and its load are its own and its files stay in its
-   * workspace.
-   */
   constructor(
     config: BrowserConfig,
-    contained = false,
     screenDriver: Partial<DriverAt> = {},
     ownBrowserData?: string,
     switches?: Switches,
@@ -235,10 +156,8 @@ export class ProcessRuntime implements Runtime {
     this.#ownBrowserData = ownBrowserData;
     this.#switches = switches;
     this.#config = config;
-    this.#contained = contained;
     this.#screenDriver = screenDriver;
-    if (!contained) void this.#checkScreen();
-    this.#machine = contained ? undefined : new Board();
+    void this.#checkScreen();
   }
 
   #checkScreen() {
@@ -300,12 +219,6 @@ export class ProcessRuntime implements Runtime {
     );
   }
 
-  /** Why the agent can't call this tool now: the person switched off what it reaches. */
-  #toolRefused(tool: string) {
-    const which = TOOL_SWITCH[tool];
-    return which && this.#switches?.refused(which);
-  }
-
   async offer(): Promise<Offer> {
     // A part the person switched off isn't ready, whatever else is.
     const unless = (which: Switch, ready: Schemas["Readiness"]): Schemas["Readiness"] => {
@@ -316,7 +229,7 @@ export class ProcessRuntime implements Runtime {
     // person switched off isn't checked.
     const [screen, own] = await Promise.all([
       this.#switches?.refused("screen") ? { ready: false } : this.#screenNow(),
-      this.#contained ? undefined : ownBrowser(this.#ownBrowserData),
+      ownBrowser(this.#ownBrowserData),
     ]);
     return {
       ready: true,
@@ -329,9 +242,7 @@ export class ProcessRuntime implements Runtime {
       browsers: [
         { kind: "headless", ...browserProgram(this.#config) },
         // The person's own, which only this computer has.
-        ...(own === undefined
-          ? []
-          : [{ kind: "own" as const, ...unless("browser", readiness(own)) }]),
+        { kind: "own" as const, ...unless("browser", readiness(own)) },
       ],
     };
   }
@@ -347,215 +258,32 @@ export class ProcessRuntime implements Runtime {
   async remove() {}
 
   async start(spec: ComputerSpec, folder: string, events: RuntimeEvents): Promise<Running> {
-    const load = new LoadLive(spec.workspace ?? folder, this.#contained);
-    // One with no files of its own has no part in the machine's.
-    const presence = new Presence(
-      spec.id,
-      spec.name,
-      spec.access === "none" && !spec.screen ? undefined : this.#machine,
+    return startComputer(
+      spec,
+      folder,
+      events,
+      { browser: this.#config, contained: false },
+      {
+        board: this.#machine,
+        refused: this.#switches ? (part) => this.#switches?.refused(part) : undefined,
+        ownBrowser: () => ownBrowser(this.#ownBrowserData),
+        screen: async () => {
+          const checked = await this.#checkScreen();
+          const { readiness: ready, driver } = checked;
+          const off = this.#switches?.refused("screen");
+          const why =
+            off ??
+            (ready.ready && driver ? undefined : (ready.reason ?? "The screen isn't ready."));
+          return {
+            why,
+            strict: off !== undefined || !onlyGrantsMissing(checked),
+            at: () => this.#driverNow(),
+            refused: () => this.#screenRefused(),
+            lends: this.#switches?.lends ?? false,
+            unavailable: () => this.#screenUnavailable(),
+          };
+        },
+      },
     );
-    let exec: AgentExec | undefined;
-    if (spec.access !== "none") {
-      const workspace = spec.workspace as string;
-      const about = aboutTool(
-        {
-          machine: spec.outside?.machine ?? hostname(),
-          workspace: { outside: spec.outside?.workspace ?? workspace, inside: workspace },
-          access: spec.access,
-          browser: spec.browser,
-          screen: spec.screen === true,
-          contained: this.#contained,
-        },
-        load,
-        presence,
-      );
-      exec = createAgentExec({
-        workspace,
-        level: spec.access,
-        reach: this.#contained ? "workspace" : "machine",
-        pty: await loadPty(),
-        extraTools: [about],
-        note: (tool, input) => {
-          if (FILE_TOOLS.has(tool)) return presence.agentCalled({ capability: "files" });
-          // Only a terminal that is there and running: one refused, or ended, is acted on by
-          // nobody. Waiting on its output, with nothing typed, adds nothing: a command the agent
-          // started is acting until it ends either way.
-          const id = input.session_id;
-          if (
-            tool !== "write_stdin" ||
-            !exec?.terminals.list().some((one) => one.id === id && one.exitCode === undefined)
-          )
-            return undefined;
-          return presence.agentCalled(
-            { capability: "terminal", terminal: id as string },
-            typeof input.chars === "string" && input.chars !== "",
-          );
-        },
-      });
-    }
-    let browser: Browser | undefined;
-    let browserDown = false;
-    if (spec.browser) {
-      const own = privateFolder(join(folder, "browser"));
-      // The person's own browser, where it is reached now, asked afresh.
-      let connect: string | undefined;
-      let name = "";
-      if (spec.browser === "own") {
-        const refused = this.#switches?.refused("browser");
-        const found = refused
-          ? { ready: false as const, reason: refused }
-          : await ownBrowser(this.#ownBrowserData);
-        if (!found.ready) {
-          await exec?.close();
-          throw new ApiError(409, found.reason);
-        }
-        ({ endpoint: connect, name } = found);
-        events.log(`Its browser is the person's own: ${name}.`);
-      }
-      browser = new Browser(
-        { ...this.#config, connect },
-        own,
-        spec.workspace ?? own,
-        spec.access === "terminal",
-        events.log,
-        () => {
-          browserDown = true;
-          events.failed("Its browser stopped.");
-        },
-      );
-      try {
-        await browser.ready();
-      } catch (error) {
-        await Promise.all([exec?.close(), browser.stop()]);
-        // Most likely the person didn't allow it, or wasn't there to.
-        if (connect) {
-          const Name = name[0]?.toUpperCase() + name.slice(1);
-          throw new ApiError(
-            409,
-            `${Name} didn't allow the connection, or nobody answered it within 2 minutes. Allow it when ${name} asks, on this machine.`,
-          );
-        }
-        throw error;
-      }
-    }
-    // The screen is the machine's, through Cua Driver, which the person installed and granted.
-    let screen: Screen | undefined;
-    let screenLive: ScreenLive | undefined;
-    if (spec.screen) {
-      // Asked afresh, not as last seen: a new one rests on it.
-      const checked = await this.#checkScreen();
-      const { readiness: ready, driver } = checked;
-      const off = this.#switches?.refused("screen");
-      const why =
-        off ?? (ready.ready && driver ? undefined : (ready.reason ?? "The screen isn't ready."));
-      // One started again keeps its terminal, files and browser: its screen's tools say why
-      // they can't be used, and work once the screen can be, with no restart. So does a new one
-      // whose screen lacks only macOS's grants, which the person gives from the app's setup.
-      if (why && !spec.again && (off !== undefined || !onlyGrantsMissing(checked))) {
-        await Promise.all([exec?.close(), browser?.stop()]);
-        throw new ApiError(409, why);
-      }
-      // Found again at each connection: one installed or moved meanwhile is reached.
-      const at = () => this.#driverNow();
-      screen = new Screen(
-        at,
-        events.log,
-        () => presence.agentCalled({ capability: "screen" }),
-        () => this.#screenRefused(),
-        // On a lent machine the agent acts only in the background.
-        this.#switches?.lends ?? false,
-      );
-      if (why) events.log(`It started without its screen, which its tools say: ${why}`);
-      else
-        try {
-          await screen.ready();
-        } catch (error) {
-          if (!spec.again) {
-            await Promise.all([exec?.close(), browser?.stop(), screen.stop()]);
-            throw error;
-          }
-          events.log(`Its screen connects at its next call: ${(error as Error).message}`);
-        }
-      // The person's live view of it reaches the driver through a connection of its own.
-      screenLive = new ScreenLive(
-        at,
-        (line) => events.log(`Live view: ${line}`),
-        () => presence.acted("person", { capability: "screen" }),
-      );
-    }
-    let browserLive: BrowserLive | undefined;
-    if (browser) {
-      browserLive = new BrowserLive(
-        browser.endpoint,
-        () => presence.acted("person", { capability: "browser" }),
-        spec.browser === "own",
-      );
-      browser.gate = browserLive;
-      browser.noted = () => presence.agentCalled({ capability: "browser" });
-      // The browser's switch is for the person's own; any browser's calls that reach the machine
-      // answer to its terminal's and files' switches.
-      browser.refused = (tool, args) =>
-        (spec.browser === "own" ? this.#switches?.refused("browser") : undefined) ??
-        this.#toolRefused(tool) ??
-        ("paths" in args || "filename" in args ? this.#switches?.refused("files") : undefined);
-    }
-    const files =
-      exec &&
-      new FilesLive(
-        exec.files,
-        basename(spec.outside?.workspace ?? (spec.workspace as string)),
-        () => presence.acted("person", { capability: "files" }),
-      );
-    const live = new Live(exec, spec.access, load, presence, files, browserLive, screenLive);
-    const unavailableNow = () => this.#screenUnavailable();
-    const surfaces = live.surfaces();
-    return {
-      browserTools: browser?.tools ?? [],
-      /**
-       * As they are now: a browser that has stopped can't be opened, and says so; nor can the
-       * screen while it can't be used, as its tools say.
-       */
-      get surfaces() {
-        const screenWhy = screen && unavailableNow();
-        return surfaces.map((one) =>
-          one.surface === "browser" && browserDown
-            ? {
-                ...one,
-                unavailable: "Its browser has stopped. Stop the computer and start it again.",
-              }
-            : one.surface === "screen" && screenWhy
-              ? { ...one, unavailable: screenWhy }
-              : one,
-        );
-      },
-      acting: () => presence.acting(),
-      openLive: async (surface, mode, request, socket, head) =>
-        live.open(surface, mode, request, socket, head),
-      handle: async (endpoint, request, response) => {
-        if (endpoint === "computer") {
-          const agentExec = exec as AgentExec;
-          // Where the person has switches, each call is read whole and checked as it comes, so
-          // one sent slowly is checked as the switches are when it arrives.
-          if (!this.#switches || request.method !== "POST")
-            return agentExec.handle(request, response);
-          const read = await readRequest(request, response, MAX_CALL);
-          if (!read) return;
-          const { message } = read;
-          if (!message) return refuseBody(response);
-          const refusal =
-            message?.method === "tools/call" && this.#toolRefused(String(message.params?.name));
-          if (refusal) return refuseCall(response, message.id, refusal);
-          return agentExec.handle(request, response, message);
-        }
-        if (endpoint === "screen") return (screen as Screen).handle(request, response);
-        if (browserDown) throw new ApiError(502, "Its browser has stopped.");
-        return (browser as Browser).handle(request, response);
-      },
-      stop: async () => {
-        live.close();
-        presence.close();
-        await Promise.all([exec?.close(), browser?.stop(), screen?.stop()]);
-      },
-    };
   }
 }

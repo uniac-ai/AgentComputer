@@ -11,10 +11,25 @@
       "types": "./dist/about.d.ts",
       "default": "./dist/about.js"
     },
+    "./client": {
+      "agentcomputer-source": "./src/client.ts",
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    },
+    "./computer": {
+      "agentcomputer-source": "./src/computer.ts",
+      "types": "./dist/computer.d.ts",
+      "default": "./dist/computer.js"
+    },
     "./files-live": {
       "agentcomputer-source": "./src/files-live.ts",
       "types": "./dist/files-live.d.ts",
       "default": "./dist/files-live.js"
+    },
+    "./inside": {
+      "agentcomputer-source": "./src/inside.ts",
+      "types": "./dist/inside.d.ts",
+      "default": "./dist/inside.js"
     },
     "./live": {
       "agentcomputer-source": "./src/live.ts",

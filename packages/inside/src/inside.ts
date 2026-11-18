@@ -7,14 +7,18 @@ import type { Duplex } from "node:stream";
 import { ApiError } from "@agentorg/computer-base/error";
 import { digestOf, privateFolder, sameToken } from "@agentorg/computer-base/store";
 import { VERSION } from "@agentorg/computer-base/version";
-import { PROTOCOLS, type Surface } from "@agentorg/computer-inside/live";
-import { type Access, ProcessRuntime } from "./runtime.ts";
+import type { components } from "@agentorg/computer-contract/schema";
+import {
+  INNER_PORT,
+  INNER_TOKEN_VARIABLE,
+  OUTSIDE_MACHINE_VARIABLE,
+  OUTSIDE_WORKSPACE_VARIABLE,
+} from "./client.ts";
+import { startComputer } from "./computer.ts";
+import { PROTOCOLS, type Surface } from "./live.ts";
 
-export const INNER_PORT = 8000;
-export const INNER_TOKEN_VARIABLE = "AGENTCOMPUTER_INNER_TOKEN";
-/** Where the workspace is outside, and the machine's own name there: what a person reads. */
-export const OUTSIDE_WORKSPACE_VARIABLE = "AGENTCOMPUTER_OUTSIDE_WORKSPACE";
-export const OUTSIDE_MACHINE_VARIABLE = "AGENTCOMPUTER_OUTSIDE_MACHINE";
+type Access = components["schemas"]["Access"];
+
 /** Where the image puts its browser. */
 const BROWSER = "/opt/browsers/headless-shell";
 
@@ -33,7 +37,7 @@ export async function serveInside({
   // What runs in here has no need of it.
   delete process.env[INNER_TOKEN_VARIABLE];
   const digest = digestOf(token);
-  const running = new ProcessRuntime({ path: BROWSER, sandbox: false, program }, true).start(
+  const running = startComputer(
     {
       id: "inside",
       ...options,
@@ -52,6 +56,7 @@ export async function serveInside({
         process.exit(1);
       },
     },
+    { browser: { path: BROWSER, sandbox: false, program }, contained: true },
   );
 
   const route = async (request: IncomingMessage, response: ServerResponse) => {

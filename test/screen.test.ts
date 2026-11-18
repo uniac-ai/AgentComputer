@@ -36,7 +36,7 @@ import {
 import { personCall, ScreenLive } from "@agentorg/computer-screen/screen-live";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { WebSocket } from "ws";
-import { ProcessRuntime } from "../src/runtime.ts";
+import { ThisComputer } from "../src/runtime.ts";
 
 type Sdk = typeof import("@agentorg/computer-sdk");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -68,14 +68,13 @@ esac
   };
   // A browser folder of its own, so that the machine's own browsers aren't read.
   const runtime = (program: string) =>
-    new ProcessRuntime(
+    new ThisComputer(
       // No computer is started here, so no browser, and the program is never run.
       { path: join(folder, "no-browser"), sandbox: false, program: [process.execPath] },
-      false,
       { program },
       join(folder, "browser-data"),
     );
-  const screen = async (from: ProcessRuntime) =>
+  const screen = async (from: ThisComputer) =>
     (await from.offer()).capabilities.find((one) => one.capability === "screen");
   t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   // The first read is the driver's answer, not that it is still being looked for.
