@@ -1,8 +1,9 @@
 name: Release
 
-# Publishes @agentorg/computer to npm through Trusted Publishing: npm trusts this workflow, in the `npm`
-# environment, by its OIDC identity, so no token is stored anywhere, and the package carries a
-# provenance statement linking it to this repository and commit.
+# Publishes @agentorg/computer, the program, and @agentorg/computer-sdk, its SDK alone, to npm through
+# Trusted Publishing: npm trusts this workflow, in the `npm` environment, by its OIDC identity, so no
+# token is stored anywhere, and each package carries a provenance statement linking it to this
+# repository and commit. Both are the tag's version, under the same npm tag.
 
 on:
   push:
@@ -41,13 +42,24 @@ jobs:
         run: |
           pip install -r packages/exec/requirements-test.txt
           npm test --workspace @agentorg/exec
-      - name: Check that the tag names the package's version
-        run: test "${GITHUB_REF_NAME#v}" = "$(node -p 'require("./package.json").version')"
-      # npm passes over publishConfig.tag in a tarball's package.json, so it is read here.
+      - name: Check that the tag names both packages' version
+        run: |
+          for package in . packages/sdk; do
+            test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./$package/package.json').version")"
+          done
+      # npm passes over publishConfig.tag in a tarball's package.json, so it is read here, and both
+      # packages must name the same one.
       - id: tag
-        run: echo "tag=$(node -p 'require("./package.json").publishConfig?.tag ?? "latest"')" >> "$GITHUB_OUTPUT"
-      - name: Pack
-        run: npm pack
+        run: |
+          tag="$(node -p 'require("./package.json").publishConfig?.tag ?? "latest"')"
+          test "$tag" = "$(node -p 'require("./packages/sdk/package.json").publishConfig?.tag ?? "latest"')"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Pack the program and the SDK
+        run: |
+          npm pack
+          npm pack --workspace @agentorg/computer-sdk
+          # The program's package exports the same SDK file as the SDK's own.
+          cmp dist/sdk.js packages/sdk/dist/sdk.js
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: package
@@ -113,5 +125,17 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      - name: Publish
-        run: npm publish agentorg-computer-*.tgz --access public --provenance --tag "${{ needs.build.outputs.tag }}"
+      # The program first, as before, then the SDK. If one fails, the job fails and the GitHub
+      # release waits. Run again, it publishes only what isn't on npm at this version yet.
+      - name: Publish the program, then the SDK
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for name in computer computer-sdk; do
+            if [ "$(npm view "@agentorg/$name@$version" version 2>/dev/null)" = "$version" ]; then
+              echo "@agentorg/$name@$version is on npm already."
+            else
+              npm publish "agentorg-$name-$version.tgz" --access public --provenance --tag "$TAG"
+            fi
+          done
