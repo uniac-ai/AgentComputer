@@ -8,6 +8,9 @@
     "url": "git+https://github.com/uniac-ai/AgentComputer.git"
   },
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "engines": {
     "node": ">=22.15"
   },
@@ -26,7 +29,7 @@
   },
   "scripts": {
     "generate": "node scripts/generate.js",
-    "build": "tsc -p tsconfig.json && node scripts/bundle.js",
+    "build": "npm run build --workspace @agentorg/exec && tsc -p tsconfig.json && node scripts/bundle.js",
     "check": "biome check .",
     "test": "npm run build && node --test --test-timeout=60000 \"out/test/**/*.test.js\""
   },

@@ -1,5 +1,7 @@
 # AgentExec
 
+Part of AgentComputer, and built into its program; it lives in AgentComputer's repository, in `packages/exec`, and is built and tested with it.
+
 A terminal and files for an agent: seven MCP tools, over stdio or Streamable HTTP. It has no telemetry, holds no credentials, and depends on nothing but Node 22.15 or later: the build is one file.
 
 ```sh
