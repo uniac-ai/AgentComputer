@@ -18,13 +18,22 @@ export const OUTSIDE_MACHINE_VARIABLE = "AGENTCOMPUTER_OUTSIDE_MACHINE";
 /** Where the image puts its browser. */
 const BROWSER = "/opt/browsers/headless-shell";
 
-export async function serveInside(options: { access: Access; browser: boolean; name: string }) {
+export async function serveInside({
+  program,
+  ...options
+}: {
+  access: Access;
+  browser: boolean;
+  name: string;
+  /** How the program is run, which runs the browser. */
+  program: readonly string[];
+}) {
   const token = process.env[INNER_TOKEN_VARIABLE];
   if (!token) throw new Error(`${INNER_TOKEN_VARIABLE} is not set.`);
   // What runs in here has no need of it.
   delete process.env[INNER_TOKEN_VARIABLE];
   const digest = digestOf(token);
-  const running = new ProcessRuntime({ path: BROWSER, sandbox: false }, true).start(
+  const running = new ProcessRuntime({ path: BROWSER, sandbox: false, program }, true).start(
     {
       id: "inside",
       ...options,
