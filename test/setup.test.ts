@@ -128,6 +128,9 @@ const needsOf = async (setup: Setup, capability: string) =>
 const readyOf = async (setup: Setup, capability: string) =>
   (await partOf(setup, capability))?.ready;
 
+/** Where the app that lends a Mac has the person set up its parts, as it tells the service. */
+const SETUP_IN = "AgentOrg: its icon in the menu bar, Agent Control…";
+
 const all = (switches: Switches) =>
   (["terminal", "files", "screen", "browser"] as const).map((one) => switches.on(one));
 
@@ -142,6 +145,16 @@ test("every switch is off where the service only lends, on elsewhere, and only t
   assert.deepEqual(all(new Switches(folder, true)), [false, false, true, false]);
   lent.set("files", false);
   assert.deepEqual(all(new Switches(folder, false)), [true, false, true, true]);
+  // Told where the app hosting it sets the parts up, it says where each is switched on.
+  const hosted = new Switches(folder, true, SETUP_IN);
+  assert.equal(
+    hosted.refused("files"),
+    `The person turned off the files for agents on ${where}. It is switched on in AgentOrg: its icon in the menu bar, Agent Control…, Files.`,
+  );
+  assert.equal(
+    hosted.refused("browser"),
+    `The person turned off their own browser for agents on ${where}. It is switched on in AgentOrg: its icon in the menu bar, Agent Control…, Your browser.`,
+  );
 });
 
 test("switches that can't be read are every one off", (t) => {
@@ -681,6 +694,9 @@ test("a part switched off isn't ready, and its tools refuse, until the person tu
       join(home, "none"),
       "--own-browser-data",
       join(home, "browser"),
+      // Where the app hosting it has the person switch each part on, as the refusals say.
+      "--setup-in",
+      SETUP_IN,
       ...(BROWSER ? ["--browser-name", "chromium", "--browser-path", BROWSER] : []),
     ],
     { env: { PATH: process.env.PATH ?? "", HOME: home }, stdio: ["ignore", "pipe", "inherit"] },
@@ -699,7 +715,14 @@ test("a part switched off isn't ready, and its tools refuse, until the person tu
   const { Computer } = (await import(pathToFileURL(join(root, "dist", "sdk.js")).href)) as Sdk;
   const to = { apiUrl, apiKey: readFileSync(join(data, "control-token"), "utf8").trim() };
   const headers = { Authorization: `Bearer ${to.apiKey}`, "Content-Type": "application/json" };
-  const off = (what: string) => `The person turned off ${what} for agents on ${where}.`;
+  const PART: Record<string, string> = {
+    "the terminal": "Terminal",
+    "the files": "Files",
+    "the screen": "Screen",
+    "their own browser": "Your browser",
+  };
+  const off = (what: string) =>
+    `The person turned off ${what} for agents on ${where}. It is switched on in ${SETUP_IN}, ${PART[what]}.`;
 
   const setup = (await (await fetch(`${apiUrl}/v1/setup`, { headers })).json()) as {
     capabilities: { capability: string; on: boolean }[];

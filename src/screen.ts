@@ -141,7 +141,7 @@ export function onlyGrantsMissing({
  * the driver read them.
  */
 export async function screenCheck(
-  given?: Partial<DriverAt>,
+  given?: Partial<DriverAt> & { setupIn?: string | undefined },
   platform = process.platform,
 ): Promise<{ readiness: Readiness; driver?: DriverAt; grants?: Grants }> {
   const driver = findDriver(given);
@@ -188,11 +188,14 @@ export async function screenCheck(
   // An app that hosts the driver asks for its grants itself, from its own setup: System Settings
   // lists nothing for it until then, so the person is sent to the app, by its name.
   const host = hosted ? await hostName(driver.program) : undefined;
+  // Where the app hosting the service said where its setup is, the way there.
   const where = !hosted
     ? "Grant it in System Settings, under Privacy & Security."
-    : host
-      ? `Set it up in ${host}.`
-      : "Set it up in that app.";
+    : given?.setupIn
+      ? `Set it up in ${given.setupIn}, Screen, Set up.`
+      : host
+        ? `Set it up in ${host}.`
+        : "Set it up in that app.";
   const reason = `Screen Recording and Accessibility are needed, and ${host ?? who} is missing ${missing.join(" and ")}. ${where}`;
   return { readiness: { ready: false, reason }, driver, grants };
 }

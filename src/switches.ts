@@ -41,6 +41,13 @@ const WHAT: Record<Switch, string> = {
   screen: "the screen",
   browser: "their own browser",
 };
+/** Each part as the app's setup names it, where the service is told where that is. */
+const PART: Record<Switch, string> = {
+  terminal: "Terminal",
+  files: "Files",
+  screen: "Screen",
+  browser: "Your browser",
+};
 
 export class Switches {
   /** The service's own folder, where they are kept. */
@@ -49,12 +56,17 @@ export class Switches {
   readonly #lend: boolean;
   /** Only those the person set: the rest take the default of the way the service was started. */
   readonly #set: Partial<Record<Switch, boolean>>;
+  readonly #setupIn: string | undefined;
 
-  /** `folder` is the service's own; `lend`, whether it only lends its machine. */
-  constructor(folder: string, lend: boolean) {
+  /**
+   * `folder` is the service's own; `lend`, whether it only lends its machine; `setupIn`, where the
+   * person switches each part, as the app hosting the service names it (`serve --setup-in`).
+   */
+  constructor(folder: string, lend: boolean, setupIn?: string) {
     this.folder = folder;
     this.#file = join(folder, "switches.json");
     this.#lend = lend;
+    this.#setupIn = setupIn;
     this.#set = existsSync(this.#file) ? kept(this.#file) : {};
   }
 
@@ -73,12 +85,16 @@ export class Switches {
   }
 
   /**
-   * Why an agent can't use it now: that the person turned it off. This is the one place a switch
-   * keeps agents out; everything that refuses asks it.
+   * Why an agent can't use it now: that the person turned it off, and, where the app hosting the
+   * service said where its setup is, where it is switched on. This is the one place a switch keeps
+   * agents out; everything that refuses asks it.
    */
   refused(which: Switch): string | undefined {
     if (this.on(which)) return undefined;
     const where = process.platform === "darwin" ? "this Mac" : "this machine";
-    return `The person turned off ${WHAT[which]} for agents on ${where}.`;
+    const turnedOff = `The person turned off ${WHAT[which]} for agents on ${where}.`;
+    return this.#setupIn
+      ? `${turnedOff} It is switched on in ${this.#setupIn}, ${PART[which]}.`
+      : turnedOff;
   }
 }
