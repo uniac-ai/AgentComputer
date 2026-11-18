@@ -1,6 +1,6 @@
 {
   "name": "@agentorg/computer",
-  "version": "0.0.36",
+  "version": "0.0.37",
   "description": "Computers for agents, as a service: a terminal, files and a browser over MCP",
   "license": "Apache-2.0",
   "repository": {
@@ -44,7 +44,7 @@
     "@agentorg/computer-inside": "0.0.0",
     "@agentorg/computer-provider": "0.0.0",
     "@agentorg/computer-screen": "0.0.0",
-    "@agentorg/computer-sdk": "0.0.36",
+    "@agentorg/computer-sdk": "0.0.37",
     "@agentorg/computer-this-computer": "0.0.0",
     "@agentorg/exec": "0.0.11",
     "@biomejs/biome": "2.6.5",
