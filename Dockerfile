@@ -2,12 +2,13 @@
 # computer. Run `npm run build` first; this copies what that made.
 FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS modules
 
-# node-pty, for the terminal, compiles here, so the toolchain stays out of the image.
+# node-pty, for the terminal, compiles here, so the toolchain stays out of the image. Only the
+# program's own dependencies: the repository's packages are built into dist, not installed.
 WORKDIR /opt/agentcomputer
 COPY package.json package-lock.json ./
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
-  && npm ci --omit=dev
+  && npm ci --omit=dev --workspaces=false
 
 FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
 

@@ -1,2 +1,7 @@
 AgentComputer
 Copyright 2026 AgentComputer contributors
+
+It includes AgentExec, in packages/exec, whose exec_command and write_stdin
+tools follow the behaviour and parameters of OpenAI Codex
+(https://github.com/openai/codex), Copyright 2025 OpenAI, licensed under the
+Apache License, Version 2.0. That code is a separate implementation.

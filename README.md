@@ -1,6 +1,6 @@
 # AgentComputer
 
-Computers for agents, as a service. Each computer is a working folder, a terminal and files from [AgentExec](https://github.com/uniac-ai/AgentExec) at a level you choose, and a browser from Playwright MCP if you ask for one. It is this computer, the machine the service runs on, attached whole, or one made in a container of its own. Any MCP client can use them.
+Computers for agents, as a service. Each computer is a working folder, a terminal and files from [AgentExec](packages/exec) at a level you choose, and a browser from Playwright MCP if you ask for one. It is this computer, the machine the service runs on, attached whole, or one made in a container of its own. Any MCP client can use them.
 
 ```sh
 npm install -g @agentorg/computer
@@ -198,7 +198,7 @@ A computer in a container:
 - **The last three** are a reading of its load taken over half a second when it is asked, in the same way the `load` surface reads. They come together, or not at all where a reading can't be taken.
 - **Not every computer has it.** One with no `computer` endpoint has no `about`.
 
-A client that calls a computer's tools can put the commands it starts in a group, and stop them together. At `--access terminal` it sends a word as `agentexec/group` in the `_meta` of an `exec_command` call, and the request `agentexec/group/stop` with `{"group": "<word>"}` on the `computer` endpoint, which ends every running command of that group and answers `{"stopped": <how many>}`. Giving up a call does not stop its command; only that request does. A shell a person opened is in no group. This is AgentExec's, described in [its README](https://github.com/uniac-ai/AgentExec#sessions), and the service passes both through, on this computer and in a container.
+A client that calls a computer's tools can put the commands it starts in a group, and stop them together. At `--access terminal` it sends a word as `agentexec/group` in the `_meta` of an `exec_command` call, and the request `agentexec/group/stop` with `{"group": "<word>"}` on the `computer` endpoint, which ends every running command of that group and answers `{"stopped": <how many>}`. Giving up a call does not stop its command; only that request does. A shell a person opened is in no group. This is AgentExec's, described in [its README](packages/exec/README.md#sessions), and the service passes both through, on this computer and in a container.
 
 In a container the file tools stay inside the workspace, which is a check and not a boundary: the container is the boundary. On this computer they reach the whole machine. A path the agent gives as `~` or `~/…` is in the home of the account they run as, which in a container is outside the workspace. Below `terminal`, the browser's `browser_run_code_unsafe` tool is hidden and refused, because it would otherwise be a terminal. The browser's endpoint takes one JSON-RPC request in each POST, as a JSON object, and refuses anything else with 400, a batch among them: it checks each request before passing it on, and passes on only what it read. A file a browser call names, such as a snapshot's `filename`, is in the computer's folder, whatever roots the client gives. The service enforces all of this, whatever the client does.
 
