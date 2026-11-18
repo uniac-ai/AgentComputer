@@ -7,11 +7,11 @@ import { isMainThread } from "node:worker_threads";
 import { VERSION } from "@agentorg/computer-base/version";
 import { CONNECT_VARIABLE, hostBrowser } from "@agentorg/computer-browser/browser-host";
 import { serveBrowserMcp } from "@agentorg/computer-browser/browser-mcp";
+import { serveInside } from "@agentorg/computer-inside/inside";
 import { Computer, type CreateOpts, type LiveMode, type LiveSurface } from "@agentorg/computer-sdk";
 import { ContainerRuntime } from "./container.ts";
-import { serveInside } from "./inside.ts";
 import { down, recorded, running, up } from "./running.ts";
-import { ProcessRuntime } from "./runtime.ts";
+import { ThisComputer } from "./runtime.ts";
 import { serve } from "./service.ts";
 import { Setup } from "./setup.ts";
 import { Switches } from "./switches.ts";
@@ -196,9 +196,8 @@ async function main() {
       allowOrigins: values["allow-origin"],
       setup: new Setup(switches, screenDriver, values["own-browser-data"]),
       runtimes: {
-        none: new ProcessRuntime(
+        none: new ThisComputer(
           { browser: values["browser-name"], path: values["browser-path"], program: PROGRAM },
-          false,
           screenDriver,
           values["own-browser-data"],
           switches,

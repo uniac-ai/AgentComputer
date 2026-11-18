@@ -5,7 +5,6 @@
 // The program's own `src` has no rule yet: it is still the provider, the kinds and the inside in
 // one. Until those are packages, the table's limits on them aren't held here. These edges the
 // table forbids are in the code today:
-// - `src/container.ts`, the containers kind, imports the browser;
 // - `src/computers.ts`, the provider, imports the screen;
 // - the provider tells the kinds apart by name, and imports this computer's setup, connection and
 //   acting.

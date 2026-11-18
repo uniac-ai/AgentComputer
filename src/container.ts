@@ -5,42 +5,29 @@
 
 import { execFile, spawn } from "node:child_process";
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
-import type { IncomingMessage, ServerResponse } from "node:http";
-import { connect } from "node:net";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { type Duplex, Readable } from "node:stream";
 import { promisify } from "node:util";
 import { ApiError } from "@agentorg/computer-base/error";
-import { sendAnswer } from "@agentorg/computer-base/http";
 import { newToken, writePrivate } from "@agentorg/computer-base/store";
-import type { components } from "@agentorg/computer-contract/schema";
-import { ImageFetch } from "./image-fetch.ts";
 import {
+  askReady,
+  forward,
   INNER_PORT,
   INNER_TOKEN_VARIABLE,
   OUTSIDE_MACHINE_VARIABLE,
   OUTSIDE_WORKSPACE_VARIABLE,
-} from "./inside.ts";
+  pipeUpgrade,
+  type Ready,
+} from "@agentorg/computer-inside/client";
+import { ImageFetch } from "./image-fetch.ts";
 import type { ComputerSpec, Offer, Running, Runtime, RuntimeEvents } from "./runtime.ts";
-
-type SurfaceInfo = components["schemas"]["SurfaceInfo"];
 
 const run = promisify(execFile);
 const START_MS = 60_000;
 const STOP_SECONDS = "5";
 const NO_DOCKER = "A container needs Docker, which isn't answering on this machine.";
-/** Not passed on: they describe this hop, or carry the client's token. */
-const NOT_FORWARDED = new Set([
-  "authorization",
-  "connection",
-  "content-length",
-  "host",
-  "keep-alive",
-  "transfer-encoding",
-  "upgrade",
-]);
 
 async function docker(args: string[], env: NodeJS.ProcessEnv = process.env) {
   try {
@@ -50,15 +37,6 @@ async function docker(args: string[], env: NodeJS.ProcessEnv = process.env) {
     throw new Error(stderr?.trim() || message);
   }
 }
-
-const UPGRADE_HEADERS = [
-  "upgrade",
-  "connection",
-  "sec-websocket-key",
-  "sec-websocket-version",
-  "sec-websocket-extensions",
-  "sec-websocket-protocol",
-];
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const nameOf = (id: string) => `agentcomputer-${id}`;
@@ -75,13 +53,6 @@ async function dockerSocket() {
       () => "",
     ));
   return host.startsWith("unix://") ? host.slice("unix://".length) : undefined;
-}
-
-interface Ready {
-  browserTools: string[];
-  surfaces: SurfaceInfo[];
-  /** The program's version inside, which one made before 0.0.17 doesn't say. */
-  version?: string;
 }
 
 interface Inspected {
@@ -358,16 +329,9 @@ export class ContainerRuntime implements Runtime {
       },
       stop,
       openLive: async (surface, mode, request, socket, head) =>
-        pipeUpgrade(
-          Number(port),
-          authorization,
-          `/live/${surface}?mode=${mode}`,
-          request,
-          socket,
-          head,
-        ),
+        pipeUpgrade(Number(port), authorization, surface, mode, request, socket, head),
       handle: async (endpoint, request, response) =>
-        forward(`${origin}/mcp/${endpoint}`, authorization, request, response),
+        forward(origin, endpoint, authorization, request, response),
     };
   }
 
@@ -376,11 +340,8 @@ export class ContainerRuntime implements Runtime {
     const deadline = Date.now() + START_MS;
     while (Date.now() < deadline && !ended()) {
       try {
-        const answer = await fetch(`${origin}/ready`, {
-          headers: { Authorization: authorization },
-          signal: AbortSignal.timeout(START_MS),
-        });
-        if (answer.ok) return (await answer.json()) as Ready;
+        const ready = await askReady(origin, authorization, START_MS);
+        if (ready) return ready;
       } catch {
         // Not listening yet.
       }
@@ -399,59 +360,4 @@ export class ContainerRuntime implements Runtime {
     await this.#docker();
     await docker(["rm", "--force", nameOf(id)]).catch(() => {});
   }
-}
-
-/** Pass a WebSocket upgrade to what's inside, then the bytes both ways. */
-async function pipeUpgrade(
-  port: number,
-  authorization: string,
-  path: string,
-  request: IncomingMessage,
-  socket: Duplex,
-  head: Buffer,
-) {
-  const upstream = connect(port, "127.0.0.1");
-  upstream.on("error", () => socket.destroy());
-  socket.on("error", () => upstream.destroy());
-  upstream.on("close", () => socket.destroy());
-  socket.on("close", () => upstream.destroy());
-  const lines = [
-    `GET ${path} HTTP/1.1`,
-    `Host: 127.0.0.1:${port}`,
-    `Authorization: ${authorization}`,
-  ];
-  for (const name of UPGRADE_HEADERS) {
-    const value = request.headers[name];
-    if (typeof value === "string") lines.push(`${name}: ${value}`);
-  }
-  upstream.write(`${lines.join("\r\n")}\r\n\r\n`);
-  if (head.length > 0) upstream.write(head);
-  upstream.pipe(socket);
-  socket.pipe(upstream);
-}
-
-async function forward(
-  url: string,
-  authorization: string,
-  request: IncomingMessage,
-  response: ServerResponse,
-) {
-  const headers = new Headers({ authorization });
-  for (const [name, value] of Object.entries(request.headers))
-    if (typeof value === "string" && !NOT_FORWARDED.has(name)) headers.set(name, value);
-  const hasBody = request.method !== "GET" && request.method !== "HEAD";
-  const aborted = new AbortController();
-  response.once("close", () => aborted.abort());
-  let upstream: Response;
-  try {
-    upstream = await fetch(url, {
-      method: request.method as string,
-      headers,
-      signal: aborted.signal,
-      ...(hasBody ? { body: Readable.toWeb(request) as never, duplex: "half" as const } : {}),
-    } as RequestInit);
-  } catch {
-    throw new ApiError(502, "It has stopped working.");
-  }
-  sendAnswer(upstream, response);
 }
