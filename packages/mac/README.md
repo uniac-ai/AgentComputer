@@ -31,6 +31,8 @@ Its version is the program's: `tauri.conf.json` takes it from this repository's 
 
 The page calls the app's commands through what Tauri gives it (`withGlobalTauri`), in [`../mac-window/src/tauri.ts`](../mac-window/src/tauri.ts). Each command reads the service on this Mac from the record the service leaves while it runs, in its data folder, `~/Library/Application Support/AgentOrg/computer`. Its address is in `server.json`, and its control token in `control-token`. The token stays in the app; the page never sees it.
 
+Four things in the page are copies of AgentOrg's shell, kept in step by hand: its button, its switch, its dark tokens and its agents' face colours. [The page's README](../mac-window/README.md#copies-of-the-shell) says which files and from where.
+
 | Command                       | What it answers                                                                         |
 | ----------------------------- | --------------------------------------------------------------------------------------- |
 | `setup`                       | the service's `GET /v1/setup`                                                           |

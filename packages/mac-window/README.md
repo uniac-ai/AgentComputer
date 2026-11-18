@@ -39,3 +39,14 @@ Outside the app, the page runs on a stand-in, [src/stand-in.ts](src/stand-in.ts)
 A switch asks for nothing the person would see. A row's Set up acts as if the person allowed what it brings: a browser a moment later reads on; a grant reads granted, and the app starts the driver again for a moment. Open Login Items acts as if the person allowed AgentOrg there.
 
 `npm test` runs its tests in a browser against the stand-in.
+
+## Copies of the shell
+
+Four things in the page are copies of AgentOrg's shell, [`packages/shell`](https://github.com/uniac-ai/AgentOrg/tree/main/packages/shell) in the AgentOrg repository. Nothing keeps them in step: a change in the shell is copied here by hand.
+
+| Here                                                                | Copied from, in `packages/shell`                                                                                                   |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `src/ui/button.tsx`                                                 | `src/ui/button.tsx`, byte for byte                                                                                                 |
+| `src/ui/switch.tsx`                                                 | `src/ui/switch.tsx`, byte for byte                                                                                                 |
+| the dark tokens in `src/styles.css`'s `:root`                       | the dark `:root` block of `static/app.css`, with `--line-strong`, `--secondary` and `--foreground` from `src/styles.css`'s `:root` |
+| the face colours in `src/window.tsx`: `hueOf` and `Face`'s gradient | `hueOf` and `tintOf` in `src/fixed/face.tsx`                                                                                       |
