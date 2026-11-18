@@ -309,7 +309,7 @@ await computer.kill();
 
 It reads the control token from `AGENTCOMPUTER_API_KEY` and the address from `AGENTCOMPUTER_API_URL`, or takes `apiKey` and `apiUrl` as options. `computer.getMcpUrl("browser")` and `computer.getMcpToken()` give an MCP client what it needs, and `Computer.connect(id, { accessToken })` picks up a computer made earlier.
 
-Its source is [`packages/sdk`](packages/sdk), bundled into one file with no dependencies.
+Its source is [`packages/sdk`](packages/sdk), bundled into one file with no dependencies. It is also published alone, as `@agentorg/computer-sdk`, at the same version: `npm install @agentorg/computer-sdk@next` gives the SDK without the program.
 
 `files.write` makes a new file or fills an empty one; `files.edit` changes one that has content. `files.read` returns the whole text, or fails if a line is longer than the tool can return. The file calls return the tool's answer alone, without the line on who else just acted there. They count as the agent's calls, so that line isn't given again on the agent's next one.
 
