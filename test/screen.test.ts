@@ -181,6 +181,17 @@ esac
     ready: false,
     reason: `Screen Recording and Accessibility are needed, and ${name} is missing Accessibility. Set it up in ${name}.`,
   });
+  // Told where the app has the person set it up, the way there, to the grant's own button.
+  const setupIn = "AgentOrg: its icon in the menu bar, Agent Control…";
+  assert.deepEqual((await screenCheck({ program: inApp, socket, setupIn }, "darwin")).readiness, {
+    ready: false,
+    reason: `Screen Recording and Accessibility are needed, and ${name} is missing Accessibility. Set it up in AgentOrg: its icon in the menu bar, Agent Control…, Screen, Set up.`,
+  });
+  // The person's own Cua Driver, not hosted, is still sent to System Settings.
+  assert.match(
+    (await screenCheck({ program: inApp, setupIn }, "darwin")).readiness.reason ?? "",
+    /Grant it in System Settings, under Privacy & Security\.$/,
+  );
   // Hosted by an app it isn't inside: that app, unnamed.
   const loose = driver(join(folder, "loose", "cua-driver"));
   assert.deepEqual((await screenCheck({ program: loose, socket }, "darwin")).readiness, {

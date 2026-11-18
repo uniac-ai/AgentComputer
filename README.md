@@ -63,9 +63,14 @@ This computer:
   - The app runs `cua-driver serve --embedded --socket PATH` itself. The service, started with `serve --screen-driver DRIVER --screen-socket PATH`, where DRIVER is the driver inside the app, reaches it there through `cua-driver mcp --embedded`.
   - The grants are read from that driver, and listed under the outermost app the driver is inside.
   - While one is missing, the screen's reason sends the person to that app by its name, "Set it up in AgentOrg.", rather than to System Settings, which lists an app there only once it has asked.
+  - **`serve --setup-in TEXT`** is where the app hosting the service has the person set up this machine's parts, in the app's own words, such as "AgentOrg: its icon in the menu bar, Agent Control…". The service then names the way there, ending with the part: a missing grant's reason ends "Set it up in AgentOrg: its icon in the menu bar, Agent Control…, Screen, Set up.", and a part switched off adds "It is switched on in AgentOrg: its icon in the menu bar, Agent Control…, Screen." (Terminal, Files, Your browser). The service knows nothing of the app's menus but this text. Without it, the words are as before.
   - Asked for, they are asked for by the app: the service opens it through the system with `--args grant` and the grant to ask for, `screen-recording` or `accessibility`. The app's `grant` shows nothing of its own, no window and no Dock tile, since the switch opens it for Screen Recording's request, which shows nothing.
   - Once a grant changes, the app restarts its driver, which reads grants once. A computer's connection to the driver ends with it, and its screen connects again at its next call: the computer runs on. The driver reads a point against the last picture its connection took, so after such a connection is made again, `act` aimed at a point is refused, saying so, until the screen is seen again.
 - **What the service starts of Cua Driver sends no telemetry and checks for no updates,** so no update notice reaches a computer's log. The person's own Cua Driver app follows its own settings: `cua-driver telemetry disable` turns its telemetry off.
+
+**Upgrading from 0.0.29:**
+
+- **`serve --setup-in TEXT`, new and optional:** where the app hosting the service has the person set up this machine's parts. Given, a missing grant's reason, where an app hosts Cua Driver, ends with the way there in place of "Set it up in AgentOrg.", and a part switched off adds where it is switched on. Not given, the words are as in 0.0.29. Nothing in the HTTP contract changes.
 
 **Upgrading from 0.0.28:**
 
@@ -264,7 +269,7 @@ These take the control token, kept in the data folder. A computer's own endpoint
 
 - **A client that relies on the service can hold a connection to it:** a WebSocket at `/v1/connection?name=NAME`, with the control token in its `Authorization` header. Nothing is sent either way; the service pings, and drops one that stops answering. `GET /v1/connection` says who holds one: `{ "connected": true, "clients": [{ "name", "since", "local" }] }`, where `name` is its first 100 characters and `local` is whether it connects from the service's machine, false behind `--tls-proxy`.
 - **The person's switches.** Each part of this computer an agent can use (`terminal`, `files`, `screen`, and `browser`, the person's own) has the person's own switch.
-  - Off, agents' new calls to that part refuse with "The person turned off the screen for agents on this Mac" (or "this machine" off macOS), `info` says the same, and attaching with the screen or the person's browser is refused with 409. What an agent already started, such as a command, runs on.
+  - Off, agents' new calls to that part refuse with "The person turned off the screen for agents on this Mac" (or "this machine" off macOS), followed, with `serve --setup-in`, by where it is switched on, `info` says the same, and attaching with the screen or the person's browser is refused with 409. What an agent already started, such as a command, runs on.
   - The terminal and the screen each reach the whole machine: with the terminal on, commands read and change any file, whatever the files' switch; with the screen on, the agent acts in any app.
   - So the switches tell an agent what it may use; they don't stop it. With the terminal, the files or the screen on, an agent acts as the person and can read the service's control token in its data folder, like any file of theirs; with the terminal or the screen, it can use it to set the other switches.
   - Any browser's calls that reach the machine answer to its switches too: `browser_run_code_unsafe` to the terminal's, and a call that names files, by `paths` or `filename`, to the files'.
