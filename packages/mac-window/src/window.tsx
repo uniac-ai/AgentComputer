@@ -90,7 +90,7 @@ const lent = (computers: Computer[]) =>
     .join(", ");
 
 /** The grants seen granted, kept so that one turned off later reads as turned off, not never granted. */
-const KEPT = "agentorg.mac.granted";
+const KEPT = `${BRAND.identifier}.granted`;
 const keptGrants = (): Set<string> => {
   try {
     return new Set(JSON.parse(localStorage.getItem(KEPT) ?? "[]") as string[]);
@@ -271,7 +271,7 @@ const Header = () => (
     className="sticky top-0 z-10 flex h-9 shrink-0 items-center justify-center bg-[rgb(25,25,25)]"
   >
     <span data-tauri-drag-region className="text-[13px] font-medium text-muted-foreground">
-      AgentOrg
+      {BRAND.name}
     </span>
   </header>
 );
@@ -447,12 +447,12 @@ export function Window({ mac }: { mac: Mac }) {
       : "";
   const title =
     phase === "connected"
-      ? "Connected to AgentOrg"
+      ? `Connected to ${BRAND.client}`
       : phase === "off"
         ? "Not allowed in the background"
         : phase === "restarting"
           ? "Starting again"
-          : "Waiting for AgentOrg to connect";
+          : `Waiting for ${BRAND.client} to connect`;
   const holder = grants.find((n) => n.holder)?.holder;
 
   return (
@@ -492,7 +492,7 @@ export function Window({ mac }: { mac: Mac }) {
           )}
         </div>
         <div className="flex flex-col gap-2.5">
-          <h2 className="text-[14px] font-medium">Agent Control</h2>
+          <h2 className="text-[14px] font-medium">{BRAND.controls.heading}</h2>
           <Card
             icon={TerminalIcon}
             title="Terminal"

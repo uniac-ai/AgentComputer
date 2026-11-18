@@ -8,7 +8,24 @@ The AgentOrg Mac app, `AgentOrg.app`, built with Tauri. Its one program runs the
 - **Register** (`register`), as the line that installs AgentOrg runs it once after putting the app in place: it registers the background item with no window, so the provider starts the driver, the service and the menu-bar item, and the dashboard stays the person's one first screen. It says where the item then stands, and exits 0 where it is on, 2 where it waits for the person's approval in Login Items, and 1 otherwise. macOS shows its "Background Items Added" notice once.
 - **Unregister** (`unregister`), and **uninstall** (`uninstall [--reset-privacy]`), as a person removing the app runs them: see [Removing it](#removing-it).
 
-Its version is the release's: `tauri.conf.json` takes it from `@agentorg/cli`'s `package.json`, which each release sets, so the app and the core installed together say the same number. Its identifier is `ai.uniac.agentorg`, and its background item's label `ai.uniac.agentorg.provider`. An identifier isn't changed once the app is out: macOS keeps the app's grants, its background item and what it keeps for the app under it.
+Its version is the program's: `tauri.conf.json` takes it from this repository's root `package.json`, so the app and the service it carries say the same number. Its identifier is `ai.uniac.agentorg`, and its background item's label `ai.uniac.agentorg.provider`. An identifier isn't changed once the app is out: macOS keeps the app's grants, its background item and what it keeps for the app under it.
+
+**The brand,** in [`brand.json`](brand.json), is what the app is built under, and the one place in its code that names a client:
+
+| Field        | What it names                                                                                                                                  |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`       | the app, its program, its window's title, its menu's heading and its quit entries, its log file                                                |
+| `identifier` | the bundle; the background item's label (`<identifier>.provider`); the agents' pointer (`<identifier>.pointer`)                                |
+| `icon`       | the bundle's icon files, in `src-tauri/icons`                                                                                                  |
+| `dataFolder` | `~/Library/Application Support/<dataFolder>` and `~/Library/Logs/<dataFolder>`; a client finds the service's record in `<dataFolder>/computer` |
+| `client`     | what the app is connected to: "Connected to …", "Waiting for … to connect"                                                                     |
+| `open`       | the menu's entry that opens the client's dashboard, its label, and the launcher and arguments it runs (`~/` is the person's home)              |
+| `setupIn`    | where the person sets this Mac up, which the service's refusals name (`serve --setup-in`)                                                      |
+| `controls`   | the window's heading over the parts, and the menu's entry that opens the window                                                                |
+
+- **The Rust** reads it at build time (`src-tauri/build.rs`), as constants.
+- **The window's page** reads it at its build (`../mac-window/scripts/build.js`).
+- **`tauri.conf.json` and `src-tauri/provider.plist`,** which Tauri and macOS read themselves, carry the same values. `test/brand.test.mjs` checks that they agree, and that no string in the app's code, its page or their scripts names the brand.
 
 ## The window
 
@@ -101,7 +118,7 @@ Login Items may still list an "AgentOrg" entry, switched off. macOS offers no wa
 
 ## Building it
 
-It needs Xcode and Rust. `npm run app --workspace @agentorg/mac` assembles what the app carries, builds the page, then builds `src-tauri/target/release/bundle/macos/AgentOrg.app`, signed ad hoc. `npm run dev --workspace @agentorg/mac` runs the window against the page's dev server, without the assembly. Cargo's downloads and build output can stay in this folder: set `CARGO_HOME` to `src-tauri/target/cargo-home`. Neither is checked in.
+It needs Xcode and Rust. `npm run app --workspace @agentorg/mac` builds this repository's program, assembles what the app carries, builds the page, then builds `src-tauri/target/release/bundle/macos/<name>.app`, `<name>` as the brand names it, signed ad hoc. `npm run dev --workspace @agentorg/mac` runs the window against the page's dev server, without the assembly. Cargo's downloads and build output can stay in this folder: set `CARGO_HOME` to `src-tauri/target/cargo-home`. Neither is checked in.
 
 **The assembly,** `scripts/assemble.mjs`, makes `src-tauri/target/assembly/bundle`, which the bundle takes its files from (`bundle.macOS.files`). They aren't Tauri's sidecars, though `node` sits where sidecars do: Tauri copies sidecars when the Rust is compiled, so every `cargo build` and `cargo test` would need the fetched files. The bundle copies these as they are and signs none of them, so the assembly signs them.
 
@@ -111,10 +128,17 @@ It needs Xcode and Rust. `npm run app --workspace @agentorg/mac` assembles what 
   - Of each, only the files `assembly.json` names, by their path in the release, each a file of its own: `node` and its `LICENSE`; the bare `cua-driver`, its `LICENSE` and its `THIRD_PARTY_NOTICES.md`. Not the program inside its `CuaDriver.app`, whose entitlements are tied to its makers' Team ID, and which macOS refuses once it is signed as ours.
   - The driver release's theme compiler, `cua-cursor-theme`, builds the agents' pointer from its source, made by [`scripts/cursor-theme.mjs`](scripts/cursor-theme.mjs), into `Resources/cursor-themes`. It checks the source in full as it builds. The compiler itself isn't carried.
   - `fetched.json` beside them says what was fetched: each file's name, address, size and sha256.
-- **The service,** `@agentorg/computer` at the version this package depends on, from the workspace's install, which its lockfile checked. Its `package.json`, `LICENSE`, `NOTICE`, `dist/agentcomputer.js` and `dist/THIRD_PARTY_LICENSES.txt`; its own `playwright-core`, whole; and `node-pty`'s `package.json`, `LICENSE`, `lib` and native files for Apple silicon. Each package must be the version the service names, or the build stops.
+- **The service** is this repository's own program, as `npm run build` at the repository's root makes it. Its `dist/agentcomputer.js` must answer `--version` with the version the root `package.json` carries, or the build stops. It takes:
+  - from the root: `package.json`, `LICENSE`, `NOTICE`, `dist/agentcomputer.js` and `dist/THIRD_PARTY_LICENSES.txt`;
+  - from the repository's install, which its lockfile checked: `playwright-core`, whole, and `node-pty`'s `package.json`, `LICENSE`, `lib` and native files for Apple silicon, each at the version the root `package.json` names, or the build stops.
 - **Signed:** `node`, `cua-driver` and `node-pty`'s two native files are marked executable where they are programs, and signed with the app's identity before the bundle around them. Their entitlements are those in `entitlements/`: for `node`, JIT and its own unsigned native code; for `cua-driver`, Apple Events only, which it needs to run a menu item through a background app's scripting interface once that app's Automation consent is given (see the provider). The driver's own signature also asks for `com.apple.security.device.screen-capture`, which isn't an entitlement macOS defines for the hardened runtime: Screen Recording is a grant. So it is left out. That identity is `APPLE_SIGNING_IDENTITY` where it's set, otherwise `tauri.conf.json`'s.
 - **In the bundle:** `node` in `Contents/MacOS`, `cua-driver` in `Contents/Resources`. The service in `Contents/Resources/agentcomputer`, with its own licences (`LICENSE`, `NOTICE`, `dist/THIRD_PARTY_LICENSES.txt`). Node's and the driver's licences in `Contents/Resources/licenses`.
 
 **The icon.** Its masters are in `src-tauri/icons`: `icon-1024.png`, the picture at 1024 px, with its margins and shadow, and `icon.svg`, the same icon as vectors. `icon.icns`, which the bundle carries, holds every size from 16 to 1024 px, each the picture scaled down, never redrawn: `sips -z <size> <size> icon-1024.png` for each of an iconset's files, then `iconutil -c icns`. `icon.png`, the picture at 128 px, is the PNG Tauri's build needs, embedded as the window's own icon, which macOS doesn't draw; under `npm run dev` the Dock icon comes from `icon.icns`. The SVG's surface comes from filters that renderers draw differently, so a size is made from it only where its rendering matches the picture.
 
-`cargo test` in `src-tauri` runs the app's own tests: the provider is run there against stand-ins for the driver and the service. `npm test` runs the assembly's tests, over stand-ins for both releases and the workspace, with nothing fetched. CI runs the assembly's tests and the page's test of the commands it calls, in `@agentorg/mac-window`, on Linux. Its "Mac app" job, on a Mac and only when this package, the page or the lockfile changes, runs `cargo test`, builds the app signed ad hoc, and checks the bundle file by file: its signatures, identity, icon, background item, and the versions of what it carries.
+`cargo test` in `src-tauri` runs the app's own tests: the provider is run there against stand-ins for the driver and the service. `npm test` runs the assembly's tests, over stand-ins for both releases and the repository, with nothing fetched, and the brand's and the version's tests. CI runs those and the page's tests on Linux. Its "Mac app" job, on a Mac, when this package, the page, the program it carries or the lockfile changes, runs `cargo test`, builds the app signed ad hoc with the program built beside it, and checks the bundle file by file:
+
+- its signatures, identity, icon and background item, each named by the brand;
+- its version, the program's;
+- that it carries the program built there;
+- the versions of Node and the driver.

@@ -23,7 +23,7 @@ mod uninstall;
 pub fn test_home() -> std::path::PathBuf {
     static HOME: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
     HOME.get_or_init(|| {
-        let home = std::env::temp_dir().join(format!("agentorg-test-{}", std::process::id()));
+        let home = std::env::temp_dir().join(format!("mac-app-test-{}", std::process::id()));
         std::fs::create_dir_all(&home).unwrap();
         std::env::set_var("HOME", &home);
         home

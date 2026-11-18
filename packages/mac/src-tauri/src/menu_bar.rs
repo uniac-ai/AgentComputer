@@ -32,8 +32,8 @@ impl Dot {
             Dot::StartingAgain => "Starting again",
             Dot::TurnedOff => "Not allowed in the background",
             Dot::SetUp => "Something to set up",
-            Dot::Connected => "Connected to AgentOrg",
-            Dot::Waiting => "Waiting for AgentOrg to connect",
+            Dot::Connected => concat!("Connected to ", env!("BRAND_CLIENT")),
+            Dot::Waiting => concat!("Waiting for ", env!("BRAND_CLIENT"), " to connect"),
         }
     }
 }

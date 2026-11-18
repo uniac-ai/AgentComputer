@@ -42,7 +42,7 @@ impl From<tauri::Error> for Refusal {
 }
 
 fn no_service() -> Refusal {
-    Refusal { code: 503, message: "AgentOrg's service isn't running.".into() }
+    Refusal { code: 503, message: concat!(env!("BRAND_NAME"), "'s service isn't running.").into() }
 }
 
 /// The service's address and control token. Nothing is written here: with no record, or one it
@@ -363,7 +363,8 @@ fn app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             }
         }
         let keys = Some("CmdOrCtrl+Q");
-        let quit = MenuItem::with_id(app, "quit-window", "Quit AgentOrg", true, keys)?;
+        let quit_window = concat!("Quit ", env!("BRAND_NAME"));
+        let quit = MenuItem::with_id(app, "quit-window", quit_window, true, keys)?;
         own.append(&quit)?;
     }
     Ok(menu)
@@ -404,8 +405,10 @@ pub fn window(with_window: bool) {
             // The dashboard, off the main thread: the launcher can take a few seconds.
             "dashboard" => {
                 thread::spawn(|| match dashboard::open(&crate::places::home()) {
-                    Ok(()) => log("menu bar", "Open AgentOrg: the dashboard opened"),
-                    Err(why) => log("menu bar", &format!("Open AgentOrg: {why}")),
+                    Ok(()) => {
+                        log("menu bar", concat!(env!("BRAND_OPEN_LABEL"), ": the dashboard opened"))
+                    }
+                    Err(why) => log("menu bar", &format!("{}: {why}", env!("BRAND_OPEN_LABEL"))),
                 });
             }
             "quit-window" => {
@@ -426,13 +429,14 @@ pub fn window(with_window: bool) {
         .setup(move |app| {
             let handle = app.handle().clone();
             let none = None::<&str>;
-            let heading = MenuItem::with_id(app, "heading", "AgentOrg", false, none)?;
+            let heading = MenuItem::with_id(app, "heading", env!("BRAND_NAME"), false, none)?;
             let status = MenuItem::with_id(app, "status", Dot::Waiting.words(), false, none)?;
             // As the design has it: "Open AgentOrg" opens the dashboard, only while AgentOrg is
             // connected, and the window has an entry of its own.
-            let dashboard = MenuItem::with_id(app, "dashboard", "Open AgentOrg", false, none)?;
-            let open = MenuItem::with_id(app, "open", "Agent Control…", true, none)?;
-            let quit_words = "Quit AgentOrg (stops lending)";
+            let open_label = env!("BRAND_OPEN_LABEL");
+            let dashboard = MenuItem::with_id(app, "dashboard", open_label, false, none)?;
+            let open = MenuItem::with_id(app, "open", env!("BRAND_CONTROLS_ENTRY"), true, none)?;
+            let quit_words = concat!("Quit ", env!("BRAND_NAME"), " (stops lending)");
             let quit = MenuItem::with_id(app, "quit-lending", quit_words, true, none)?;
             let menu = Menu::with_items(
                 app,
@@ -460,7 +464,7 @@ pub fn window(with_window: bool) {
             // the accessibility tree.
             let _ = tray.with_inner_tray_icon(|inner| {
                 if let Some(item) = inner.ns_status_item() {
-                    macos::name_status_item(&item, "AgentOrg");
+                    macos::name_status_item(&item, env!("BRAND_NAME"));
                 }
             });
             if with_window {

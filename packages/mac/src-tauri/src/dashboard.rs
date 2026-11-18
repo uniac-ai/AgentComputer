@@ -1,6 +1,7 @@
-//! "Open AgentOrg", in the menu-bar item's menu: the dashboard in the person's browser, signed in,
-//! through the core's own launcher, `~/.local/bin/agentorg open`, which the line that installs
-//! AgentOrg puts there. It runs as the person, with the provider's small environment and no
+//! The menu-bar item's "open" entry, as the brand names it ("Open AgentOrg"): the client's
+//! dashboard in the person's browser, signed in, through the client's own launcher and its
+//! arguments, as the brand names them (`~/.local/bin/agentorg open`), which the line that installs
+//! the client puts there. It runs as the person, with the provider's small environment and no
 //! terminal, for 30 s at most. The app shows nothing of its own: where it didn't open, the log has
 //! the launcher's first line, such as that AgentOrg isn't running.
 
@@ -15,9 +16,15 @@ use std::time::{Duration, Instant};
 /// opens the browser.
 const WAIT: Duration = Duration::from_secs(30);
 
-/// The core's launcher, where the line puts it.
+/// The client's launcher, where the brand says the line puts it: `~/` is the person's home.
 pub fn launcher(home: &Path) -> PathBuf {
-    home.join(".local/bin/agentorg")
+    let at = env!("BRAND_OPEN_LAUNCHER");
+    at.strip_prefix("~/").map_or_else(|| PathBuf::from(at), |rest| home.join(rest))
+}
+
+/// The launcher's arguments, as the brand names them.
+fn args() -> impl Iterator<Item = &'static str> {
+    env!("BRAND_OPEN_ARGS").split('\u{1f}').filter(|arg| !arg.is_empty())
 }
 
 /// Opens the dashboard, or says why it didn't.
@@ -25,14 +32,15 @@ pub fn open(home: &Path) -> Result<(), String> {
     open_with(&launcher(home), home, WAIT)
 }
 
-/// `launcher open`, waited for `wait` at most: Ok where it exits 0, else its first line on stderr,
-/// or why it couldn't run.
+/// The launcher with its arguments, waited for `wait` at most: Ok where it exits 0, else its first
+/// line on stderr, or why it couldn't run.
 pub fn open_with(launcher: &Path, home: &Path, wait: Duration) -> Result<(), String> {
     if !launcher.exists() {
-        return Err(format!("no AgentOrg launcher at {}", launcher.display()));
+        let client = env!("BRAND_CLIENT");
+        return Err(format!("no {client} launcher at {}", launcher.display()));
     }
     let mut child = Command::new(launcher)
-        .arg("open")
+        .args(args())
         .env_clear()
         .envs(provider::small_env(home))
         .stdin(Stdio::null())
@@ -81,7 +89,7 @@ mod tests {
 
     #[test]
     fn the_launcher_is_run_with_open_and_its_first_line_is_said_where_it_fails() {
-        let home = std::env::temp_dir().join(format!("agentorg-open-{}", std::process::id()));
+        let home = std::env::temp_dir().join(format!("mac-app-open-{}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
         // None there: said so, and nothing run.
         assert_eq!(

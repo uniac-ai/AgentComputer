@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub fn log(who: &str, line: &str) {
     let folder = logs();
     let _ = fs::create_dir_all(&folder);
-    let file = folder.join("AgentOrg.log");
+    let file = folder.join(concat!(env!("BRAND_NAME"), ".log"));
     if let Ok(mut out) = fs::OpenOptions::new().create(true).append(true).open(file) {
         // One write each, so that lines from the app's processes don't mix.
         let _ = out.write_all(format!("{} {who}: {line}\n", now()).as_bytes());
@@ -19,9 +19,9 @@ pub fn log(who: &str, line: &str) {
 
 /// Moves the log aside once it reaches 10 MB.
 pub fn rotate() {
-    let file = logs().join("AgentOrg.log");
+    let file = logs().join(concat!(env!("BRAND_NAME"), ".log"));
     if fs::metadata(&file).is_ok_and(|kept| kept.len() >= 10 << 20) {
-        let _ = fs::rename(&file, logs().join("AgentOrg.1.log"));
+        let _ = fs::rename(&file, logs().join(concat!(env!("BRAND_NAME"), ".1.log")));
     }
 }
 

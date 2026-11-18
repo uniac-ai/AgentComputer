@@ -1,6 +1,6 @@
 // The app's assembly, over stand-ins for the two releases, in their real layouts, and the
-// workspace: what it fetches and checks, what it takes of each, what it compiles, and what it
-// refuses. No network, and nothing of macOS's own.
+// repository its program is built in: what it fetches and checks, what it takes of each, what it
+// compiles, and what it refuses. No network, and nothing of macOS's own.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -42,7 +42,7 @@ const tarball = (root, name, held) => {
   return readFileSync(join(root, name));
 };
 
-/** Stand-ins for both releases, a workspace, and what a run is answered. */
+/** Stand-ins for both releases, a repository, and what a run is answered. */
 function standIns(t) {
   const root = mkdtempSync(join(tmpdir(), "assembly-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -100,25 +100,22 @@ function standIns(t) {
           json: async () => JSON.parse(String(body)),
         };
   };
-  const workspace = join(root, "workspace/packages/mac");
-  files(join(root, "workspace"), {
-    "packages/mac/package.json": "{}",
-    "node_modules/@agentorg/computer/package.json": JSON.stringify({
+  // A stand-in repository, its program built, and the two packages it loads installed.
+  const repository = join(root, "repository");
+  files(repository, {
+    "package.json": JSON.stringify({
       version: "0.0.20",
       type: "module",
       dependencies: { "playwright-core": "1.65.0-alpha" },
       optionalDependencies: { "node-pty": "1.1.0" },
     }),
-    "node_modules/@agentorg/computer/LICENSE": "Apache-2.0",
-    "node_modules/@agentorg/computer/NOTICE": "notice",
-    "node_modules/@agentorg/computer/dist/agentcomputer.js": "the service",
-    "node_modules/@agentorg/computer/dist/sdk.js": "the SDK",
-    "node_modules/@agentorg/computer/dist/THIRD_PARTY_LICENSES.txt": "its licences",
-    "node_modules/@agentorg/computer/node_modules/playwright-core/package.json": JSON.stringify({
-      version: "1.65.0-alpha",
-    }),
-    "node_modules/@agentorg/computer/node_modules/playwright-core/index.js": "playwright",
-    "node_modules/playwright-core/package.json": JSON.stringify({ version: "1.64.1" }),
+    LICENSE: "Apache-2.0",
+    NOTICE: "notice",
+    "dist/agentcomputer.js": "the service",
+    "dist/sdk.js": "the SDK",
+    "dist/THIRD_PARTY_LICENSES.txt": "its licences",
+    "node_modules/playwright-core/package.json": JSON.stringify({ version: "1.65.0-alpha" }),
+    "node_modules/playwright-core/index.js": "playwright",
     "node_modules/node-pty/package.json": JSON.stringify({ version: "1.1.0" }),
     "node_modules/node-pty/LICENSE": "MIT",
     "node_modules/node-pty/lib/index.js": "pty",
@@ -130,12 +127,13 @@ function standIns(t) {
   const signed = [];
   const compiled = [];
   const target = join(root, "target");
-  const run = (service = "0.0.20") =>
+  // What the built program answers when asked its version.
+  const run = (built = "0.0.20") =>
     assemble({
       pins,
       target,
-      workspace,
-      service,
+      repository,
+      versionOf: () => built,
       get,
       signing: (path, entitlements) => signed.push([path, entitlements]),
       // As the compiler does: the source read, the theme written.
@@ -257,10 +255,13 @@ test("a driver whose digest on GitHub disagrees with the pin is refused", async 
   await assert.rejects(run(), /GitHub's digest of \S+ is sha256:0000, not the pinned one\./);
 });
 
-test("a release without a file its pin names, or a service at another version, is refused", async (t) => {
+test("a release without a file its pin names, or a program built from another version, is refused", async (t) => {
   const { pins, run } = standIns(t);
   pins.node.take["node-v24.22.1-darwin-arm64/bin/npx"] = "MacOS/npx";
   await assert.rejects(run(), /\.tar\.xz has no file node-v24\.22\.1-darwin-arm64\/bin\/npx\./);
   delete pins.node.take["node-v24.22.1-darwin-arm64/bin/npx"];
-  await assert.rejects(run("0.0.21"), /@agentorg\/computer is 0\.0\.20 here, not 0\.0\.21\./);
+  await assert.rejects(
+    run("0.0.19"),
+    /The built program is 0\.0\.19, not 0\.0\.20: build it again\./,
+  );
 });

@@ -1,13 +1,15 @@
 // The window's page as static files for the app to show: one bundled script, its page and its
 // styles. With --serve, it rebuilds on each change and serves the folder, for the app's dev mode.
 import { execFileSync, spawn } from "node:child_process";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { context } from "esbuild";
 
 const at = (path) => new URL(`../${path}`, import.meta.url).pathname;
 const serve = process.argv.includes("--serve");
+// The names the window shows, from the app's brand file, as the app is built under it.
+const brand = JSON.parse(readFileSync(at("../mac/brand.json"), "utf8"));
 mkdirSync(at("dist"), { recursive: true });
 copyFileSync(at("static/index.html"), at("dist/index.html"));
 const tailwind = [
@@ -29,7 +31,10 @@ const scripts = await context({
   platform: "browser",
   target: "es2022",
   minify: !serve,
-  define: { "process.env.NODE_ENV": serve ? '"development"' : '"production"' },
+  define: {
+    "process.env.NODE_ENV": serve ? '"development"' : '"production"',
+    BRAND: JSON.stringify(brand),
+  },
   legalComments: "none",
   logLevel: "warning",
 });

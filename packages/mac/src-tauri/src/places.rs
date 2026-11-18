@@ -6,20 +6,20 @@ pub fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
 }
 
-/// The app's own folder.
-pub fn agentorg() -> PathBuf {
-    home().join("Library/Application Support/AgentOrg")
+/// The app's own folder, named as its brand names it.
+pub fn folder() -> PathBuf {
+    home().join("Library/Application Support").join(env!("BRAND_DATA_FOLDER"))
 }
 
 /// Where the service keeps its data, with the record it leaves while it runs and its control
 /// token: the folder agreed with AgentOrg's core.
 pub fn data() -> PathBuf {
-    agentorg().join("computer")
+    folder().join("computer")
 }
 
 /// The driver's home, so that what it keeps stays in the app's folder.
 pub fn driver_home() -> PathBuf {
-    agentorg().join("driver")
+    folder().join("driver")
 }
 
 /// The socket the provider runs the driver on.
@@ -29,21 +29,21 @@ pub fn driver_socket() -> PathBuf {
 
 /// What the provider says of itself: its process and its state.
 pub fn provider_state() -> PathBuf {
-    agentorg().join("provider.json")
+    folder().join("provider.json")
 }
 
 /// What the menu-bar process says of itself: its process.
 pub fn menu_bar_state() -> PathBuf {
-    agentorg().join("menu-bar.json")
+    folder().join("menu-bar.json")
 }
 
 /// Held by the provider while it runs, so that one runs at a time.
 pub fn provider_lock() -> PathBuf {
-    agentorg().join("provider.lock")
+    folder().join("provider.lock")
 }
 
 pub fn logs() -> PathBuf {
-    home().join("Library/Logs/AgentOrg")
+    home().join("Library/Logs").join(env!("BRAND_DATA_FOLDER"))
 }
 
 /// The app's bundle, from wherever in it this program is.

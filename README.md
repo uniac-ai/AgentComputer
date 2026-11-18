@@ -404,6 +404,10 @@ Every running computer has two more, to watch only:
 
 A shell of your own needs [node-pty](https://github.com/microsoft/node-pty), an optional dependency installed beside the program. It comes prebuilt for macOS. On Linux it's compiled at install, which npm only does when told: `npm install -g @agentorg/computer --allow-scripts=node-pty`, with a C++ toolchain. Without it, the agent's commands run and show as ever, and only `open` is refused, saying why. The computer image has it.
 
+## The Mac app
+
+[`packages/mac`](packages/mac) is the Mac app that lends a Mac. It carries Node, this repository's program and Cua Driver, holds macOS's grants under its own name, keeps the service running with `serve --lend`, and shows its own setup window, [`packages/mac-window`](packages/mac-window). It makes nothing. It is built under the brand in its [`brand.json`](packages/mac/brand.json), and its version is the program's. Until there is a signing identity, it is built locally only; its README says how.
+
 ## Known limits
 
 - A container has no CPU or memory limit, and its network is Docker's default, so it reaches the internet and anything else Docker's network does.
@@ -417,4 +421,4 @@ A shell of your own needs [node-pty](https://github.com/microsoft/node-pty), an 
 
 ## Licence
 
-Apache-2.0.
+Apache-2.0, except `packages/mac` and `packages/mac-window`, which are MIT, each with its `LICENSE`.

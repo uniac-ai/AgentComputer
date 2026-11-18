@@ -7,8 +7,12 @@
       "!**/out",
       "!**/node_modules",
       "!package-lock.json",
-      "!src/generated"
+      "!src/generated",
+      "!packages/mac/src-tauri/target",
+      "!packages/mac/src-tauri/gen",
+      "!packages/mac-window/src/ui"
     ]
   },
-  "formatter": { "indentStyle": "space", "lineWidth": 100 }
+  "formatter": { "indentStyle": "space", "lineWidth": 100 },
+  "css": { "parser": { "tailwindDirectives": true } }
 }

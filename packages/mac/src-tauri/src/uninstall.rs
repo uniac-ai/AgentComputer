@@ -20,8 +20,8 @@ const LSREGISTER: &str = concat!(
 pub fn kept(home: &Path, identifier: &str) -> Vec<PathBuf> {
     let library = home.join("Library");
     vec![
-        library.join("Application Support/AgentOrg"),
-        library.join("Logs/AgentOrg"),
+        library.join("Application Support").join(env!("BRAND_DATA_FOLDER")),
+        library.join("Logs").join(env!("BRAND_DATA_FOLDER")),
         library.join("WebKit").join(identifier),
         library.join("Caches").join(identifier),
         library.join("HTTPStorages").join(identifier),

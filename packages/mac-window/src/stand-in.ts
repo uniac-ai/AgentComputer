@@ -16,7 +16,7 @@ import type {
   Setup,
 } from "./mac.ts";
 
-const grant = (need: NeedName, state: Need["state"]): Need => ({ need, holder: "AgentOrg", state });
+const grant = (need: NeedName, state: Need["state"]): Need => ({ need, holder: BRAND.name, state });
 const browserNeeds = (chrome: Need["state"], edge: Need["state"]): Need[] => [
   { need: "chrome", name: "Chrome", state: chrome },
   { need: "edge", name: "Edge", state: edge },
@@ -50,8 +50,8 @@ const WAITING: Connection = { connected: false, clients: [] };
 const CONNECTED: Connection = {
   connected: true,
   clients: [
-    { name: "AgentOrg", since: at(10, 42), local: true },
-    { name: "AgentOrg 0.0.15", since: at(10, 42, 1), local: true },
+    { name: BRAND.client, since: at(10, 42), local: true },
+    { name: `${BRAND.client} 0.0.15`, since: at(10, 42, 1), local: true },
   ],
 };
 /** The computers lent to, the newest first, as the service lists them. */

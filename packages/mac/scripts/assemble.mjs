@@ -2,7 +2,9 @@
 // - Node and Cua Driver, fetched from their own releases as assembly.json pins them, each into a
 //   new, empty folder of its own and checked before anything of it is used, and of each only the
 //   files assembly.json names;
-// - the service, `@agentorg/computer`, from this workspace's install, which its lockfile checked;
+// - the service: this repository's own build of the program, `dist/agentcomputer.js`, which must
+//   answer `--version` with the version its package.json carries, and the two packages it loads,
+//   from the repository's install, which its lockfile checked;
 // - the agents' pointer, a cursor theme the driver draws (./cursor-theme.mjs), compiled by the
 //   compiler of the driver's own release, which only builds it and goes nowhere;
 // - their licences.
@@ -140,10 +142,19 @@ const installed = (start, name, wanted) => {
   }
 };
 
-/** The service as the bundle carries it: its program and licences, and the two packages it loads. */
-function service(workspace, wanted, into) {
-  const computer = installed(workspace, "@agentorg/computer", wanted);
-  const own = JSON.parse(readFileSync(join(computer, "package.json"), "utf8"));
+/**
+ * The service as the bundle carries it: this repository's own build of the program, its licences,
+ * and the two packages it loads, at the versions its package.json names. A program built from
+ * another version, or not built at all, is refused: `versionOf` asks the built program its own.
+ */
+function service(repository, into, versionOf) {
+  const own = JSON.parse(readFileSync(join(repository, "package.json"), "utf8"));
+  const program = join(repository, "dist/agentcomputer.js");
+  if (!existsSync(program))
+    throw new Error("The program isn't built: run npm run build at the repository's root first.");
+  const built = versionOf(program);
+  if (built !== own.version)
+    throw new Error(`The built program is ${built}, not ${own.version}: build it again.`);
   for (const file of [
     "package.json",
     "LICENSE",
@@ -151,10 +162,10 @@ function service(workspace, wanted, into) {
     "dist/agentcomputer.js",
     "dist/THIRD_PARTY_LICENSES.txt",
   ])
-    copy(join(computer, file), join(into, file));
-  const playwright = installed(computer, "playwright-core", own.dependencies["playwright-core"]);
+    copy(join(repository, file), join(into, file));
+  const playwright = installed(repository, "playwright-core", own.dependencies["playwright-core"]);
   copy(playwright, join(into, "node_modules/playwright-core"));
-  const pty = installed(computer, "node-pty", own.optionalDependencies["node-pty"]);
+  const pty = installed(repository, "node-pty", own.optionalDependencies["node-pty"]);
   for (const part of ["package.json", "LICENSE", "lib", "prebuilds/darwin-arm64"])
     copy(join(pty, part), join(into, "node_modules/node-pty", part));
   return own.version;
@@ -188,15 +199,7 @@ const PROGRAMS = [
 ];
 
 /** Makes `bundle` what the app carries, and says what was fetched. */
-export async function assemble({
-  pins,
-  target,
-  workspace,
-  service: wanted,
-  get,
-  signing,
-  compiling,
-}) {
+export async function assemble({ pins, target, repository, versionOf, get, signing, compiling }) {
   const downloads = join(target, "downloads");
   const node = await fetched(pins.node, downloads, get);
   const driver = await fetched(pins.driver, downloads, get);
@@ -207,7 +210,7 @@ export async function assemble({
   // signed as ours.
   const unpacked = took(driver, pins.driver, bundle);
   pointer(unpacked, pins.driver, target, bundle, compiling);
-  const version = service(workspace, wanted, join(bundle, "Resources/agentcomputer"));
+  const version = service(repository, join(bundle, "Resources/agentcomputer"), versionOf);
   // Each program can run however the bundle is installed: node-pty ships its helper unmarked.
   for (const program of PROGRAMS) chmodSync(join(bundle, program), 0o755);
   for (const [path, entitlements] of Object.entries(SIGNED))
@@ -220,13 +223,14 @@ export async function assemble({
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const config = JSON.parse(readFileSync(join(here, "src-tauri/tauri.conf.json"), "utf8"));
   const identity = process.env.APPLE_SIGNING_IDENTITY || config.bundle.macOS.signingIdentity;
-  const own = JSON.parse(readFileSync(join(here, "package.json"), "utf8"));
   try {
     const said = await assemble({
       pins: JSON.parse(readFileSync(join(here, "assembly.json"), "utf8")),
       target: join(here, "src-tauri/target/assembly"),
-      workspace: here,
-      service: own.dependencies["@agentorg/computer"],
+      // The repository this app is built in, whose program it carries.
+      repository: join(here, "../.."),
+      versionOf: (program) =>
+        execFileSync(process.execPath, [program, "--version"], { encoding: "utf8" }).trim(),
       // GitHub's API answers few asks from one address without a token: CI's own token, where it
       // is set, goes there and nowhere else.
       get: (url) =>
@@ -246,7 +250,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     });
     for (const one of said.fetched)
       console.log(`${basename(one.at)}: ${one.size} bytes, sha256 ${one.sha256}, from ${one.url}`);
-    console.log(`The service: @agentorg/computer ${said.service}`);
+    console.log(`The service: this repository's program, ${said.service}`);
   } catch (error) {
     console.error(`The app's assembly stopped: ${error instanceof Error ? error.message : error}`);
     process.exit(1);

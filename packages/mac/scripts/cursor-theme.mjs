@@ -9,10 +9,16 @@
 // of its twelve actions: every one here is the same single frame. Each layer has one paint, so that
 // the driver and a Lottie player stack them alike, the first layer on top. The archive is stored,
 // not deflated, with fixed dates and modes, so the same drawing makes the same bytes.
+import { readFileSync } from "node:fs";
 import { crc32 } from "node:zlib";
 
-/** The theme's id, and the file's name the driver looks for: `<id>.cua-theme`. */
-export const THEME = "ai.uniac.agentorg.pointer";
+/** The app's brand, whose names the theme carries. */
+const BRAND = JSON.parse(readFileSync(new URL("../brand.json", import.meta.url), "utf8"));
+/**
+ * The theme's id, and the file's name the driver looks for: `<id>.cua-theme`, the brand's
+ * identifier with `.pointer`, as the provider names it to the driver.
+ */
+export const THEME = `${BRAND.identifier}.pointer`;
 
 const CANVAS = 128;
 const FPS = 30;
@@ -107,15 +113,15 @@ export function themeFiles() {
   return {
     "manifest.json": {
       version: "2",
-      generator: "AgentOrg",
+      generator: BRAND.name,
       animations: [{ id: "pointer", name: "pointer" }],
     },
     "cua/theme.json": {
       schema: "cua.cursor-theme/2",
       id: THEME,
-      name: "AgentOrg pointer",
+      name: `${BRAND.name} pointer`,
       version: "1.0.0",
-      author: "AgentOrg",
+      author: BRAND.name,
       license: "MIT",
       compatibility: { profile: "cua-driver-actions-v2", semantics: 2 },
       canvas: { width: CANVAS, height: CANVAS, fps: FPS },

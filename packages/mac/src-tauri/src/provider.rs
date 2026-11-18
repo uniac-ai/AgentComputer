@@ -77,7 +77,7 @@ pub struct Programs {
 }
 
 /// The agents' pointer: its theme's id, and its file's name in `themes`, `<id>.cua-theme`.
-pub const CURSOR_THEME: &str = "ai.uniac.agentorg.pointer";
+pub const CURSOR_THEME: &str = concat!(env!("BRAND_IDENTIFIER"), ".pointer");
 
 impl Programs {
     /// Where the bundle puts them (tauri.conf.json's `bundle.macOS.files`): Node beside the app's
@@ -150,7 +150,7 @@ pub fn run_as_background_item() {
     // One provider at a time: another copy of the app's waits here until this one has ended.
     let _held = hold(&places::provider_lock());
     let places = Places {
-        folder: places::agentorg(),
+        folder: places::folder(),
         home: places::home(),
         data: places::data(),
         driver_home: places::driver_home(),
@@ -423,7 +423,7 @@ pub fn cursor_settings(driver_home: &Path) -> std::io::Result<()> {
 
 /// Where the person sets up this Mac's parts, in the app: what the service's refusals name for a
 /// part switched off or a grant missing, ending with the part, as the window's cards name them.
-const SETUP_IN: &str = "AgentOrg: its icon in the menu bar, Agent Control…";
+const SETUP_IN: &str = env!("BRAND_SETUP_IN");
 
 fn service_command(programs: &Programs, places: &Places) -> Command {
     let mut command = Command::new(&programs.node);
@@ -662,7 +662,7 @@ mod tests {
     #[test]
     fn the_driver_and_the_service_are_kept_running() {
         crate::test_home();
-        let root = std::env::temp_dir().join(format!("agentorg-provider-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("mac-app-provider-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let heard = root.join("heard");
         fs::create_dir_all(&heard).unwrap();
@@ -759,7 +759,7 @@ mod tests {
     #[test]
     fn what_an_earlier_run_left_is_stopped_only_where_it_is_the_apps_own() {
         crate::test_home();
-        let root = std::env::temp_dir().join(format!("agentorg-left-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("mac-app-left-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         // A copy of sleep stands for the app's driver; the system's own sleep is someone else's.
@@ -800,7 +800,7 @@ mod tests {
     #[test]
     fn the_driver_starts_again_when_the_grants_it_read_change() {
         crate::test_home();
-        let root = std::env::temp_dir().join(format!("agentorg-grants-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("mac-app-grants-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let programs = Programs {
             node: root.join("app/node"),
@@ -882,7 +882,7 @@ mod tests {
     #[test]
     fn screen_recording_just_given_is_followed_by_one_picture_once_the_driver_answers() {
         crate::test_home();
-        let root = std::env::temp_dir().join(format!("agentorg-picture-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("mac-app-picture-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let programs = Programs {
             node: root.join("app/node"),
@@ -954,7 +954,7 @@ mod tests {
     #[test]
     fn a_first_picture_that_doesnt_answer_is_ended() {
         crate::test_home();
-        let root = std::env::temp_dir().join(format!("agentorg-stuck-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("mac-app-stuck-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let programs = Programs {
             node: root.join("app/node"),
@@ -1002,7 +1002,7 @@ mod tests {
 
     #[test]
     fn the_driver_draws_the_apps_pointer_where_the_bundle_carries_it() {
-        let root = std::env::temp_dir().join(format!("agentorg-pointer-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("mac-app-pointer-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let programs = Programs::in_bundle(&root.join("A.app"));
         let places = places_in(&root);
@@ -1032,7 +1032,7 @@ mod tests {
 
     #[test]
     fn the_pointers_settings_turn_every_extra_off_and_keep_the_rest_of_the_config() {
-        let home = std::env::temp_dir().join(format!("agentorg-settings-{}", std::process::id()));
+        let home = std::env::temp_dir().join(format!("mac-app-settings-{}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
         let path = home.join(".cua-driver/config.json");
         let read = || serde_json::from_str::<Value>(&fs::read_to_string(&path).unwrap()).unwrap();

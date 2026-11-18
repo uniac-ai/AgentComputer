@@ -1,0 +1,10 @@
+{
+  "name": "AgentOrg",
+  "identifier": "ai.uniac.agentorg",
+  "icon": { "icns": "icons/icon.icns", "png": "icons/icon.png" },
+  "dataFolder": "AgentOrg",
+  "client": "AgentOrg",
+  "open": { "label": "Open AgentOrg", "launcher": "~/.local/bin/agentorg", "args": ["open"] },
+  "setupIn": "AgentOrg: its icon in the menu bar, Agent Control…",
+  "controls": { "heading": "Agent Control", "entry": "Agent Control…" }
+}
