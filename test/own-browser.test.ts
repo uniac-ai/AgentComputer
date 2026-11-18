@@ -15,10 +15,10 @@ import { createInterface } from "node:readline";
 import { after, before, describe, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { debuggingOn, ownBrowser, reachedAt } from "@agentorg/computer-browser/own-browser";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { chromium, type Page } from "playwright-core";
 import { WebSocket } from "ws";
-import { debuggingOn, ownBrowser, reachedAt } from "../src/own-browser.ts";
 
 type Sdk = typeof import("@agentorg/computer-sdk");
 type Computer = Awaited<ReturnType<Sdk["Computer"]["attach"]>>;

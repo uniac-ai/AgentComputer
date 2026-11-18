@@ -16,9 +16,9 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { ApiError } from "@agentorg/computer-base/error";
 import { writePrivate } from "@agentorg/computer-base/store";
+import { browsers, debuggingOn, here, type Where } from "@agentorg/computer-browser/own-browser";
 import type { components } from "@agentorg/computer-contract/schema";
 import { driverApp, infoValue } from "./driver-app.ts";
-import { browsers, debuggingOn, here, type Where } from "./own-browser.ts";
 import { type DriverAt, driverGrants, findDriver, QUIET, quiet, screenCheck } from "./screen.ts";
 import { SWITCHES, type Switch, type Switches } from "./switches.ts";
 
