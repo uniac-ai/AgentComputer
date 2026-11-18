@@ -13,7 +13,7 @@ import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { WebSocket } from "ws";
 
-type Sdk = typeof import("../src/sdk.ts");
+type Sdk = typeof import("@agentorg/computer-sdk");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CLI = join(root, "dist", "agentcomputer.js");
 const run = promisify(execFile);

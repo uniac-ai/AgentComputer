@@ -14,7 +14,7 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { ImageFetch } from "../src/image-fetch.ts";
 
-type Sdk = typeof import("../src/sdk.ts");
+type Sdk = typeof import("@agentorg/computer-sdk");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const IMAGE = "ghcr.io/example/computer:1.2.3";
 const MB = 1_000_000;

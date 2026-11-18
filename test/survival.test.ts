@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { CONTAINER, type Kind, make, named, needs } from "./kinds.ts";
 
-type Sdk = typeof import("../src/sdk.ts");
+type Sdk = typeof import("@agentorg/computer-sdk");
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");

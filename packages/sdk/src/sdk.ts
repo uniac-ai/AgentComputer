@@ -1,9 +1,10 @@
 // The TypeScript SDK. Its calls to the service are typed from openapi.yaml; a computer's commands
 // and files go over that computer's own MCP endpoint. Modelled on E2B's SDK.
+
+import { pieces } from "@agentorg/computer-base/text";
+import type { components, paths } from "@agentorg/computer-contract/schema";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import createClient from "openapi-fetch";
-import type { components, paths } from "./generated/schema.js";
-import { pieces } from "./text.ts";
 
 type Schemas = components["schemas"];
 export type ComputerInfo = Schemas["Computer"];

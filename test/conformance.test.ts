@@ -11,12 +11,12 @@ import { createInterface } from "node:readline";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { OPENAPI, OPERATIONS, type Operation } from "@agentorg/computer-contract/operations";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { Ajv2020 } from "ajv/dist/2020.js";
-import { OPENAPI, OPERATIONS, type Operation } from "../src/generated/operations.ts";
 import { CONTAINER, type Kind, make, named } from "./kinds.ts";
 
-type Sdk = typeof import("../src/sdk.ts");
+type Sdk = typeof import("@agentorg/computer-sdk");
 type Input = Record<string, any>;
 type Answer = { value: any } | { code?: number; message: string };
 type Surface = (operationId: string, input: Input) => Promise<Answer>;

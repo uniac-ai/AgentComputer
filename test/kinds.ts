@@ -1,7 +1,7 @@
 // The two kinds of computer the tests run each case on: this computer, attached, and a container,
 // made, which needs a test image.
-type Sdk = typeof import("../src/sdk.ts");
-type AttachOpts = import("../src/sdk.ts").AttachOpts;
+type Sdk = typeof import("@agentorg/computer-sdk");
+type AttachOpts = import("@agentorg/computer-sdk").AttachOpts;
 
 export type Kind = "this" | "container";
 

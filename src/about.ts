@@ -1,7 +1,8 @@
 // What a computer says of itself to its agent: the `about` tool at its `computer` endpoint. It is
 // what a person looking at the computer reads, in rows of a label and a value.
+
+import type { components } from "@agentorg/computer-contract/schema";
 import type { ExtraTool } from "@agentorg/exec";
-import type { components } from "./generated/schema.js";
 import type { LoadLive } from "./load-live.ts";
 import type { Presence } from "./presence.ts";
 

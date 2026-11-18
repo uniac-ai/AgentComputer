@@ -4,10 +4,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Duplex } from "node:stream";
+import { ApiError } from "@agentorg/computer-base/error";
+import { digestOf, privateFolder, sameToken } from "@agentorg/computer-base/store";
 import { VERSION } from "./handlers.ts";
 import { PROTOCOLS, type Surface } from "./live.ts";
-import { type Access, ApiError, ProcessRuntime } from "./runtime.ts";
-import { digestOf, privateFolder, sameToken } from "./store.ts";
+import { type Access, ProcessRuntime } from "./runtime.ts";
 
 export const INNER_PORT = 8000;
 export const INNER_TOKEN_VARIABLE = "AGENTCOMPUTER_INNER_TOKEN";

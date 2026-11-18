@@ -28,7 +28,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { z } from "zod";
 import { type Kind, make } from "./kinds.ts";
 
-type Sdk = typeof import("../src/sdk.ts");
+type Sdk = typeof import("@agentorg/computer-sdk");
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "..", "dist");
 const CLI = join(dist, "agentcomputer.js");

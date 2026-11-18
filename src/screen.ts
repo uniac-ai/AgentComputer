@@ -8,14 +8,14 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
+import { ApiError } from "@agentorg/computer-base/error";
+import type { components } from "@agentorg/computer-contract/schema";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { driverApp } from "./driver-app.ts";
-import type { components } from "./generated/schema.js";
-import { ApiError } from "./runtime.ts";
 
 type Readiness = components["schemas"]["Readiness"];
 const run = promisify(execFile);

@@ -15,7 +15,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import WebSocket from "ws";
 import { CONTAINER, type Kind, make, named, needs } from "./kinds.ts";
 
-type Sdk = typeof import("../src/sdk.ts");
+type Sdk = typeof import("@agentorg/computer-sdk");
 // biome-ignore lint/suspicious/noExplicitAny: each event is JSON the test reads.
 type Event = { type: string; [key: string]: any };
 const here = dirname(fileURLToPath(import.meta.url));

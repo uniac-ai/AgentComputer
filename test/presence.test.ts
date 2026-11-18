@@ -14,8 +14,8 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import WebSocket from "ws";
 import { CONTAINER, type Kind, make, named, needs } from "./kinds.ts";
 
-type Sdk = typeof import("../src/sdk.ts");
-type Acting = import("../src/generated/schema.js").components["schemas"]["Acting"];
+type Sdk = typeof import("@agentorg/computer-sdk");
+type Acting = import("@agentorg/computer-contract/schema").components["schemas"]["Acting"];
 const dist = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist");
 const KINDS: [Kind, string[]][] = [
   ["this", []],

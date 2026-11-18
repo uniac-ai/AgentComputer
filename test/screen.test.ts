@@ -38,7 +38,7 @@ import {
 } from "../src/screen.ts";
 import { personCall, ScreenLive } from "../src/screen-live.ts";
 
-type Sdk = typeof import("../src/sdk.ts");
+type Sdk = typeof import("@agentorg/computer-sdk");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const IMAGE = process.env.AGENTCOMPUTER_TEST_SCREEN_IMAGE;
 const run = promisify(execFile);

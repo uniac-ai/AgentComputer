@@ -20,7 +20,7 @@ import { chromium, type Page } from "playwright-core";
 import { WebSocket } from "ws";
 import { debuggingOn, ownBrowser, reachedAt } from "../src/own-browser.ts";
 
-type Sdk = typeof import("../src/sdk.ts");
+type Sdk = typeof import("@agentorg/computer-sdk");
 type Computer = Awaited<ReturnType<Sdk["Computer"]["attach"]>>;
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CLI = join(root, "dist", "agentcomputer.js");

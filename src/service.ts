@@ -11,16 +11,23 @@ import {
 import { createServer as createTlsServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
+import { ApiError } from "@agentorg/computer-base/error";
+import {
+  controlToken,
+  digestOf,
+  privateFolder,
+  sameToken,
+  writePrivate,
+} from "@agentorg/computer-base/store";
+import { OPENAPI, OPERATIONS, type Operation } from "@agentorg/computer-contract/operations";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { fromJsonSchema, McpServer } from "@modelcontextprotocol/server";
 import { Computers } from "./computers.ts";
 import { Connections } from "./connection.ts";
-import { OPENAPI, OPERATIONS, type Operation } from "./generated/operations.ts";
 import { createHandlers, VERSION } from "./handlers.ts";
 import { recordOf, running } from "./running.ts";
-import { ApiError, type Endpoint, type Isolation, type Runtime } from "./runtime.ts";
+import type { Endpoint, Isolation, Runtime } from "./runtime.ts";
 import type { Setup } from "./setup.ts";
-import { controlToken, digestOf, privateFolder, sameToken, writePrivate } from "./store.ts";
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
 const WILDCARD = new Set(["0.0.0.0", "::"]);

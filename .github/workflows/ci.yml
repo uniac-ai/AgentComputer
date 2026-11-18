@@ -29,7 +29,7 @@ jobs:
       - name: Generated code matches the schema
         run: |
           npm run generate
-          git diff --exit-code src/generated
+          git diff --exit-code packages/contract/src/generated
       - name: Build and test
         run: |
           export AGENTCOMPUTER_BROWSER_PATH="$(ls -d ~/.cache/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell)"

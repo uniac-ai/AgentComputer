@@ -1,9 +1,10 @@
 // The operations openapi.yaml defines, one function each. A new operation doesn't compile until it
 // has one here, and both the HTTP API and the MCP control tools call these.
+
+import { ApiError } from "@agentorg/computer-base/error";
+import type { operations } from "@agentorg/computer-contract/schema";
 import type { Computers } from "./computers.ts";
 import type { Connections } from "./connection.ts";
-import type { operations } from "./generated/schema.js";
-import { ApiError } from "./runtime.ts";
 import type { Setup } from "./setup.ts";
 
 type Json<T> = T extends { content: { "application/json": infer B } } ? B : never;

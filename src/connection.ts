@@ -3,8 +3,8 @@
 // open, the service is waiting to be connected to. A socket that stops answering pings is dropped.
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
+import type { components } from "@agentorg/computer-contract/schema";
 import { type WebSocket, WebSocketServer } from "ws";
-import type { components } from "./generated/schema.js";
 
 type Connection = components["schemas"]["Connection"];
 
