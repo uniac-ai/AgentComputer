@@ -438,6 +438,12 @@ fn service_command(programs: &Programs, places: &Places) -> Command {
         .args(["--setup-in", SETUP_IN])
         .env_clear()
         .envs(small_env(&places.home));
+    // The Mac's name as the person knows it, which the service says and its agents read as where
+    // they are: read at each start, so a new name shows once the service starts again. One
+    // argument, so a name that begins with a dash is never read as an option.
+    if let Some(name) = macos::computer_name() {
+        command.arg(format!("--machine-name={name}"));
+    }
     command
 }
 
@@ -722,16 +728,17 @@ mod tests {
             assert_eq!(config["cursor"]["halo"], false);
 
             // The service: lending only, reaching the driver on its socket, its home the person's,
-            // and told where the person sets this Mac up, which its refusals name.
+            // told where the person sets this Mac up, which its refusals name, and the Mac's name.
             let (service, data) = (programs.service.display(), places.data.display());
             let lend = "serve --lend --listen 127.0.0.1:0";
             let driver = programs.driver.display();
             let setup_in = "--setup-in AgentOrg: its icon in the menu bar, Agent Control…";
+            let name = macos::computer_name().expect("this Mac's name");
             assert_eq!(
                 said("service.args").trim(),
                 format!(
                     "{service} {lend} --data {data} --screen-driver {driver} \
-                     --screen-socket {socket} {setup_in}"
+                     --screen-socket {socket} {setup_in} --machine-name={name}"
                 )
             );
             let env = said("service.env");

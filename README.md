@@ -26,6 +26,7 @@ That gives an agent this computer instead: the machine the service runs on, whol
 Each computer is this computer, attached with `attach`, or one made in a container of its own with `create`. A service started with `serve --lend` only lends this computer: it makes nothing, `info.made` is empty, and `create` is refused with 409. It listens only on loopback, as this computer is offered only there, and a container it finds in its data folder from before can't be started or removed until a service without `--lend` has the folder. A container needs Docker on the service's machine. The service follows your `DOCKER_HOST` or current context and never changes them, and comes up without Docker.
 
 - **`info` says what the service offers**, each part ready or not and why, in a line a person reads:
+  - `machine`: the name of the machine the service runs on, as its person knows it. It is the name given with `serve --machine-name`, which the Mac app gives as the Mac's name in System Settings, else the machine's hostname. A computer's `about` gives the same name as `Where`.
   - `thisComputer`: its capabilities (`about`, `terminal`, `files` and `screen`) and the browsers that can go with it. The screen is ready where Cua Driver is installed and granted. A reading more than 10 seconds old is checked again before `info` answers, waited for up to a second, while the rest is read; a check that takes longer is answered the next time. One the person switched off isn't checked.
   - `made`, each kind it makes: today a container, ready while Docker answers, with its capabilities and browsers.
 - **A container is refused with 409 where Docker doesn't answer:** `A container needs Docker, which isn't answering on this machine.` One already made isn't started there, and isn't killed there either, since its container couldn't be removed: both are refused with the same words, and it is kept.
@@ -67,6 +68,11 @@ This computer:
   - Asked for, they are asked for by the app: the service opens it through the system with `--args grant` and the grant to ask for, `screen-recording` or `accessibility`. The app's `grant` shows nothing of its own, no window and no Dock tile, since the switch opens it for Screen Recording's request, which shows nothing.
   - Once a grant changes, the app restarts its driver, which reads grants once. A computer's connection to the driver ends with it, and its screen connects again at its next call: the computer runs on. The driver reads a point against the last picture its connection took, so after such a connection is made again, `act` aimed at a point is refused, saying so, until the screen is seen again.
 - **What the service starts of Cua Driver sends no telemetry and checks for no updates,** so no update notice reaches a computer's log. The person's own Cua Driver app follows its own settings: `cua-driver telemetry disable` turns its telemetry off.
+
+**Upgrading from 0.0.37:**
+
+- **`info` says `machine`, the name of the machine the service runs on,** a new required field. It is the name given with `serve --machine-name`, new and optional, else the machine's hostname. The MCP tool `service_info` and the SDK's `ServiceInfo` say it too.
+- **A computer's `about` gives that name as `Where`,** in a container too. With no `--machine-name` it is the hostname, as before. The Mac app gives the Mac's name, so on a Mac lent by the app, `Where` changes from the hostname to that name.
 
 **Upgrading from 0.0.29:**
 
@@ -185,7 +191,7 @@ A computer in a container:
 
 | `label`      | `value`                                                                                                                                   |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `Where`      | The machine's own name                                                                                                                    |
+| `Where`      | The machine's name, as `info`'s `machine` says it                                                                                         |
 | `Folder`     | The workspace's path on that machine, as a path                                                                                           |
 | `Reaches`    | `Read-only files`, `Files`, or `Files and terminal`; with a browser, `, Browser` after it                                                 |
 | `Isolation`  | `None: it acts as you, on the whole machine`, as a caution, or `A container of its own`                                                   |
@@ -212,7 +218,7 @@ A browser of the computer's own has no debug port: a small host process starts i
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `serve`                                   | Run the service: `--listen` (127.0.0.1:7878), `--data`                                                                                     |
 | `up`, `down`, `status`                    | Run the service in the background, stop it, say where it is running                                                                        |
-| `info`                                    | The service's version and what it offers: this computer, and the kinds it makes, each ready or not                                         |
+| `info`                                    | The service's version, its machine's name, and what it offers: this computer, and the kinds it makes, each ready or not                    |
 | `create`                                  | Make a computer: `--access`, `--browser`, `--isolation`, `--workspace` or `--copy-from`, `--name`, `--timeout`, `--metadata KEY=VALUE`     |
 | `attach`                                  | Attach this computer: `--access`, `--workspace`, `--browser` or `--own-browser`, `--screen`, `--name`, `--timeout`, `--metadata KEY=VALUE` |
 | `list [--state]`, `get <id>`, `logs <id>` | Look at them                                                                                                                               |
@@ -408,7 +414,7 @@ A shell of your own needs [node-pty](https://github.com/microsoft/node-pty), an 
 
 ## The Mac app
 
-[`packages/mac`](packages/mac) is the Mac app that lends a Mac. It carries Node, this repository's program and Cua Driver, holds macOS's grants under its own name, keeps the service running with `serve --lend`, and shows its own setup window, [`packages/mac-window`](packages/mac-window). It makes nothing. It is built under the brand in its [`brand.json`](packages/mac/brand.json), and its version is the program's. Until there is a signing identity, it is built locally only; its README says how.
+[`packages/mac`](packages/mac) is the Mac app that lends a Mac. It carries Node, this repository's program and Cua Driver, holds macOS's grants under its own name, keeps the service running with `serve --lend`, giving it the Mac's name as System Settings shows it, and shows its own setup window, [`packages/mac-window`](packages/mac-window). It makes nothing. It is built under the brand in its [`brand.json`](packages/mac/brand.json), and its version is the program's. Until there is a signing identity, it is built locally only; its README says how.
 
 ## Known limits
 

@@ -21,11 +21,11 @@ export type Handlers = {
   [K in keyof operations]: (input: Input<K>) => Promise<Success<operations[K]["responses"]>>;
 };
 
-export function createHandlers(computers: Computers, kinds: Runtime[]): Handlers {
+export function createHandlers(computers: Computers, kinds: Runtime[], machine: string): Handlers {
   return {
     // What the kinds answer themselves: this computer's setup, who is connected and who is acting.
     ...(Object.assign({}, ...kinds.map((kind) => kind.operations ?? {})) as Partial<Handlers>),
-    getInfo: async () => ({ version: VERSION, ...(await computers.offers()) }),
+    getInfo: async () => ({ version: VERSION, machine, ...(await computers.offers()) }),
     listComputers: async ({ state }) => computers.list(state),
     createComputer: (input) => computers.create(input),
     attachComputer: (input) => computers.attach(input),

@@ -1,5 +1,5 @@
 // `agentcomputer`: run the service, or ask a running one to do something.
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -24,16 +24,20 @@ const USAGE = `Usage: agentcomputer <command> [--data DIR]
         [--tls-cert FILE --tls-key FILE | --tls-proxy] [--public-url URL] [--allow-origin ORIGIN]...
         [--browser-name NAME] [--browser-path PATH] [--screen-driver PATH]
         [--screen-socket PATH] [--own-browser-data DIR] [--lend] [--setup-in TEXT]
+        [--machine-name NAME]
                                     run the service; 127.0.0.1:7878 by default, and
                                     anywhere else only with TLS; with --lend, it lends
                                     this machine and makes no computers; --setup-in names
-                                    where the app hosting it sets up this machine's parts
+                                    where the app hosting it sets up this machine's parts;
+                                    --machine-name is this machine's name as its person
+                                    knows it, its hostname by default
   up [the options of serve]         run the service in the background and return once it
                                     answers, printing where; one running is left as it is
   down                              stop the service, and its computers with it
   status                            where the service is running, if it is
-  info                              the service's version and what it offers: this computer,
-                                    the kinds it makes, and their browsers, each ready or not
+  info                              the service's version, its machine's name, and what it
+                                    offers: this computer, the kinds it makes, and their
+                                    browsers, each ready or not
   create --access none|read|files|terminal [--browser] [--workspace DIR | --copy-from DIR]
          [--name NAME] [--isolation container] [--timeout SECONDS] [--metadata KEY=VALUE]...
                                     make a computer, in a container; prints its endpoints and
@@ -118,6 +122,7 @@ async function main() {
       own: { type: "boolean" },
       "own-browser-data": { type: "string" },
       "setup-in": { type: "string" },
+      "machine-name": { type: "string" },
       output: { type: "string" },
       access: { type: "string" },
       workspace: { type: "string" },
@@ -186,9 +191,13 @@ async function main() {
       socket: values["screen-socket"],
       setupIn,
     };
+    // This machine's name as its person knows it, such as a Mac's as the app hosting the service
+    // reads it: what `info` says, and what a computer's `about` gives as where it is.
+    const machine = values["machine-name"]?.trim() || hostname();
     return serve({
       listen: values.listen ?? "127.0.0.1:7878",
       data,
+      machine,
       tls: cert && key ? { cert, key } : undefined,
       tlsProxy: values["tls-proxy"],
       publicUrl: values["public-url"],
@@ -200,9 +209,12 @@ async function main() {
           screenDriver,
           values["own-browser-data"],
           switches,
+          machine,
         ),
         // Lending this machine only, it makes no computers.
-        ...(values.lend ? [] : [new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`)]),
+        ...(values.lend
+          ? []
+          : [new ContainerRuntime(values.image ?? `${IMAGE}:${VERSION}`, machine)]),
       ],
     });
   }

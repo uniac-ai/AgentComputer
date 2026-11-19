@@ -390,6 +390,24 @@ test("about tells the agent what a person reads of its computer", async (t) => {
   assert.equal(rows.length, 8);
 });
 
+test("with no name given, info says the machine's hostname, which about gives as where", async (t) => {
+  const { cli } = await setup(t);
+  assert.equal((JSON.parse(await cli("info")) as { machine: string }).machine, hostname());
+});
+
+test("the machine's name given as the service starts is what info says and about gives", async (t) => {
+  const { cli, attach, mcp, workspace } = await setup(t, [
+    ...BROWSER_ARGS,
+    "--machine-name",
+    "  The studio's Mac  ",
+  ]);
+  assert.equal((JSON.parse(await cli("info")) as { machine: string }).machine, "The studio's Mac");
+  const made = await attach("--access", "read", "--workspace", workspace);
+  const computer = await mcp(made.endpoints.computer as string, made.accessToken);
+  const { rows } = JSON.parse((await computer.call("about")).text) as { rows: unknown[] };
+  assert.deepEqual(rows[0], { label: "Where", value: "The studio's Mac" });
+});
+
 test(
   "below terminal the tool that runs code is hidden and refused, at terminal it's there",
   withBrowser,

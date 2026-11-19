@@ -24,6 +24,11 @@ unsafe extern "C" {
     fn CGRequestScreenCaptureAccess() -> bool;
 }
 
+#[link(name = "SystemConfiguration", kind = "framework")]
+unsafe extern "C" {
+    fn SCDynamicStoreCopyComputerName(store: *const c_void, encoding: *mut u32) -> *mut c_void;
+}
+
 /// The app's identifier, from its bundle.
 pub fn identifier() -> Option<String> {
     NSBundle::mainBundle().bundleIdentifier().map(|id| id.to_string())
@@ -221,6 +226,17 @@ pub fn dark_window(ns_window: *mut c_void) {
     }
 }
 
+/// This Mac's name, as System Settings shows it in General, About.
+pub fn computer_name() -> Option<String> {
+    objc2::rc::autoreleasepool(|_| {
+        // A copy, so this owns it; a CFString is an NSString.
+        let name =
+            unsafe { SCDynamicStoreCopyComputerName(std::ptr::null(), std::ptr::null_mut()) };
+        let name = unsafe { Retained::from_raw(name.cast::<NSString>()) }?;
+        Some(name.to_string()).filter(|name| !name.trim().is_empty())
+    })
+}
+
 /// The account's login shell, from its user record.
 pub fn login_shell() -> Option<String> {
     let user = unsafe { libc::getpwuid(libc::getuid()) };
@@ -245,7 +261,17 @@ pub fn program_of(pid: i32) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::Registered;
+    use super::{computer_name, Registered};
+
+    #[test]
+    fn the_macs_name_is_the_one_its_settings_hold() {
+        let held = std::process::Command::new("/usr/sbin/scutil")
+            .args(["--get", "ComputerName"])
+            .output()
+            .unwrap();
+        let held = String::from_utf8(held.stdout).unwrap();
+        assert_eq!(computer_name().as_deref(), Some(held.trim_end_matches('\n')));
+    }
 
     #[test]
     fn register_exits_0_when_on_2_when_waiting_for_the_person_and_1_otherwise() {

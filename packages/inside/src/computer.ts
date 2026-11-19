@@ -112,6 +112,11 @@ export interface ComputerOptions {
   browser: BrowserConfig;
   /** Inside a container: its files and load are its own, and its files stay in its workspace. */
   contained: boolean;
+  /**
+   * The machine's name as its person knows it, which `about` gives as where it is, where it isn't
+   * the outside's: by default the hostname.
+   */
+  machine?: string | undefined;
 }
 
 /**
@@ -195,7 +200,7 @@ export async function startComputer(
     const workspace = spec.workspace as string;
     const about = aboutTool(
       {
-        machine: spec.outside?.machine ?? hostname(),
+        machine: spec.outside?.machine ?? options.machine ?? hostname(),
         workspace: { outside: spec.outside?.workspace ?? workspace, inside: workspace },
         access: spec.access,
         browser: spec.browser,
