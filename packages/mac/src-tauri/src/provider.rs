@@ -439,9 +439,10 @@ fn service_command(programs: &Programs, places: &Places) -> Command {
         .env_clear()
         .envs(small_env(&places.home));
     // The Mac's name as the person knows it, which the service says and its agents read as where
-    // they are: read at each start, so a new name shows once the service starts again.
+    // they are: read at each start, so a new name shows once the service starts again. One
+    // argument, so a name that begins with a dash is never read as an option.
     if let Some(name) = macos::computer_name() {
-        command.args(["--machine-name", &name]);
+        command.arg(format!("--machine-name={name}"));
     }
     command
 }
@@ -737,7 +738,7 @@ mod tests {
                 said("service.args").trim(),
                 format!(
                     "{service} {lend} --data {data} --screen-driver {driver} \
-                     --screen-socket {socket} {setup_in} --machine-name {name}"
+                     --screen-socket {socket} {setup_in} --machine-name={name}"
                 )
             );
             let env = said("service.env");
