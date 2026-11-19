@@ -50,7 +50,7 @@ async function until(check: () => Promise<boolean>, what: string, ms = 30_000) {
   }
 }
 
-async function setup(t: test.TestContext) {
+async function setup(t: test.TestContext, extra: string[] = []) {
   const root = realpathSync(
     mkdtempSync(join(process.env.AGENTCOMPUTER_TEST_ROOT ?? tmpdir(), "ac-")),
   );
@@ -73,6 +73,7 @@ async function setup(t: test.TestContext) {
         image,
         "--screen-driver",
         "/nonexistent/cua-driver",
+        ...extra,
       ],
       { env: { ...environment(), ...env }, stdio: ["ignore", "pipe", "inherit"] },
     );
@@ -226,6 +227,16 @@ test(
     );
   },
 );
+
+test("in a container, about gives the machine's name the service was given", options, async (t) => {
+  const { Computer, to, workspace, mcp } = await setup(t, ["--machine-name", "The studio's Mac"]);
+  const computer = await Computer.create({ ...to(), access: "read", workspace });
+  t.after(() => computer.close());
+  const client = await mcp(computer.getMcpUrl(), computer.getMcpToken());
+  const told = await client.callTool({ name: "about", arguments: {} });
+  const { rows } = JSON.parse(textOf(told)) as { rows: unknown[] };
+  assert.deepEqual(rows[0], { label: "Where", value: "The studio's Mac" });
+});
 
 test("what runs in a container refuses a malformed live address, and stays", options, async (t) => {
   const { Computer, to, workspace } = await setup(t);

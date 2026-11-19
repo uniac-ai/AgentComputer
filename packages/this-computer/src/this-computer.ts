@@ -4,6 +4,7 @@
 // The containers kind is the other way.
 import { existsSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
+import { hostname } from "node:os";
 import type { Duplex } from "node:stream";
 import { VERSION } from "@agentorg/computer-base/version";
 import type { BrowserConfig } from "@agentorg/computer-browser/browser";
@@ -98,6 +99,8 @@ export class ThisComputer implements Runtime {
   #connections: Connections | undefined;
   /** Why this computer isn't offered here, where it isn't. */
   #notHere: string | undefined;
+  /** This machine's name as its person knows it, which a computer's `about` gives. */
+  readonly #machineName: string;
 
   readonly isolation = "none";
   readonly attaches = true;
@@ -109,7 +112,9 @@ export class ThisComputer implements Runtime {
     screenDriver: Partial<DriverAt> = {},
     ownBrowserData?: string,
     switches?: Switches,
+    machineName: string = hostname(),
   ) {
+    this.#machineName = machineName;
     this.#ownBrowserData = ownBrowserData;
     this.#switches = switches;
     this.#config = config;
@@ -286,7 +291,7 @@ export class ThisComputer implements Runtime {
       spec,
       folder,
       events,
-      { browser: this.#config, contained: false },
+      { browser: this.#config, contained: false, machine: this.#machineName },
       {
         board: this.#machine,
         refused: this.#switches ? (part) => this.#switches?.refused(part) : undefined,

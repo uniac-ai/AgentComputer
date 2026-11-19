@@ -35,6 +35,8 @@ const MAX_BODY = 64 * 1024;
 export interface ServeOptions {
   listen: string;
   data: string;
+  /** The name of the machine it runs on, as its person knows it, which `info` says. */
+  machine: string;
   /** The kinds of computer it keeps: this computer, attached, and those it makes, where it makes any. */
   kinds: Runtime[];
   /** Files holding the certificate and its key, to terminate TLS here. */
@@ -126,7 +128,7 @@ export async function serve(options: ServeOptions) {
       proxied: options.tlsProxy === true,
     });
   const computers = new Computers(data, () => base, options.kinds);
-  const handlers = createHandlers(computers, options.kinds) as unknown as Record<
+  const handlers = createHandlers(computers, options.kinds, options.machine) as unknown as Record<
     string,
     (input: unknown) => Promise<unknown>
   >;

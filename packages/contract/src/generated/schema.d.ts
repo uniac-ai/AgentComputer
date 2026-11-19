@@ -869,6 +869,8 @@ export interface components {
         };
         ServiceInfo: {
             version: string;
+            /** @description The name of the machine the service runs on, as its person knows it: the name the service was started with (`serve --machine-name`), such as a Mac's name as System Settings shows it, else the machine's hostname. A computer's `about` gives the same name as where it is. */
+            machine: string;
             /** @description This computer, the machine the service runs on, attached whole, as whoever started the service. It can be attached while ready: only where the service listens on loopback, with no proxy in front and no public address. Elsewhere it isn't offered, and one attached before is refused at start. */
             thisComputer: components["schemas"]["Offer"];
             /** @description Each kind of computer it makes, ready while it can be made now. A container is ready while Docker answers on the service's machine: asked for a second here and for ten when one is made, so one that is slow can be not ready here and still be made. */

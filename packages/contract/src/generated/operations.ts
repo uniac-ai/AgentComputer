@@ -2637,12 +2637,17 @@ export const OPENAPI = {
         "type": "object",
         "required": [
           "version",
+          "machine",
           "thisComputer",
           "made"
         ],
         "properties": {
           "version": {
             "type": "string"
+          },
+          "machine": {
+            "type": "string",
+            "description": "The name of the machine the service runs on, as its person knows it: the name the service was started with (`serve --machine-name`), such as a Mac's name as System Settings shows it, else the machine's hostname. A computer's `about` gives the same name as where it is."
           },
           "thisComputer": {
             "$ref": "#/components/schemas/Offer",
@@ -2698,12 +2703,17 @@ export const OPERATIONS: Operation[] = [
       "type": "object",
       "required": [
         "version",
+        "machine",
         "thisComputer",
         "made"
       ],
       "properties": {
         "version": {
           "type": "string"
+        },
+        "machine": {
+          "type": "string",
+          "description": "The name of the machine the service runs on, as its person knows it: the name the service was started with (`serve --machine-name`), such as a Mac's name as System Settings shows it, else the machine's hostname. A computer's `about` gives the same name as where it is."
         },
         "thisComputer": {
           "allOf": [

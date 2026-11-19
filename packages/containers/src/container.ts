@@ -95,8 +95,12 @@ export class ContainerRuntime implements Runtime {
    */
   #fetch: Fetch | undefined;
 
-  constructor(image: string) {
+  /** The machine's name as its person knows it, which a computer's `about` gives in there. */
+  readonly #machine: string;
+
+  constructor(image: string, machine: string = hostname()) {
     this.#image = image;
+    this.#machine = machine;
   }
 
   /** Whether Docker answers, asked for no longer than this. */
@@ -231,7 +235,10 @@ export class ContainerRuntime implements Runtime {
     const told = {
       [INNER_TOKEN_VARIABLE]: token,
       ...(spec.workspace
-        ? { [OUTSIDE_WORKSPACE_VARIABLE]: spec.workspace, [OUTSIDE_MACHINE_VARIABLE]: hostname() }
+        ? {
+            [OUTSIDE_WORKSPACE_VARIABLE]: spec.workspace,
+            [OUTSIDE_MACHINE_VARIABLE]: this.#machine,
+          }
         : {}),
     };
     await docker(
