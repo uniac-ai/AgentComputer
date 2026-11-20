@@ -420,7 +420,7 @@ A shell of your own needs [node-pty](https://github.com/microsoft/node-pty), an 
 
 ## The Mac app
 
-[`packages/mac`](packages/mac) is the Mac app that lends a Mac. It carries Node, this repository's program and Cua Driver, holds macOS's grants under its own name, keeps the service running with `serve --lend`, giving it the Mac's name as System Settings shows it, and shows its own setup window, [`packages/mac-window`](packages/mac-window). It makes nothing. It is built under the brand in its [`brand.json`](packages/mac/brand.json), and its version is the program's. Until there is a signing identity, it is built locally only; its README says how.
+[`packages/mac`](packages/mac) is the Mac app that lends a Mac. It carries Node, this repository's program and Cua Driver, holds macOS's grants under its own name, keeps the service running with `serve --lend`, giving it the Mac's name as System Settings shows it, and shows its own setup window, [`packages/mac-window`](packages/mac-window). It makes nothing. It is built under the brand in its [`brand.json`](packages/mac/brand.json), and its version is the program's. Each release carries it unsigned, as `AgentOrg-mac-arm64-<version>-unsigned.zip`, with `SHA256SUMS`, both attested; [`signing.json`](packages/mac/signing.json) says what of it is signed, and its README how it is built.
 
 ## Known limits
 
@@ -428,6 +428,10 @@ A shell of your own needs [node-pty](https://github.com/microsoft/node-pty), an 
 - In a container the browser runs without its own sandbox, which needs privileges a computer doesn't have. The container is the boundary.
 - A browser that stops, or a container that ends by itself, shows the computer as `failed`, with why in its `reason`, and what can no longer be opened live says so in `surfaces`. So does a computer that couldn't be brought back when the service started, for one in a container because Docker didn't answer or its image couldn't be fetched. Its `logs` say more. Stop the computer and start it again.
 - A file being written through the `files` surface sits beside its path as `.agentexec-…` until its last part, where a listing, and the agent, can see it. It stays if the service dies meanwhile.
+
+## Releases
+
+A tag `vX.Y.Z` runs [`release.yml`](.github/workflows/release.yml): the tests, the two images, each attested, and the Mac app, built unsigned; then npm, both packages under the tag `package.json` names; and last, the tag's GitHub release, not marked Latest. The release's notes are `release-notes/vX.Y.Z.md` in the tagged commit, which a release pull request adds: without them the run stops before anything goes out. It carries the unsigned Mac app and `SHA256SUMS`, each attested. Run again, it publishes only what isn't out yet, and leaves a release already made as it is.
 
 ## Tests
 

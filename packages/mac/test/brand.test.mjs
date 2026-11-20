@@ -38,6 +38,12 @@ test("Tauri's config and the background item's plist carry the brand's values", 
   assert.deepEqual(strings("AssociatedBundleIdentifiers"), [brand.identifier]);
 });
 
+test("what a release signs names the app as the brand does", () => {
+  const signing = JSON.parse(read("signing.json"));
+  assert.equal(signing.bundle, `${brand.name}.app`);
+  assert.ok(Object.hasOwn(signing.programs, `Contents/MacOS/${brand.name}`));
+});
+
 /** Each file under `folder`, by its path from the package's folder. */
 const under = (folder) =>
   readdirSync(new URL(`../${folder}`, import.meta.url), { recursive: true, withFileTypes: true })

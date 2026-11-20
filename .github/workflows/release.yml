@@ -4,6 +4,16 @@ name: Release
 # Trusted Publishing: npm trusts this workflow, in the `npm` environment, by its OIDC identity, so no
 # token is stored anywhere, and each package carries a provenance statement linking it to this
 # repository and commit. Both are the tag's version, under the same npm tag.
+#
+# Before them, the two images, each attested, and the Mac app, built unsigned and zipped. Last, once
+# npm has both packages, this run makes the tag's GitHub release, not marked Latest, with the
+# release notes the tagged commit carries in release-notes/<tag>.md. The release carries the
+# unsigned app and SHA256SUMS, each attested by this workflow at the tag. packages/mac/signing.json
+# lists every Mach-O file of the app with its entitlements, for its signing; the signed app is added
+# to the release later, with its own line appended to SHA256SUMS, and this run's lines stay as they
+# are.
+#
+# What reads a release keeps to this file's name, its `vX.Y.Z` tags and the names of what it makes.
 
 on:
   push:
@@ -27,6 +37,9 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
+      # The release this run makes at its end carries these notes: without them, nothing goes out.
+      - name: Check the release notes
+        run: test -s "release-notes/$GITHUB_REF_NAME.md"
       - name: Install
         run: npm ci
       - name: Install the headless browser
@@ -65,13 +78,16 @@ jobs:
           name: package
           path: agentorg-computer-*.tgz
 
-  # Before the package, whose default computer image this is.
+  # Before the package, whose default computer image this is. Each image is attested by this
+  # workflow at the tag, the attestation pushed beside the image.
   image:
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -90,7 +106,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - id: computer
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -99,7 +116,13 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/uniac-ai/AgentComputer
             org.opencontainers.image.licenses=Apache-2.0
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/uniac-ai/agentcomputer/computer
+          subject-digest: ${{ steps.computer.outputs.digest }}
+          push-to-registry: true
+      - id: service
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: Dockerfile.service
@@ -109,9 +132,62 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/uniac-ai/AgentComputer
             org.opencontainers.image.licenses=Apache-2.0
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/uniac-ai/agentcomputer/service
+          subject-digest: ${{ steps.service.outputs.digest }}
+          push-to-registry: true
 
+  # The Mac app, built unsigned, signed ad hoc as the Mac job builds it, and checked as it checks
+  # it; then zipped as the archive its signing takes, with the app at the archive's top and no
+  # AppleDouble files, which would break its seal where it is unpacked off a Mac.
+  mac:
+    needs: build
+    # Apple silicon, as the Node the app carries is.
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: "1.93.1"
+      # Cua Driver, asked its version, sends no telemetry and checks for no update.
+      DO_NOT_TRACK: "1"
+      CUA_DRIVER_RS_UPDATE_CHECK: "false"
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Install Rust
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+      - name: Install
+        run: npm ci
+      # The assembly fetches Node and Cua Driver and checks each against its pin, its release's
+      # sums and, for the driver, GitHub's digest, before anything of it goes in.
+      - name: Build the app
+        run: npm run app --workspace @agentorg/mac
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Check the app
+        run: bash packages/mac/scripts/check-bundle.sh
+      - name: Zip it, unsigned
+        run: |
+          set -euo pipefail
+          name="$(node -p "require('./packages/mac/brand.json').name")"
+          version="${GITHUB_REF_NAME#v}"
+          app="packages/mac/src-tauri/target/release/bundle/macos/$name.app"
+          test "$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")" = "$version"
+          ditto -c -k --norsrc --keepParent "$app" "$name-mac-arm64-$version-unsigned.zip"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mac-app
+          path: "*-mac-arm64-*-unsigned.zip"
+          if-no-files-found: error
+
+  # After the images and the Mac app, so a release whose app can't be built publishes nothing.
   publish:
-    needs: [build, image]
+    needs: [build, image, mac]
     runs-on: ubuntu-latest
     environment: npm
     permissions:
@@ -139,3 +215,49 @@ jobs:
               npm publish "agentorg-$name-$version.tgz" --access public --provenance --tag "$TAG"
             fi
           done
+
+  # Last, once npm has both packages: the GitHub release, the sign that everything went out. Run
+  # again after it is made, it changes nothing of it.
+  release:
+    needs: [publish, mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: mac-app
+      - id: made
+        name: Whether the release is made already
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "The release $GITHUB_REF_NAME is made already: its files stay as they are."
+            echo "made=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "made=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Sum what it carries
+        if: steps.made.outputs.made == 'false'
+        run: |
+          sha256sum -- *-mac-arm64-*-unsigned.zip > SHA256SUMS
+          cat SHA256SUMS
+      - if: steps.made.outputs.made == 'false'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            *-mac-arm64-*-unsigned.zip
+            SHA256SUMS
+      - name: Make the release
+        if: steps.made.outputs.made == 'false'
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --latest=false \
+            --title "${GITHUB_REF_NAME#v}" --notes-file "release-notes/$GITHUB_REF_NAME.md" \
+            *-mac-arm64-*-unsigned.zip SHA256SUMS
