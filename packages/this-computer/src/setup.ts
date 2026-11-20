@@ -11,7 +11,6 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { release } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { ApiError } from "@agentorg/computer-base/error";
@@ -39,8 +38,6 @@ type Granted = "granted" | "not-granted" | "unknown";
  * except where a test stands in.
  */
 export interface Machine extends Where {
-  /** The kernel's release, as `uname -r` gives it: on a Mac, Darwin's, 25 for macOS 26. */
-  release: string;
   /** Run a program to its end; it fails with what the program said. */
   run(program: string, args: string[]): Promise<void>;
   /** Start a program, and let it run on by itself. */
@@ -58,7 +55,6 @@ export interface Machine extends Where {
 const exec = promisify(execFile);
 const thisMachine = (): Machine => ({
   ...here(),
-  release: release(),
   run: async (program, args) => {
     try {
       await exec(program, args, { timeout: 30_000 });
@@ -95,8 +91,6 @@ const APP_MS = 10_000;
  * makes the request, and macOS writes its row in the pane some 40 ms later.
  */
 const PANE_MS = 1_000;
-/** Darwin's release from which Screen Recording's request draws nothing: macOS 26. */
-const SILENT_FROM = 25;
 
 const grant = (value: boolean | undefined): Granted =>
   value === undefined ? "unknown" : value ? "granted" : "not-granted";
@@ -112,7 +106,7 @@ const PANE: Partial<Record<NeedName, string>> = {
 const VOLUMES = "/Volumes";
 
 /**
- * The macOS requests made through an app hosting the driver, for each grant whose request may draw
+ * The macOS requests made through an app hosting the driver, for each grant, whose request may draw
  * an alert, by the app's bundle identifier, kept in the service's folder beside the switches. macOS
  * draws that alert until the person has answered it once; a new identity is a new key.
  */
@@ -322,30 +316,18 @@ export class Setup {
   }
 
   /**
-   * Set a part's switch. Turning it on, or on again, makes only the requests that show nothing; the
-   * switch stays on whether or not they could be started.
+   * Set a part's switch. Turning it on asks macOS for nothing: what the part needs is asked for
+   * only on the person's click on that need, so that nothing appears at a switch.
    */
   async set(capability: Switch, on: boolean): Promise<Schemas["Setup"]> {
     this.#switches.set(capability, on);
-    if (on)
-      try {
-        await this.#quietly(capability);
-      } catch (error) {
-        throw new ApiError(
-          409,
-          `The ${capability} is on, but asking for what it needs didn't start: ${(error as Error).message}`,
-        );
-      }
     return this.capabilities();
   }
 
-  /**
-   * Ask for one thing a part needs, on the person's click; with none named, only what turning the
-   * part on makes.
-   */
+  /** Ask for one thing a part needs, on the person's click; with none named, nothing. */
   async ask(capability: Switch, need?: NeedName): Promise<Schemas["Setup"]> {
     try {
-      await (need ? this.#ask(capability, need) : this.#quietly(capability));
+      if (need) await this.#ask(capability, need);
     } catch (error) {
       throw new ApiError(409, (error as Error).message);
     }
@@ -374,30 +356,6 @@ export class Setup {
     if (need && !needs.some((one) => one.need === need))
       throw new Error(`There's no "${need}" for ${capability} here.`);
     return needs;
-  }
-
-  /**
-   * Whether macOS's request for a grant draws nothing: Screen Recording's, from macOS 26, where it
-   * only lists the app in its pane. Before 26 it is commonly seen to draw an alert, so it is taken
-   * as one; that is untested.
-   */
-  #silent(need: NeedName) {
-    return need === "screen-recording" && Number.parseInt(this.#machine.release, 10) >= SILENT_FROM;
-  }
-
-  /**
-   * What turning a part on asks for: only the requests that show nothing, so that nothing appears
-   * at a switch. For an app hosting the driver, Screen Recording's while it is missing, where its
-   * request draws nothing. Accessibility's alert, Cua Driver's own grant window and a browser's
-   * inspect page each wait for the person's click on that need. Only macOS asks.
-   */
-  async #quietly(capability: Switch) {
-    if (capability !== "screen" || this.#machine.platform !== "darwin") return;
-    const driver = findDriver(this.#driver);
-    if (!driver?.socket || !this.#silent("screen-recording")) return;
-    const needs = await this.#needs(capability);
-    if (needs.some((one) => one.need === "screen-recording" && one.state !== "granted"))
-      await this.#request(driver, "screen-recording");
   }
 
   /** Ask for one thing a part needs, on the person's click. Only macOS asks. */
@@ -443,18 +401,15 @@ export class Setup {
    * A grant of the app hosting the driver, which the driver can't ask for, on the person's click.
    * The app makes macOS's request each time, so macOS asks again whenever it would, such as after a
    * reset of the app's privacy entries. The grant's pane opens as well, once the app's row is
-   * written there, except at the first request of one whose request may draw an alert: macOS draws
-   * it until the person has answered it once, and its own button opens the pane.
+   * written there, except at the first request of each grant: its request may draw macOS's alert,
+   * which macOS draws until the person has answered it once, and whose own button opens the pane.
    */
   async #askHost(driver: DriverAt, need: NeedName) {
     const host = await this.#request(driver, need);
-    if (!this.#silent(need)) {
-      const app = (await infoValue(host.app, "CFBundleIdentifier")) ?? host.app;
-      const first = !this.#made.has(app, need);
-      this.#made.add(app, need);
-      if (first) return;
-    }
-    await this.#pane(need);
+    const app = (await infoValue(host.app, "CFBundleIdentifier")) ?? host.app;
+    const first = !this.#made.has(app, need);
+    this.#made.add(app, need);
+    if (!first) await this.#pane(need);
   }
 
   /** A grant's pane, once the request just made has had its row written there. */
