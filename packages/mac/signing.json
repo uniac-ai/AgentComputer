@@ -1,0 +1,10 @@
+{
+  "bundle": "AgentOrg.app",
+  "programs": {
+    "Contents/MacOS/AgentOrg": null,
+    "Contents/MacOS/node": "packages/mac/entitlements/node.plist",
+    "Contents/Resources/cua-driver": "packages/mac/entitlements/cua-driver.plist",
+    "Contents/Resources/agentcomputer/node_modules/node-pty/prebuilds/darwin-arm64/pty.node": null,
+    "Contents/Resources/agentcomputer/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper": null
+  }
+}

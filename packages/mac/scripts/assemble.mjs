@@ -16,6 +16,8 @@
 // files. The bundle copies these
 // as they are, signing none of them, so each program and native file is signed here, with the
 // app's own identity and the entitlements in ../entitlements, before the bundle around them is.
+// What is signed, and with which entitlements, is ../signing.json's list, which a release signs
+// again with its own identity.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -185,13 +187,24 @@ export function sign(path, identity, entitlements) {
   ]);
 }
 
-/** What is signed, and with which entitlements, of what the bundle carries. */
-const SIGNED = {
-  "MacOS/node": "node.plist",
-  "Resources/cua-driver": "cua-driver.plist",
-  "Resources/agentcomputer/node_modules/node-pty/prebuilds/darwin-arm64/pty.node": undefined,
-  "Resources/agentcomputer/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper": undefined,
-};
+/**
+ * What is signed of what the bundle carries, and with which entitlements: signing.json's programs,
+ * but for the app's own program, which the bundle's own signing does. Their entitlements are in
+ * ../entitlements, which signing.json names from the repository's root.
+ */
+const SIGNING = JSON.parse(readFileSync(join(here, "signing.json"), "utf8"));
+const OWN = `Contents/MacOS/${basename(SIGNING.bundle, ".app")}`;
+const SIGNED = Object.fromEntries(
+  Object.entries(SIGNING.programs)
+    .filter(([path]) => path !== OWN)
+    .map(([path, entitlements]) => {
+      if (entitlements && dirname(entitlements) !== "packages/mac/entitlements")
+        throw new Error(
+          `${path}'s entitlements, ${entitlements}, aren't in packages/mac/entitlements.`,
+        );
+      return [path.replace(/^Contents\//, ""), entitlements ? basename(entitlements) : undefined];
+    }),
+);
 const PROGRAMS = [
   "MacOS/node",
   "Resources/cua-driver",
