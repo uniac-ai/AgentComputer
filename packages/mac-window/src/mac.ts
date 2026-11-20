@@ -74,13 +74,11 @@ export const isRefusal = (error: unknown): error is Refusal =>
 export interface Mac {
   /** Each part, read afresh. */
   setup(): Promise<Setup>;
-  /** A card's switch. Turning it on makes only the requests that show nothing: for the screen,
-   * Screen Recording's, which lists the app in its pane; for a browser, none. 409: a Refusal. */
+  /** A card's switch. Turning it on asks for nothing. */
   setSwitch(capability: Capability, on: boolean): Promise<Setup>;
   /** A row's Set up, on the person's click; the service decides what it brings. A browser: its
-   * inspect page. Accessibility: macOS's request the first time, its pane after that. Screen
-   * Recording: its pane each time, since the switch made its request, which shows nothing. With
-   * no need, what the switch does. 409: a Refusal. */
+   * inspect page. A screen grant: macOS's request the first time, and its pane as well after that.
+   * With no need, nothing. 409: a Refusal. */
   ask(capability: Capability, need?: NeedName): Promise<Setup>;
   /** One grant's pane in System Settings, and nothing more. The window doesn't call it: a grant's
    * Set up is `ask`. It answers with each part; 409: a Refusal. */

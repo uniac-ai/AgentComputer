@@ -1,14 +1,21 @@
 //! `AgentOrg uninstall [--reset-privacy]`: the app removed from this Mac, as `agentorg uninstall`
 //! offers it. The background item is taken away, as `unregister` does, which stops the provider
 //! and what it runs. With `--reset-privacy`, given on the person's say, macOS's privacy entries for
-//! the app are reset, while the app is still there for `tccutil` to name. Then what the app keeps
-//! in the person's Library goes, and the app itself, once Launch Services has forgotten it. macOS
-//! keeps a switched-off "AgentOrg" in Login Items, which nothing here can remove.
+//! the app are reset, while the app is still there for `tccutil` to name. Once the provider has
+//! ended, what the app keeps in the person's Library goes, and the app itself, once Launch Services
+//! has forgotten it. macOS keeps a switched-off "AgentOrg" in Login Items, which nothing here can
+//! remove.
 
 use crate::{log, macos, places};
 use std::fs;
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
+
+/// How long the provider may take to end once its item is gone: the 40 s the item gives it, and a
+/// little more.
+const PROVIDER_ENDS: Duration = Duration::from_secs(45);
 
 const LSREGISTER: &str = concat!(
     "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework",
@@ -27,6 +34,23 @@ pub fn kept(home: &Path, identifier: &str) -> Vec<PathBuf> {
         library.join("HTTPStorages").join(identifier),
         library.join("Saved Application State").join(format!("{identifier}.savedState")),
     ]
+}
+
+/// Waits until no provider holds its lock, as it does until it has written its last line: macOS
+/// stops it once its item is gone, and it ends its driver and service first. Whether none does
+/// within `wait`; with no lock there, none has run.
+fn provider_ended(lock: &Path, wait: Duration) -> bool {
+    let Ok(file) = fs::File::open(lock) else { return true };
+    let deadline = Instant::now() + wait;
+    loop {
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
 }
 
 pub fn run(reset_privacy: bool) {
@@ -51,6 +75,14 @@ pub fn run(reset_privacy: bool) {
     }
     // Its preferences, where it has any, through macOS, which caches them.
     let _ = Command::new("/usr/bin/defaults").args(["delete", &identifier]).output();
+    // The provider writes its last lines as it stops: what the app keeps, its log among it, goes
+    // once it has ended, so that nothing comes back.
+    if !provider_ended(&places::provider_lock(), PROVIDER_ENDS) {
+        done.push(format!(
+            "the provider hadn't ended after {} s, so its log may come back",
+            PROVIDER_ENDS.as_secs()
+        ));
+    }
     log::log("uninstall", &done.join("; "));
     // The log goes too, so nothing more is written there.
     for path in kept(&places::home(), &identifier) {
@@ -95,5 +127,29 @@ mod tests {
         );
         // Each is the app's own: nothing else of the person's Library.
         assert!(kept.iter().all(|path| path.contains("AgentOrg") || path.contains("agentorg")));
+    }
+
+    #[test]
+    fn nothing_is_removed_until_the_provider_has_let_its_lock_go() {
+        let folder = std::env::temp_dir().join(format!("mac-app-uninstall-{}", std::process::id()));
+        fs::create_dir_all(&folder).unwrap();
+        let lock = folder.join("provider.lock");
+        // None has run: there is no lock to wait for.
+        assert!(provider_ended(&lock, Duration::ZERO));
+        // A provider running holds it, as its own process does, through a file of its own.
+        let held = fs::OpenOptions::new().create(true).truncate(false).write(true).open(&lock);
+        let held = held.unwrap();
+        assert_eq!(unsafe { libc::flock(held.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let started = Instant::now();
+        assert!(!provider_ended(&lock, Duration::from_millis(500)));
+        assert!(started.elapsed() >= Duration::from_millis(500));
+        // Once it has ended, the wait ends at once.
+        let ends = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(held);
+        });
+        assert!(provider_ended(&lock, Duration::from_secs(5)));
+        ends.join().unwrap();
+        let _ = fs::remove_dir_all(&folder);
     }
 }

@@ -39,17 +39,15 @@ const folderOf = (t: test.TestContext) => {
 };
 
 /**
- * A machine that records what it would run and start; `fail` makes each run fail. Its release is
- * macOS 26's Darwin, unless given. It reads no folder of this one: `touched` records each folder
- * it would read, answered as `folders.answers` says, and `folders.lists` gives the names in the
- * ones it lists.
+ * A machine that records what it would run and start; `fail` makes each run fail. It reads no
+ * folder of this one: `touched` records each folder it would read, answered as `folders.answers`
+ * says, and `folders.lists` gives the names in the ones it lists.
  */
 const machine = (
   platform: NodeJS.Platform,
   home: string,
   onRun?: () => void,
   fail?: string,
-  release = "25.4.0",
   folders: {
     answers?: Record<string, "read" | "refused" | "gone" | Promise<"read" | "refused" | "gone">>;
     lists?: Record<string, string[]>;
@@ -60,7 +58,6 @@ const machine = (
   const stands: Machine = {
     platform,
     home,
-    release,
     // Only the home's own apps: not whatever this machine has installed.
     applications: [join(home, "Applications")],
     run: async (program, args) => {
@@ -430,14 +427,9 @@ test("a driver an app runs embedded is read, and asked for, through that app", a
   ];
   await setup.ask("screen", "accessibility");
   assert.deepEqual(mac.ran, []);
+  // The first request is alone: macOS's alert, if it draws one, opens the pane itself.
   await setup.ask("screen", "screen-recording");
-  assert.deepEqual(mac.ran, [
-    opened("screen-recording"),
-    [
-      "/usr/bin/open",
-      ["x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"],
-    ],
-  ]);
+  assert.deepEqual(mac.ran, [opened("screen-recording")]);
   // A driver on that socket that isn't the host's own, embedded, says nothing of its grants.
   const other = driverAt(
     join(folder, "Other.app", "Contents", "MacOS", "cua-driver"),
@@ -457,7 +449,7 @@ test("a driver an app runs embedded is read, and asked for, through that app", a
   ]);
 });
 
-test("from macOS 26 the screen's switch makes Screen Recording's request alone, which shows nothing, and each click asks again and opens the pane", async (t) => {
+test("the screen's switch asks nothing, and each grant's click asks again, its pane opening after the first", async (t) => {
   const folder = folderOf(t);
   const app = join(folder, "Example.app");
   const driver = driverAt(
@@ -481,14 +473,20 @@ test("from macOS 26 the screen's switch makes Screen Recording's request alone, 
   const setup = new Setup(switches, hosted, undefined, mac.stands);
   await setup.set("screen", true);
   assert.equal(switches.on("screen"), true);
-  // With no need named, only what the switch makes.
+  // Neither the switch nor a click that names no need asks for anything.
   await setup.ask("screen");
-  assert.deepEqual(mac.ran, [opened("screen-recording"), opened("screen-recording")]);
-  mac.ran.length = 0;
+  assert.deepEqual(mac.ran, []);
+  // Screen Recording's request may draw macOS's alert: the first is the request alone, later ones
+  // open the pane as well.
   await setup.ask("screen", "screen-recording");
-  assert.deepEqual(mac.ran, [opened("screen-recording"), pane("ScreenCapture")]);
-  // Accessibility's alert waits for its click: the first is the request alone, later ones open
-  // the pane as well, also once the service has started again.
+  assert.deepEqual(mac.ran, [opened("screen-recording")]);
+  await setup.ask("screen", "screen-recording");
+  assert.deepEqual(mac.ran, [
+    opened("screen-recording"),
+    opened("screen-recording"),
+    pane("ScreenCapture"),
+  ]);
+  // So may Accessibility's, also once the service has started again.
   mac.ran.length = 0;
   await setup.ask("screen", "accessibility");
   assert.deepEqual(mac.ran, [opened("accessibility")]);
@@ -574,11 +572,11 @@ test("requests made are kept by the hosting app's bundle identifier, wherever th
   ]);
 });
 
-test("before macOS 26 the screen's switch asks nothing, and Screen Recording waits for its click as Accessibility does", async (t) => {
+test("on any macOS the screen's switch asks nothing, and Screen Recording waits for its click as Accessibility does", async (t) => {
   const folder = folderOf(t);
   const app = join(folder, "Example.app");
   const driver = driverAt(join(app, "Contents", "Resources", "cua-driver"), join(folder, "never"));
-  const mac = machine("darwin", folder, undefined, undefined, "24.6.0");
+  const mac = machine("darwin", folder);
   const setup = new Setup(
     new Switches(folder, true),
     { program: driver, socket: "/tmp/host.sock" },
@@ -646,19 +644,14 @@ test("a step that can't be started leaves the part on, and says why", async (t) 
     join(home, "Example.app", "Contents", "Resources", "cua-driver"),
     join(home, "never"),
   );
-  await assert.rejects(
-    new Setup(
-      switches,
-      { program: driver, socket: "/tmp/host.sock" },
-      undefined,
-      failing.stands,
-    ).set("screen", true),
-    {
-      status: 409,
-      message:
-        "The screen is on, but asking for what it needs didn't start: No application knows how to open it.",
-    },
-  );
+  // The switch asks for nothing, so there is nothing to fail: it is on.
+  await new Setup(
+    switches,
+    { program: driver, socket: "/tmp/host.sock" },
+    undefined,
+    failing.stands,
+  ).set("screen", true);
+  assert.deepEqual(failing.ran, []);
   assert.equal(switches.on("screen"), true);
   await assert.rejects(
     new Setup(switches, undefined, undefined, failing.stands).ask("browser", "chrome"),
@@ -849,7 +842,7 @@ test("on a Mac the files list the folders macOS protects as one need, each read 
   const documents = new Promise<"refused">((done) => {
     answer = done;
   });
-  const mac = machine("darwin", home, undefined, undefined, undefined, {
+  const mac = machine("darwin", home, undefined, undefined, {
     answers: {
       [join(home, "Documents")]: documents,
       [join(home, "Library", "Mobile Documents", "com~apple~CloudDocs")]: "gone",

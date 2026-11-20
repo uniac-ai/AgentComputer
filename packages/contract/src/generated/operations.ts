@@ -99,7 +99,7 @@ export const OPENAPI = {
       ],
       "put": {
         "operationId": "setSetup",
-        "summary": "Set a part's switch, which lasts across restarts. Turning it on, or on again, makes only the requests that show nothing, on the service's machine, macOS only: from macOS 26, Screen Recording's for an app hosting Cua Driver, while it is missing, which lists the app in its pane. Nothing that shows an alert or a window comes from the switch: Accessibility's alert, Cua Driver's own grant window and a browser's inspect page each come from ask with that need, on the person's click. Before macOS 26 Screen Recording's request is taken to draw an alert, so it waits for ask too; that is untested. Where a request it makes couldn't be started, it answers 409, saying why, and the switch stays on.",
+        "summary": "Set a part's switch, which lasts across restarts. Turning it on asks for nothing: no request of macOS's, no alert and no window comes from the switch. What a part needs is asked for only by ask with that need, on the person's click: a screen grant's request, Cua Driver's own grant window, a browser's inspect page.",
         "requestBody": {
           "required": true,
           "content": {
@@ -121,7 +121,7 @@ export const OPENAPI = {
         },
         "responses": {
           "200": {
-            "description": "Set, and any request it makes started.",
+            "description": "Set.",
             "content": {
               "application/json": {
                 "schema": {
@@ -132,16 +132,6 @@ export const OPENAPI = {
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "409": {
-            "description": "On, but a request it makes couldn't be started.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
           }
         }
       }
@@ -159,7 +149,7 @@ export const OPENAPI = {
       ],
       "post": {
         "operationId": "askSetup",
-        "summary": "Ask the person, on the service's machine, macOS only, for one thing a part needs, for a button they press for it. screen-recording or accessibility, while it is missing: for a driver an app hosts, the app makes macOS's request each time, so that macOS asks again whenever it would, such as after a reset of the app's privacy entries. That grant's pane of System Settings opens as well, a second later, except at the first request the service has made, for that app's bundle identifier, of a grant whose request may draw an alert: accessibility, and screen-recording before macOS 26. macOS draws that alert until it has been answered, and the alert's own button opens the pane; after a reset, the alert and the pane both come. From macOS 26 Screen Recording's request draws nothing, so its pane opens each time. For Cua Driver's own app, while it is missing: its own grant, its app started first, which makes the system's requests in its own order, Accessibility first, in a window of its own. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. folders, for the files: each folder macOS protects that is here is read once, one after another, so that macOS asks for each in turn, now, and waits for the person's answer; their state is unknown until all are answered. With none named, it makes only what turning the part on makes. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing.",
+        "summary": "Ask the person, on the service's machine, macOS only, for one thing a part needs, for a button they press for it. screen-recording or accessibility, while it is missing: for a driver an app hosts, the app makes macOS's request each time, so that macOS asks again whenever it would, such as after a reset of the app's privacy entries. That grant's pane of System Settings opens as well, a second later, except at the first request the service has made of that grant, for that app's bundle identifier: either grant's request may draw macOS's alert, which macOS draws until it has been answered, and whose own button opens the pane; after a reset, the alert and the pane both come. For Cua Driver's own app, while it is missing: its own grant, its app started first, which makes the system's requests in its own order, Accessibility first, in a window of its own. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. folders, for the files: each folder macOS protects that is here is read once, one after another, so that macOS asks for each in turn, now, and waits for the person's answer; their state is unknown until all are answered. With none named, it asks for nothing. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3131,7 +3121,7 @@ export const OPERATIONS: Operation[] = [
     "operationId": "setSetup",
     "method": "PUT",
     "path": "/v1/setup/{capability}",
-    "summary": "Set a part's switch, which lasts across restarts. Turning it on, or on again, makes only the requests that show nothing, on the service's machine, macOS only: from macOS 26, Screen Recording's for an app hosting Cua Driver, while it is missing, which lists the app in its pane. Nothing that shows an alert or a window comes from the switch: Accessibility's alert, Cua Driver's own grant window and a browser's inspect page each come from ask with that need, on the person's click. Before macOS 26 Screen Recording's request is taken to draw an alert, so it waits for ask too; that is untested. Where a request it makes couldn't be started, it answers 409, saying why, and the switch stays on.",
+    "summary": "Set a part's switch, which lasts across restarts. Turning it on asks for nothing: no request of macOS's, no alert and no window comes from the switch. What a part needs is asked for only by ask with that need, on the person's click: a screen grant's request, Cua Driver's own grant window, a browser's inspect page.",
     "status": 200,
     "hasBody": true,
     "pathParameters": [
@@ -3261,7 +3251,7 @@ export const OPERATIONS: Operation[] = [
     "operationId": "askSetup",
     "method": "POST",
     "path": "/v1/setup/{capability}/ask",
-    "summary": "Ask the person, on the service's machine, macOS only, for one thing a part needs, for a button they press for it. screen-recording or accessibility, while it is missing: for a driver an app hosts, the app makes macOS's request each time, so that macOS asks again whenever it would, such as after a reset of the app's privacy entries. That grant's pane of System Settings opens as well, a second later, except at the first request the service has made, for that app's bundle identifier, of a grant whose request may draw an alert: accessibility, and screen-recording before macOS 26. macOS draws that alert until it has been answered, and the alert's own button opens the pane; after a reset, the alert and the pane both come. From macOS 26 Screen Recording's request draws nothing, so its pane opens each time. For Cua Driver's own app, while it is missing: its own grant, its app started first, which makes the system's requests in its own order, Accessibility first, in a window of its own. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. folders, for the files: each folder macOS protects that is here is read once, one after another, so that macOS asks for each in turn, now, and waits for the person's answer; their state is unknown until all are answered. With none named, it makes only what turning the part on makes. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing.",
+    "summary": "Ask the person, on the service's machine, macOS only, for one thing a part needs, for a button they press for it. screen-recording or accessibility, while it is missing: for a driver an app hosts, the app makes macOS's request each time, so that macOS asks again whenever it would, such as after a reset of the app's privacy entries. That grant's pane of System Settings opens as well, a second later, except at the first request the service has made of that grant, for that app's bundle identifier: either grant's request may draw macOS's alert, which macOS draws until it has been answered, and whose own button opens the pane; after a reset, the alert and the pane both come. For Cua Driver's own app, while it is missing: its own grant, its app started first, which makes the system's requests in its own order, Accessibility first, in a window of its own. chrome or edge: that browser opens at its inspect page, where remote debugging is switched on. folders, for the files: each folder macOS protects that is here is read once, one after another, so that macOS asks for each in turn, now, and waits for the person's answer; their state is unknown until all are answered. With none named, it asks for nothing. It answers once the steps have started, with each part then; what the person does next is read afresh later. A browser the service was given only the folder of, the person opens. Elsewhere it asks for nothing.",
     "status": 200,
     "hasBody": true,
     "pathParameters": [
