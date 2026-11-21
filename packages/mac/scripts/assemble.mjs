@@ -7,8 +7,8 @@
 //   from the repository's install, which its lockfile checked;
 // - the agents' pointer, a cursor theme the driver draws (./cursor-theme.mjs), compiled by the
 //   compiler of the driver's own release, which only builds it and goes nowhere;
-// - their licences, and the notices of the crates the app's own program is built from
-//   (./crate-notices.mjs).
+// - their licences, and the app's own program's: its LICENSE, and the notices of the crates it is
+//   built from (./crate-notices.mjs).
 // The bundle takes them from `src-tauri/target/assembly/bundle`, through tauri.conf.json's
 // `bundle.macOS.files`: `node` into Contents/MacOS; `cua-driver`, the service and the licences into
 // Contents/Resources. The driver draws windows, and macOS takes a program in Contents/MacOS that
@@ -236,15 +236,14 @@ export async function assemble({
   const unpacked = took(driver, pins.driver, bundle);
   pointer(unpacked, pins.driver, target, bundle, compiling);
   const version = service(repository, join(bundle, "Resources/agentcomputer"), versionOf);
-  // The app's own program's crates, beside the other licences, under the app's name.
-  const notices = join(
-    bundle,
-    "Resources/licenses",
-    NAME.toLowerCase(),
-    "THIRD_PARTY_LICENSES.txt",
+  // The app's own program's licence and its crates' notices, beside the other licences, under the
+  // app's name.
+  const own = join(bundle, "Resources/licenses", NAME.toLowerCase());
+  copy(join(here, "LICENSE"), join(own, "LICENSE"));
+  writeFileSync(
+    join(own, "THIRD_PARTY_LICENSES.txt"),
+    crateNotices(crates(metadata()), join(here, "crate-licences")),
   );
-  mkdirSync(dirname(notices), { recursive: true });
-  writeFileSync(notices, crateNotices(crates(metadata()), join(here, "crate-licences")));
   // Each program can run however the bundle is installed: node-pty ships its helper unmarked.
   for (const program of PROGRAMS) chmodSync(join(bundle, program), 0o755);
   for (const [path, entitlements] of Object.entries(SIGNED))
