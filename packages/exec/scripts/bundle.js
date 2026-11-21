@@ -1,5 +1,5 @@
 // Single files with nothing to install: `agentexec.js` for a host to run, and `lib.js` for one to
-// mount. The licences of what is bundled into them go beside them.
+// mount. The licences of what is bundled into them go beside them, each with its NOTICE.
 import { copyFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { build } from "esbuild";
@@ -29,10 +29,16 @@ for (const input of results.flatMap(({ metafile }) => Object.keys(metafile.input
 }
 const sections = [...folders].sort().map((folder) => {
   const { name, version, license } = JSON.parse(readFileSync(join(folder, "package.json"), "utf8"));
-  const file = readdirSync(folder).find((entry) => /^(licen[cs]e|copying)/i.test(entry));
+  const entries = readdirSync(folder);
+  const file = entries.find((entry) => /^(licen[cs]e|copying)/i.test(entry));
   if (!file && !existsSync(join(folder, "LICENSE")))
     return `${name} ${version} (${license})\nSee https://www.npmjs.com/package/${name}\n`;
-  return `${name} ${version} (${license})\n\n${readFileSync(join(folder, file), "utf8").trim()}\n`;
+  // Its NOTICE, when it has one, after its licence.
+  const notice = entries.find((entry) => /^notice(\.|$)/i.test(entry));
+  const texts = [file, ...(notice ? [notice] : [])].map((entry) =>
+    readFileSync(join(folder, entry), "utf8").trim(),
+  );
+  return `${name} ${version} (${license})\n\n${texts.join("\n\n")}\n`;
 });
 writeFileSync("dist/THIRD_PARTY_LICENSES.txt", sections.join(`\n${"=".repeat(72)}\n\n`));
 console.log(`Bundled ${folders.size} packages.`);

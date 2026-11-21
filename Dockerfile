@@ -18,11 +18,13 @@ WORKDIR /opt/agentcomputer
 COPY --from=modules /opt/agentcomputer/node_modules ./node_modules
 COPY package.json package-lock.json LICENSE NOTICE ./
 COPY dist ./dist
+# Playwright installs its ffmpeg with any browser, for recording video, which nothing here does: the
+# browser's screencast sends frames, not a file, and its MCP server is given no video tools.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl git python3 \
   && node node_modules/playwright-core/cli.js install --with-deps --only-shell chromium \
   && ln -s /opt/browsers/chromium_headless_shell-*/*/chrome-headless-shell /opt/browsers/headless-shell \
-  && rm -rf /var/lib/apt/lists/* "$HOME/.npm"
+  && rm -rf /opt/browsers/ffmpeg-* /var/lib/apt/lists/* "$HOME/.npm"
 
 # Any user can be its home's owner: the service runs a computer as whoever runs the service.
 RUN mkdir -p /home/computer /workspace && chmod 1777 /home/computer /workspace
