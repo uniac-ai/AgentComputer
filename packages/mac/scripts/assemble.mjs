@@ -7,7 +7,8 @@
 //   from the repository's install, which its lockfile checked;
 // - the agents' pointer, a cursor theme the driver draws (./cursor-theme.mjs), compiled by the
 //   compiler of the driver's own release, which only builds it and goes nowhere;
-// - their licences.
+// - their licences, and the notices of the crates the app's own program is built from
+//   (./crate-notices.mjs).
 // The bundle takes them from `src-tauri/target/assembly/bundle`, through tauri.conf.json's
 // `bundle.macOS.files`: `node` into Contents/MacOS; `cua-driver`, the service and the licences into
 // Contents/Resources. The driver draws windows, and macOS takes a program in Contents/MacOS that
@@ -33,6 +34,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { crateNotices, crates } from "./crate-notices.mjs";
 import { dotLottie, THEME } from "./cursor-theme.mjs";
 
 const here = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -193,7 +195,8 @@ export function sign(path, identity, entitlements) {
  * ../entitlements, which signing.json names from the repository's root.
  */
 const SIGNING = JSON.parse(readFileSync(join(here, "signing.json"), "utf8"));
-const OWN = `Contents/MacOS/${basename(SIGNING.bundle, ".app")}`;
+const NAME = basename(SIGNING.bundle, ".app");
+const OWN = `Contents/MacOS/${NAME}`;
 const SIGNED = Object.fromEntries(
   Object.entries(SIGNING.programs)
     .filter(([path]) => path !== OWN)
@@ -212,7 +215,16 @@ const PROGRAMS = [
 ];
 
 /** Makes `bundle` what the app carries, and says what was fetched. */
-export async function assemble({ pins, target, repository, versionOf, get, signing, compiling }) {
+export async function assemble({
+  pins,
+  target,
+  repository,
+  versionOf,
+  get,
+  signing,
+  compiling,
+  metadata,
+}) {
   const downloads = join(target, "downloads");
   const node = await fetched(pins.node, downloads, get);
   const driver = await fetched(pins.driver, downloads, get);
@@ -224,6 +236,15 @@ export async function assemble({ pins, target, repository, versionOf, get, signi
   const unpacked = took(driver, pins.driver, bundle);
   pointer(unpacked, pins.driver, target, bundle, compiling);
   const version = service(repository, join(bundle, "Resources/agentcomputer"), versionOf);
+  // The app's own program's crates, beside the other licences, under the app's name.
+  const notices = join(
+    bundle,
+    "Resources/licenses",
+    NAME.toLowerCase(),
+    "THIRD_PARTY_LICENSES.txt",
+  );
+  mkdirSync(dirname(notices), { recursive: true });
+  writeFileSync(notices, crateNotices(crates(metadata()), join(here, "crate-licences")));
   // Each program can run however the bundle is installed: node-pty ships its helper unmarked.
   for (const program of PROGRAMS) chmodSync(join(bundle, program), 0o755);
   for (const [path, entitlements] of Object.entries(SIGNED))
@@ -260,6 +281,22 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
       // hotspot, and what its painter can draw.
       compiling: (compiler, source, theme) =>
         execFileSync(compiler, ["build", source, "--output", theme], { stdio: "inherit" }),
+      // The crates as the lockfile has them, for Apple silicon, the one Mac the app is built for.
+      // It builds nothing; it fetches the crates' sources where they aren't already.
+      metadata: () =>
+        JSON.parse(
+          execFileSync(
+            "cargo",
+            [
+              "metadata",
+              "--format-version=1",
+              "--locked",
+              "--filter-platform=aarch64-apple-darwin",
+              `--manifest-path=${join(here, "src-tauri/Cargo.toml")}`,
+            ],
+            { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 },
+          ),
+        ),
     });
     for (const one of said.fetched)
       console.log(`${basename(one.at)}: ${one.size} bytes, sha256 ${one.sha256}, from ${one.url}`);

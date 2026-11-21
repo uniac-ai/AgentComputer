@@ -124,6 +124,27 @@ function standIns(t) {
     "node_modules/node-pty/prebuilds/linux-x64/pty.node": "linux native",
     "node_modules/node-pty/src/unix/pty.cc": "source",
   });
+  // One crate the app's program is built from, as cargo metadata answers for it.
+  files(root, { "crates/one/Cargo.toml": "", "crates/one/LICENSE-MIT": "one's licence" });
+  const metadata = {
+    packages: [
+      {
+        id: "one",
+        name: "one",
+        version: "1.0.0",
+        license: "MIT",
+        manifest_path: join(root, "crates/one/Cargo.toml"),
+        source: "registry+https://github.com/rust-lang/crates.io-index",
+      },
+    ],
+    resolve: {
+      root: "app",
+      nodes: [
+        { id: "app", deps: [{ pkg: "one", dep_kinds: [{ kind: null }] }] },
+        { id: "one", deps: [] },
+      ],
+    },
+  };
   const signed = [];
   const compiled = [];
   const target = join(root, "target");
@@ -141,6 +162,7 @@ function standIns(t) {
         compiled.push([readFileSync(compiler, "utf8"), readFileSync(source), theme]);
         writeFileSync(theme, "the compiled theme");
       },
+      metadata: () => metadata,
     });
   return { pins, served, asked, signed, compiled, target, run };
 }
@@ -172,6 +194,7 @@ test("the bundle carries Node, the driver and the service, and their licences, e
     "Resources/agentcomputer/package.json",
     "Resources/cua-driver",
     `Resources/cursor-themes/${THEME}.cua-theme`,
+    "Resources/licenses/agentorg/THIRD_PARTY_LICENSES.txt",
     "Resources/licenses/cua-driver/LICENSE",
     "Resources/licenses/cua-driver/THIRD_PARTY_NOTICES.md",
     "Resources/licenses/node/LICENSE",
@@ -180,6 +203,11 @@ test("the bundle carries Node, the driver and the service, and their licences, e
   // can't be signed as ours.
   const read = (path) => readFileSync(join(bundle, path), "utf8");
   assert.equal(read("Resources/licenses/node/LICENSE"), "Node's licence");
+  // The notices of the crates the app's own program is built from.
+  assert.equal(
+    read("Resources/licenses/agentorg/THIRD_PARTY_LICENSES.txt"),
+    "one 1.0.0 (MIT)\n\nSource: https://crates.io/crates/one/1.0.0\n\none's licence\n",
+  );
   assert.equal(read("Resources/cua-driver"), "the bare driver");
   // Each program can run, node-pty's helper too, which it ships unmarked.
   const helper = `${pty}/prebuilds/darwin-arm64/spawn-helper`;

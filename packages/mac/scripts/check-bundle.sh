@@ -32,6 +32,11 @@ done
 # The service is this repository's program, as built here.
 test "$(node -p "require('./$app/Contents/Resources/agentcomputer/package.json').version")" = "$(node -p "require('./package.json').version")"
 cmp "$app/Contents/Resources/agentcomputer/dist/agentcomputer.js" dist/agentcomputer.js
+# The notices of the crates the app's own program is built from, as the assembly wrote them, the
+# lockfile's Tauri among them.
+notices="Resources/licenses/$(tr '[:upper:]' '[:lower:]' <<<"$name")/THIRD_PARTY_LICENSES.txt"
+cmp "$app/Contents/$notices" "packages/mac/src-tauri/target/assembly/bundle/$notices"
+grep -q "^tauri $(awk '/^name = "tauri"$/ { getline; print $3 }' packages/mac/src-tauri/Cargo.lock | tr -d '"') (" "$app/Contents/$notices"
 test "$("$app/Contents/MacOS/node" --version)" = "v$(pinned assembly.json .node.version)"
 test "$("$app/Contents/Resources/cua-driver" --version)" = "cua-driver $(pinned assembly.json .driver.version)"
 # The agents' pointer: the one theme, read back by the release's own compiler as the driver
