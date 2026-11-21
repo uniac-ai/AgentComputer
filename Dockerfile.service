@@ -1,8 +1,22 @@
 # The service, for a server: the bundled program and the Docker client, which reaches the Docker on
 # the machine through its socket. Run `npm run build` first; this copies what that made.
+
+# The Docker client's version, whose licence and notice go with it: moving the client's pin needs
+# this, and the two files' sums below, moved with it.
+ARG DOCKER_CLI_VERSION=29.9.3
+
+FROM docker:29-cli@sha256:2357639ad1ea7d0194134bf3292622fd4e562483966ed674e5d7c945b5f3b28d AS docker
+ARG DOCKER_CLI_VERSION
+ADD --checksum=sha256:2d81ea060825006fc8f3fe28aa5dc0ffeb80faf325b612c955229157b8c10dc0 \
+  https://raw.githubusercontent.com/docker/cli/v${DOCKER_CLI_VERSION}/LICENSE /licenses/docker-cli/LICENSE
+ADD --checksum=sha256:a8c869fbda819afb8d80e0ac19bac52e766bc6c19cb38cf94f52d64c4be2aab6 \
+  https://raw.githubusercontent.com/docker/cli/v${DOCKER_CLI_VERSION}/NOTICE /licenses/docker-cli/NOTICE
+RUN test "$DOCKER_VERSION" = "$DOCKER_CLI_VERSION" && chmod -R a+rX /licenses
+
 FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
 
-COPY --from=docker:29-cli@sha256:2357639ad1ea7d0194134bf3292622fd4e562483966ed674e5d7c945b5f3b28d /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker /licenses /opt/agentcomputer/licenses
 COPY LICENSE NOTICE /opt/agentcomputer/
 COPY dist/agentcomputer.js dist/THIRD_PARTY_LICENSES.txt /opt/agentcomputer/dist/
 

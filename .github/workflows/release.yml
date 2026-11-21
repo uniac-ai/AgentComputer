@@ -112,6 +112,8 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          # BuildKit's list of what the image holds, each package with its licence, beside it.
+          sbom: true
           tags: ghcr.io/uniac-ai/agentcomputer/computer:${{ steps.version.outputs.version }}
           labels: |
             org.opencontainers.image.source=https://github.com/uniac-ai/AgentComputer
@@ -128,6 +130,8 @@ jobs:
           file: Dockerfile.service
           platforms: linux/amd64,linux/arm64
           push: true
+          # BuildKit's list of what the image holds, each package with its licence, beside it.
+          sbom: true
           tags: ghcr.io/uniac-ai/agentcomputer/service:${{ steps.version.outputs.version }}
           labels: |
             org.opencontainers.image.source=https://github.com/uniac-ai/AgentComputer
