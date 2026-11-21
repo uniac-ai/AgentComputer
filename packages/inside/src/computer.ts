@@ -217,7 +217,7 @@ export async function startComputer(
       pty: await loadPty(),
       extraTools: [about],
       note: (tool, input) => {
-        if (FILE_TOOLS.has(tool)) return presence.agentCalled({ capability: "files" });
+        if (FILE_TOOLS.has(tool)) return presence.agentCalling({ capability: "files" });
         // Only a terminal that is there and running: one refused, or ended, is acted on by
         // nobody. Waiting on its output, with nothing typed, adds nothing: a command the agent
         // started is acting until it ends either way.
@@ -227,7 +227,7 @@ export async function startComputer(
           !exec?.terminals.list().some((one) => one.id === id && one.exitCode === undefined)
         )
           return undefined;
-        return presence.agentCalled(
+        return presence.agentCalling(
           { capability: "terminal", terminal: id as string },
           typeof input.chars === "string" && input.chars !== "",
         );
@@ -299,7 +299,7 @@ export async function startComputer(
     screen = new Screen(
       at,
       events.log,
-      () => presence.agentCalled({ capability: "screen" }),
+      () => presence.agentCalling({ capability: "screen" }),
       screenNow.refused,
       // On a lent machine the agent acts only in the background.
       screenNow.lends,
@@ -330,7 +330,7 @@ export async function startComputer(
       spec.browser === "own",
     );
     browser.gate = browserLive;
-    browser.noted = () => presence.agentCalled({ capability: "browser" });
+    browser.noted = () => presence.agentCalling({ capability: "browser" });
     // The browser's switch is for the person's own; any browser's calls that reach the machine
     // answer to its terminal's and files' switches.
     browser.refused = (tool, args) =>

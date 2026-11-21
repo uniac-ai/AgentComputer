@@ -756,7 +756,7 @@ export class Screen {
   /** Cua Driver as it is found at each connection. */
   readonly #at: () => DriverAt;
   readonly #log: (line: string) => void;
-  readonly #noted: () => string | undefined;
+  readonly #noted: () => { line: string | undefined; ended(): void };
   readonly #refused: () => Promise<string | undefined>;
   /** The driver's connection, while there is one. */
   #driver: Driver | undefined;
@@ -776,14 +776,15 @@ export class Screen {
   readonly #pointer: RealPointer;
 
   /**
-   * `noted` gives the line to add to each answer: who else acted on the screen. `refused` says why
+   * `noted`, as each call starts, gives the line to add to its answer, who else acted on the
+   * screen, and the way to say the call ended. `refused` says why
    * no call is answered now: the person has it switched off, or it isn't ready. `onlyBackground`:
    * whether the agent acts only in the background, as on a lent machine.
    */
   constructor(
     driver: () => DriverAt,
     log: (line: string) => void,
-    noted: () => string | undefined,
+    noted: () => { line: string | undefined; ended(): void },
     refused: () => Promise<string | undefined>,
     onlyBackground: boolean,
     platform: NodeJS.Platform = process.platform,
@@ -907,8 +908,13 @@ export class Screen {
     const answered = async (work: () => Promise<Answer>, words?: (said: string) => string) => {
       const refusal = await this.#refused();
       if (refusal) return { content: [text(refusal)], isError: true };
-      const line = this.#noted();
-      const answer = forAgent(await work().catch(failed));
+      const { line, ended } = this.#noted();
+      let answer: Answer;
+      try {
+        answer = forAgent(await work().catch(failed));
+      } finally {
+        ended();
+      }
       const content = (answer.content ?? []).map((part) => {
         const said = part as { type?: string; text?: string };
         // A refusal keeps its words, all of them.

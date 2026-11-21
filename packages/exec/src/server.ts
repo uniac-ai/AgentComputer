@@ -107,12 +107,23 @@ export function createServer(
         config as never,
         (async (...args: unknown[]) => {
           let line: unknown;
+          let ended: unknown;
           try {
-            line = note(name, config.inputSchema ? structuredClone(args[0] as Input) : {});
+            const noted = note(name, config.inputSchema ? structuredClone(args[0] as Input) : {});
+            ({ line, ended } = typeof noted === "object" && noted ? noted : { line: noted });
           } catch {
             // A note that fails is left out; the call is answered as it would be.
           }
-          const answer = (await handler(...args)) as { content: unknown[] };
+          let answer: { content: unknown[] };
+          try {
+            answer = (await handler(...args)) as { content: unknown[] };
+          } finally {
+            try {
+              if (typeof ended === "function") ended();
+            } catch {
+              // Nor does one whose end fails change the answer.
+            }
+          }
           return typeof line === "string" && line
             ? { ...answer, content: [...answer.content, text(line).content[0]] }
             : answer;
