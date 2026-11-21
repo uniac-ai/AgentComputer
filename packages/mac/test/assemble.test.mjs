@@ -194,6 +194,7 @@ test("the bundle carries Node, the driver and the service, and their licences, e
     "Resources/agentcomputer/package.json",
     "Resources/cua-driver",
     `Resources/cursor-themes/${THEME}.cua-theme`,
+    "Resources/licenses/agentorg/LICENSE",
     "Resources/licenses/agentorg/THIRD_PARTY_LICENSES.txt",
     "Resources/licenses/cua-driver/LICENSE",
     "Resources/licenses/cua-driver/THIRD_PARTY_NOTICES.md",
@@ -203,7 +204,11 @@ test("the bundle carries Node, the driver and the service, and their licences, e
   // can't be signed as ours.
   const read = (path) => readFileSync(join(bundle, path), "utf8");
   assert.equal(read("Resources/licenses/node/LICENSE"), "Node's licence");
-  // The notices of the crates the app's own program is built from.
+  // The app's own program's licence, and the notices of the crates it is built from.
+  assert.equal(
+    read("Resources/licenses/agentorg/LICENSE"),
+    readFileSync(new URL("../LICENSE", import.meta.url), "utf8"),
+  );
   assert.equal(
     read("Resources/licenses/agentorg/THIRD_PARTY_LICENSES.txt"),
     "one 1.0.0 (MIT)\n\nSource: https://crates.io/crates/one/1.0.0\n\none's licence\n",
