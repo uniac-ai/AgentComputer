@@ -9,6 +9,7 @@
       "!package-lock.json",
       "!packages/contract/src/generated",
       "!packages/mac/src-tauri/target",
+      "!packages/mac/crate-licences",
       "!packages/mac/src-tauri/gen",
       "!packages/mac-window/src/ui"
     ]
