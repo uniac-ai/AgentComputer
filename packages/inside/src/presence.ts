@@ -1,6 +1,7 @@
 // Who has acted on what of a computer lately: the person, through a live view at operate, and its
-// agent, through its endpoints. A command the agent started is acting on its terminal until it
-// ends, as the terminal shows it running. It is kept only to be shown, to each of them: nothing is
+// agent, through its endpoints. The agent's call is acting while it runs, and a command the agent
+// started is acting on its terminal until it ends, as the terminal shows it running. Each is
+// acting for 10 s after it ends. It is kept only to be shown, to each of them: nothing is
 // refused by it, and nothing rests on who did a thing. Computers attached to the same machine share
 // its files, so they share one board for them, and each is shown the person and the other
 // computers' agents acting there.
@@ -23,9 +24,17 @@ interface Entry {
   actor: Actor;
   where: Where;
   at: number;
-  /** Its 10 s count, while nothing holds it: none while a command started there runs. */
+  /** Its 10 s count, while nothing holds it: none while a call or a command there runs. */
   timer?: NodeJS.Timeout;
-  held: boolean;
+  /** How many calls and commands there run now. */
+  holds: number;
+}
+
+/** A call of the agent's: the line for its answer, and the way to say it ended. */
+export interface AgentCall {
+  line: string | undefined;
+  /** It ended: acting there for 10 s more. Once is enough; again does nothing. */
+  ended(): void;
 }
 
 /** How a person and an agent read where it was. */
@@ -44,45 +53,53 @@ const did = (actor: Actor, where: Where) =>
   `${label(actor)} ${actor.who === "person" ? DID[where.capability] : `used ${named(where)} here`}`;
 
 /**
- * Who last acted on what, until 10 s after, or, for a command started there, until 10 s after it
- * ends, and the way to hear each start and stop.
+ * Who last acted on what, until 10 s after, or, while a call or a command there runs, until 10 s
+ * after the last of them ends, and the way to hear each start and stop.
  */
 export class Board {
   readonly #entries = new Map<string, Entry>();
   readonly #listeners = new Set<() => void>();
+  #closed = false;
 
-  /** An act there: held still where a command runs, and otherwise its 10 s count starts again. */
+  /** An act there: held still where something runs, and otherwise its 10 s count starts again. */
   acted(actor: Actor, where: Where) {
-    this.#set(actor, where, this.#entries.get(this.#key(actor, where))?.held ?? false);
+    this.#set(actor, where, 0);
   }
 
-  /** A command started there: acting until it ends, whatever is done there meanwhile. */
+  /**
+   * A call or a command started there: acting until it ends, whatever is done there meanwhile.
+   * Returns the way to say it ended, which makes the end the last act there; once the last that
+   * runs there has ended, its 10 s count starts.
+   */
   hold(actor: Actor, where: Where) {
-    this.#set(actor, where, true);
-  }
-
-  /** The command ended: its end is the last act there, and its 10 s count starts now. */
-  release(actor: Actor, where: Where) {
-    if (this.#entries.get(this.#key(actor, where))?.held) this.#set(actor, where, false);
+    this.#set(actor, where, 1);
+    let held = true;
+    return () => {
+      if (held) this.#set(actor, where, -1);
+      held = false;
+    };
   }
 
   #key(actor: Actor, where: Where) {
     return `${actorKey(actor)} ${named(where)}`;
   }
 
-  /** Acting now, held or counting down 10 s. */
-  #set(actor: Actor, where: Where, held: boolean) {
+  /** Acting now, `change` more holding it: held, or counting down 10 s. */
+  #set(actor: Actor, where: Where, change: number) {
+    if (this.#closed) return;
     const key = this.#key(actor, where);
     const before = this.#entries.get(key);
     clearTimeout(before?.timer);
-    const timer = held
-      ? undefined
-      : setTimeout(() => {
-          this.#entries.delete(key);
-          this.#changed();
-        }, ACTING_MS);
+    const holds = Math.max(0, (before?.holds ?? 0) + change);
+    const timer =
+      holds > 0
+        ? undefined
+        : setTimeout(() => {
+            this.#entries.delete(key);
+            this.#changed();
+          }, ACTING_MS);
     timer?.unref();
-    this.#entries.set(key, { actor, where, at: Date.now(), timer, held });
+    this.#entries.set(key, { actor, where, at: Date.now(), timer, holds });
     if (!before) this.#changed();
   }
 
@@ -99,6 +116,7 @@ export class Board {
   }
 
   close() {
+    this.#closed = true;
     for (const { timer } of this.#entries.values()) clearTimeout(timer);
     this.#entries.clear();
     this.#listeners.clear();
@@ -121,6 +139,10 @@ export class Presence {
   readonly #machine: Board | undefined;
   /** When the agent last called on each thing, while that can still matter. */
   readonly #called = new Map<string, number>();
+  /** The way to end each of its calls and commands that runs now. */
+  readonly #running = new Set<() => void>();
+  /** Of those, each command's, by its terminal. */
+  readonly #commands = new Map<string, () => void>();
 
   /** `id` and `name` are its computer's; `machine` is the board of the machine it is attached to. */
   constructor(id: string, name: string, machine?: Board) {
@@ -139,22 +161,36 @@ export class Presence {
     this.#board(where).acted(who === "person" ? { who } : this.#agent, where);
   }
 
+  /** The agent holds `where` on `board` until the way returned is used, or it stops. */
+  #hold(board: Board, where: Where) {
+    const release = board.hold(this.#agent, where);
+    const ended = () => {
+      this.#running.delete(ended);
+      release();
+    };
+    this.#running.add(ended);
+    return ended;
+  }
+
   /** The agent started a command on a terminal: it acts there until the command ends. */
   agentCommandStarted(terminal: string) {
-    this.#own.hold(this.#agent, { capability: "terminal", terminal });
+    this.#commands.get(terminal)?.();
+    this.#commands.set(terminal, this.#hold(this.#own, { capability: "terminal", terminal }));
   }
 
   /** A command ended: where the agent started it, its 10 s count starts now. */
   commandEnded(terminal: string) {
-    this.#own.release(this.#agent, { capability: "terminal", terminal });
+    this.#commands.get(terminal)?.();
+    this.#commands.delete(terminal);
   }
 
   /**
-   * The agent called on `where`, acting there unless `acts` is false, as when it only waits on a
-   * command: the line to add to its answer, where anyone else acted there since its last call on
-   * it, naming each of them.
+   * The agent calls on `where`: acting there while the call runs, and 10 s after it ends, unless
+   * `acts` is false, as when it only waits on a command. Gives the line to add to its answer, where
+   * anyone else acted there since its last call on it, naming each of them, and the way to say the
+   * call ended.
    */
-  agentCalled(where: Where, acts = true): string | undefined {
+  agentCalling(where: Where, acts = true): AgentCall {
     const key = named(where);
     const at = Date.now();
     const since = this.#called.get(key);
@@ -162,13 +198,13 @@ export class Presence {
     // this computer's own agent is ever held, and it isn't named to itself.
     for (const [one, when] of this.#called) if (at - when > ACTING_MS) this.#called.delete(one);
     this.#called.set(key, at);
-    if (acts) this.acted("agent", where);
+    const ended = acts ? this.#hold(this.#board(where), where) : () => {};
     const told = this.#others()
       .filter((one) => named(one.where) === key && (since === undefined || one.at > since))
       .map(
         (one) => `${did(one.actor, where)} ${Math.max(1, Math.round((at - one.at) / 1000))} s ago.`,
       );
-    return told.length > 0 ? told.join(" ") : undefined;
+    return { line: told.length > 0 ? told.join(" ") : undefined, ended };
   }
 
   /** Who is acting now, on what, the most recent first. */
@@ -205,8 +241,12 @@ export class Presence {
     };
   }
 
-  /** It stops: what it did on what it shares stays, to end in its own time. */
+  /**
+   * It stops: what it did on what it shares stays, to end in its own time. A call or command of
+   * its that still runs there ends now, and is acting there for 10 s more.
+   */
   close() {
+    for (const ended of [...this.#running]) ended();
     this.#own.close();
   }
 

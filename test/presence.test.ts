@@ -118,6 +118,14 @@ async function until(check: () => boolean, what: string) {
   }
 }
 
+type Presence = import("@agentorg/computer-inside/presence").Presence;
+/** A call of the agent's that ends as it starts: the line on its answer. */
+const called = (presence: Presence, ...on: Parameters<Presence["agentCalling"]>) => {
+  const call = presence.agentCalling(...on);
+  call.ended();
+  return call.line;
+};
+
 /** Who, by what name, on what: an Acting without its time. */
 const shape = ({ who, name, capability, terminal }: Acting) => ({
   who,
@@ -259,6 +267,33 @@ for (const [kind, extra] of WITH_BROWSER)
     assert.match(told.at(-1) ?? "", /^The person used the browser \d+ s ago\.$/);
   });
 
+for (const [kind, extra] of WITH_BROWSER)
+  test(`on ${named(kind)}: a call on the browser is acting while it runs, past 10 s`, {
+    timeout: 120_000,
+    skip: !extra && needs(kind),
+  }, async (t) => {
+    const { Computer, to, workspace, open, agent } = await setup(t, extra as string[]);
+    const computer = await make(Computer, kind, {
+      ...to,
+      access: "read",
+      browser: true,
+      workspace,
+      name: "Scout",
+    });
+    const call = await agent(computer.getMcpUrl("browser"), computer.getMcpToken());
+    const presence = await open((await computer.liveSession("presence")).url);
+    const latest = () => ((presence.heard.at(-1)?.acting ?? []) as Acting[]).map(shape);
+    const onIt = { who: "agent", name: "Scout", capability: "browser", terminal: undefined };
+    // A page to wait on, then a wait of 14 s: 12.5 s in, past the 10 s after the page opened, the
+    // wait is still acting, and so it is as it ends.
+    assert.equal((await call("browser_navigate", { url: "about:blank" })).length, 1);
+    const waited = call("browser_wait_for", { time: 14 });
+    await new Promise((done) => setTimeout(done, 12_500));
+    assert.deepEqual(latest(), [onIt], "12.5 s into the call");
+    assert.doesNotMatch((await waited).join("\n"), /Error/);
+    assert.deepEqual(latest(), [onIt], "as it ends");
+  });
+
 test("two computers attached to this computer each see the other on its files", {
   timeout: 60_000,
 }, async (t) => {
@@ -296,12 +331,12 @@ test("acting now lasts 10 s, and each start and stop is heard", async (t) => {
   assert.equal(presence.othersForAbout(), "The person: the files");
   t.mock.timers.tick(4_000);
   // Told only of the same thing: not of the files, on a call on the browser.
-  assert.equal(presence.agentCalled({ capability: "browser" }), undefined);
+  assert.equal(called(presence, { capability: "browser" }), undefined);
   // A moment later, so that the files are the more recent.
   t.mock.timers.tick(1);
-  const told = presence.agentCalled({ capability: "files" });
+  const told = called(presence, { capability: "files" });
   assert.equal(told, "The person wrote a file here 4 s ago.");
-  assert.equal(presence.agentCalled({ capability: "files" }), undefined, "told once");
+  assert.equal(called(presence, { capability: "files" }), undefined, "told once");
   // At 10 s the person stops acting; the agent, which acted at 4 s, still is.
   t.mock.timers.tick(6_000);
   assert.equal(presence.othersForAbout(), "Nobody else");
@@ -317,7 +352,7 @@ test("acting now lasts 10 s, and each start and stop is heard", async (t) => {
   // Each terminal is its own: typing in one tells nothing of another, and waiting isn't acting.
   presence.acted("person", { capability: "terminal", terminal: "s_a" });
   const waiting = (terminal: string) =>
-    presence.agentCalled({ capability: "terminal", terminal }, false);
+    called(presence, { capability: "terminal", terminal }, false);
   assert.equal(waiting("s_b"), undefined);
   assert.match(waiting("s_a") ?? "", /^The person used this terminal/);
   assert.deepEqual(presence.acting().map(shape), [
@@ -339,8 +374,8 @@ test("an agent's command is acting on its terminal until it ends, and 10 s after
   // A minute and a half on, still running: still acting. Typing into it moves its time and starts
   // no countdown; waiting on it adds nothing.
   t.mock.timers.tick(60_000);
-  presence.agentCalled({ capability: "terminal", terminal: "s_run" });
-  presence.agentCalled({ capability: "terminal", terminal: "s_run" }, false);
+  called(presence, { capability: "terminal", terminal: "s_run" });
+  called(presence, { capability: "terminal", terminal: "s_run" }, false);
   t.mock.timers.tick(30_000);
   assert.deepEqual(presence.acting().map(shape), [onIt]);
   assert.equal(presence.acting()[0]?.at, new Date(60_000).toISOString());
@@ -365,6 +400,40 @@ test("an agent's command is acting on its terminal until it ends, and 10 s after
   presence.close();
 });
 
+test("an agent's call is acting while it runs, however long, and 10 s after it ends", async (t) => {
+  // The clock is the test's: it moves only by tick, from 0.
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { Presence } = await import("@agentorg/computer-inside/presence");
+  const presence = new Presence("c_scout", "Scout");
+  let changes = 0;
+  presence.onChange(() => changes++);
+  const onFiles = { who: "agent", name: "Scout", capability: "files", terminal: undefined };
+  const call = presence.agentCalling({ capability: "files" });
+  assert.equal(call.line, undefined);
+  // A minute on, still running: still acting, and another call there, begun and ended meanwhile,
+  // ends nothing of it.
+  t.mock.timers.tick(60_000);
+  assert.deepEqual(presence.acting().map(shape), [onFiles]);
+  presence.agentCalling({ capability: "files" }).ended();
+  t.mock.timers.tick(10_000);
+  assert.deepEqual(presence.acting().map(shape), [onFiles]);
+  // It ends: its end is its last act, and 10 s after it nobody is acting. Ended twice is once.
+  call.ended();
+  call.ended();
+  assert.equal(presence.acting()[0]?.at, new Date(70_000).toISOString());
+  t.mock.timers.tick(9_999);
+  assert.deepEqual(presence.acting().map(shape), [onFiles]);
+  t.mock.timers.tick(1);
+  assert.deepEqual(presence.acting(), []);
+  assert.equal(changes, 2, "its start and its stop");
+  // A call that only waits on a command acts on nothing, while it runs or after.
+  const waiting = presence.agentCalling({ capability: "terminal", terminal: "s_1" }, false);
+  assert.deepEqual(presence.acting(), []);
+  waiting.ended();
+  assert.deepEqual(presence.acting(), []);
+  presence.close();
+});
+
 /** Two computers attached to one machine, on a clock that moves only by tick, from 0. */
 async function twoOnOneMachine(t: test.TestContext) {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
@@ -382,7 +451,7 @@ test("one attached computer's agent on the files is shown to another, and heard"
   const { scout, helper } = await twoOnOneMachine(t);
   let heard = 0;
   const stop = helper.onChange(() => heard++);
-  scout.agentCalled({ capability: "files" });
+  called(scout, { capability: "files" });
   assert.equal(heard, 1);
   assert.deepEqual(helper.acting().map(shape), [
     { who: "agent", name: "Scout", capability: "files", terminal: undefined },
@@ -397,20 +466,20 @@ test("one attached computer's agent on the files is shown to another, and heard"
 
 test("each is told of everyone else on the files since its last call, the most recent first", async (t) => {
   const { scout, helper } = await twoOnOneMachine(t);
-  scout.agentCalled({ capability: "files" });
+  called(scout, { capability: "files" });
   // 2 s later Helper calls: told of Scout.
   t.mock.timers.tick(2_000);
-  assert.equal(helper.agentCalled({ capability: "files" }), "Scout used the files here 2 s ago.");
+  assert.equal(called(helper, { capability: "files" }), "Scout used the files here 2 s ago.");
   // 1 ms after that, the person writes through Scout; 1 s later each calls.
   t.mock.timers.tick(1);
   scout.acted("person", { capability: "files" });
   t.mock.timers.tick(1_000);
   assert.equal(
-    scout.agentCalled({ capability: "files" }),
+    called(scout, { capability: "files" }),
     "The person wrote a file here 1 s ago. Helper used the files here 1 s ago.",
   );
   assert.equal(
-    helper.agentCalled({ capability: "files" }),
+    called(helper, { capability: "files" }),
     "Scout used the files here 1 s ago. The person wrote a file here 1 s ago.",
   );
   assert.equal(helper.othersForAbout(), "Scout: the files; The person: the files");
@@ -418,11 +487,11 @@ test("each is told of everyone else on the files since its last call, the most r
 
 test("terminals and the browser stay each computer's own, and both boards are shown as one", async (t) => {
   const { scout, helper } = await twoOnOneMachine(t);
-  scout.agentCalled({ capability: "files" });
+  called(scout, { capability: "files" });
   t.mock.timers.tick(1);
   scout.acted("person", { capability: "terminal", terminal: "s_1" });
   t.mock.timers.tick(1);
-  scout.agentCalled({ capability: "browser" });
+  called(scout, { capability: "browser" });
   assert.deepEqual(helper.acting().map(shape), [
     { who: "agent", name: "Scout", capability: "files", terminal: undefined },
   ]);
@@ -437,11 +506,24 @@ test("terminals and the browser stay each computer's own, and both boards are sh
   );
 });
 
+test("one that stops in the middle of a call on the files leaves it to end 10 s after", async (t) => {
+  const { scout, helper } = await twoOnOneMachine(t);
+  const call = scout.agentCalling({ capability: "files" });
+  t.mock.timers.tick(30_000);
+  scout.close();
+  assert.equal(helper.othersForAbout(), "Scout: the files");
+  t.mock.timers.tick(10_000);
+  assert.equal(helper.othersForAbout(), "Nobody else");
+  // Its end, heard after it stopped, starts nothing again.
+  call.ended();
+  assert.equal(helper.othersForAbout(), "Nobody else");
+});
+
 test("one that stops leaves its acting on the files to end in its own time", async (t) => {
   const { Presence, machine, scout, helper } = await twoOnOneMachine(t);
   let heard = 0;
   helper.onChange(() => heard++);
-  scout.agentCalled({ capability: "files" });
+  called(scout, { capability: "files" });
   scout.close();
   assert.equal(helper.othersForAbout(), "Scout: the files");
   // 10 s later it ends, and that is heard.
@@ -450,7 +532,7 @@ test("one that stops leaves its acting on the files to end in its own time", asy
   assert.equal(heard, 2);
   // Two of one name are two agents all the same.
   const twin = new Presence("c_3", "Helper", machine);
-  twin.agentCalled({ capability: "files" });
+  called(twin, { capability: "files" });
   assert.equal(helper.othersForAbout(), "Helper: the files");
   twin.close();
 });

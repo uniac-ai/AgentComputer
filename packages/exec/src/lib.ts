@@ -195,13 +195,20 @@ export interface AgentExecOptions {
    * Adds a line of text to a tool's answer. Called before each tool runs, a host's own among them,
    * with the tool's name and a copy of its input as the agent sent it (`{}` for a tool that takes
    * none). Its line is added after the answer, a refusal's too; giving nothing, or throwing, adds
-   * nothing.
+   * nothing. It can give `{ line, ended }` instead, and `ended` is called once the tool has
+   * answered or failed.
    */
   note?: Note;
 }
 
-/** What `note` is: a tool's name and input, to the line for its answer, or nothing. */
-export type Note = (tool: string, input: Record<string, unknown>) => string | undefined;
+/**
+ * What `note` is: a tool's name and input, to the line for its answer, or nothing; or to the line
+ * and what to call when the tool has answered.
+ */
+export type Note = (
+  tool: string,
+  input: Record<string, unknown>,
+) => string | undefined | { line?: string; ended?: () => void };
 
 export interface AgentExec {
   /** Answer one MCP request. Pass `body` if the host has already parsed it. */

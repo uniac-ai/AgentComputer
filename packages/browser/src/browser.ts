@@ -173,10 +173,10 @@ export class Browser {
   tools: string[] = [];
   gate: BrowserGate | undefined;
   /**
-   * The line to add to the answer to each of the agent's calls, asked as an answer that can carry
-   * it comes: one that fails leaves it for the next.
+   * Asked as each of the agent's calls starts: the line to add to its answer, where the answer can
+   * carry it, and the way to say the call was answered.
    */
-  noted: (() => string | undefined) | undefined;
+  noted: (() => { line: string | undefined; ended(): void }) | undefined;
   /** Why a call isn't answered now: the person has switched off what it uses. */
   refused: ((tool: string, args: Record<string, unknown>) => string | undefined) | undefined;
 
@@ -342,28 +342,32 @@ export class Browser {
         .catch(() => {});
     if (tool === "browser_file_upload") this.gate?.agentAnsweredChooser();
     if (message) headers["content-type"] = "application/json";
-    const upstream = await served(MCP, {
-      method: request.method as string,
-      headers,
-      ...(message ? { body: JSON.stringify(message) } : {}),
-    });
-    let change: ((answer: Answer) => void) | undefined;
-    if (message?.method === "tools/list" && this.#hidden.size > 0)
-      change = withoutHidden(this.#hidden);
-    else if (tool === SCREENSHOT) change = withoutLarge;
-    const { noted } = this;
-    if (tool && noted) {
-      const before = change;
-      change = (answer) => {
-        before?.(answer);
-        const content = answer.result?.content;
-        const line = content && noted();
-        if (line) content.push({ type: "text", text: line });
-      };
+    const call = tool ? this.noted?.() : undefined;
+    try {
+      const upstream = await served(MCP, {
+        method: request.method as string,
+        headers,
+        ...(message ? { body: JSON.stringify(message) } : {}),
+      });
+      let change: ((answer: Answer) => void) | undefined;
+      if (message?.method === "tools/list" && this.#hidden.size > 0)
+        change = withoutHidden(this.#hidden);
+      else if (tool === SCREENSHOT) change = withoutLarge;
+      if (call) {
+        const before = change;
+        change = (answer) => {
+          before?.(answer);
+          const content = answer.result?.content;
+          if (content && call.line) content.push({ type: "text", text: call.line });
+        };
+      }
+      // Every other answer goes on as it comes; these are read whole first, and a call is
+      // answered once its answer is.
+      if (!change) return sendAnswer(upstream, response);
+      sendAnswer(new Response(changed(await upstream.text(), change), upstream), response);
+    } finally {
+      call?.ended();
     }
-    // Every other answer goes on as it comes; these are read whole first.
-    if (!change) return sendAnswer(upstream, response);
-    sendAnswer(new Response(changed(await upstream.text(), change), upstream), response);
   }
 
   async stop() {

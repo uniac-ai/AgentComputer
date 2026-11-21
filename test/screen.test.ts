@@ -422,7 +422,7 @@ async function overStandIn(t: test.TestContext, onlyBackground: boolean, record?
   const screen = new Screen(
     () => ({ program }),
     (line) => logged.push(line),
-    () => undefined,
+    () => ({ line: undefined, ended: () => {} }),
     async () => undefined,
     onlyBackground,
     "darwin",

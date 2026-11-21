@@ -127,3 +127,43 @@ test("a note that gives nothing, throws or changes the input changes nothing", a
     assert.match(read.content[0]?.text ?? "", /^1\ta$/m);
   }
 });
+
+test("a note can hear its call end: once the tool has answered, or failed, before its answer", async (t) => {
+  const heard: string[] = [];
+  const call = await mounted(t, {
+    extraTools: [
+      {
+        name: "fails",
+        description: "Fails.",
+        call: () => {
+          heard.push("fails ran");
+          throw new Error("No.");
+        },
+      },
+    ],
+    note: (tool) => {
+      heard.push(`${tool} started`);
+      return {
+        line: `noted ${tool}`,
+        ended: () => {
+          heard.push(`${tool} ended`);
+          if (tool === "fails") throw new Error("Nor this.");
+        },
+      };
+    },
+  });
+  const read = await call("read", { path: "a.txt" });
+  heard.push("read answered");
+  assert.deepEqual(read.content.at(-1), noted("read"));
+  const failed = await call("fails");
+  assert.equal(failed.isError, true);
+  assert.deepEqual(failed.content.at(-1), noted("fails"));
+  assert.deepEqual(heard, [
+    "read started",
+    "read ended",
+    "read answered",
+    "fails started",
+    "fails ran",
+    "fails ended",
+  ]);
+});
